@@ -2492,7 +2492,6 @@ const AppShellContent = React.memo(function AppShellContent({
 	isInitialChatMessagesLoading,
 	chats,
 	currentChatId,
-	activeWorkspace,
 	onChatPersisted,
 	onOpenChat,
 	onPrefetchChat,
@@ -2546,7 +2545,6 @@ const AppShellContent = React.memo(function AppShellContent({
 	isInitialChatMessagesLoading: boolean;
 	chats: Array<Doc<"chats">> | undefined;
 	currentChatId: string | null;
-	activeWorkspace: WorkspaceRecord | null;
 	onChatPersisted?: (chatId: string) => void;
 	onOpenChat: (chatId: string) => void;
 	onPrefetchChat: (chatId: string) => void;
@@ -2700,7 +2698,6 @@ const AppShellContent = React.memo(function AppShellContent({
 			onOpenChat={onOpenChat}
 			onPrefetchChat={onPrefetchChat}
 			onChatRemoved={onChatRemoved}
-			activeWorkspace={activeWorkspace}
 			isDesktopMac={isDesktopMac}
 			onOpenConnectionsSettings={onOpenConnectionsSettings}
 			onCreateNoteFromResponse={onCreateNoteFromChatResponse}
@@ -2745,13 +2742,6 @@ export function AuthenticatedAppShell({
 		workspaces,
 		initialDesktopMac,
 	});
-	const activeWorkspace = React.useMemo(
-		() =>
-			controller.workspaces.find(
-				(workspace) => workspace._id === controller.activeWorkspaceId,
-			) ?? null,
-		[controller.activeWorkspaceId, controller.workspaces],
-	);
 	const handleOpenConnectionsSettings = React.useCallback(
 		() => controller.handleSettingsOpenChange(true, "Connections"),
 		[controller.handleSettingsOpenChange],
@@ -2858,7 +2848,6 @@ export function AuthenticatedAppShell({
 						}
 						chats={controller.chats}
 						currentChatId={controller.currentChatId}
-						activeWorkspace={activeWorkspace}
 						onChatPersisted={controller.handleChatPersisted}
 						onOpenChat={controller.handleOpenChat}
 						onPrefetchChat={controller.handlePrefetchChat}
@@ -2892,6 +2881,7 @@ export function AuthenticatedAppShell({
 					open={controller.automationDialogOpen}
 					onOpenChange={controller.handleAutomationDialogOpenChange}
 					onCreateAutomation={controller.handleAutomationSave}
+					onOpenConnectionsSettings={handleOpenConnectionsSettings}
 					initialAutomation={controller.editingAutomation}
 					initialTitle={controller.automationChatTitle}
 				/>

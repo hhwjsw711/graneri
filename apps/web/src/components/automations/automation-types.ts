@@ -26,7 +26,7 @@ export type AutomationTarget =
 export type AutomationAppSource = {
 	id: string;
 	label: string;
-	provider: ChatAppSourceProvider | "project";
+	provider: ChatAppSourceProvider;
 };
 
 export type AutomationDraft = {

@@ -13,9 +13,6 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
-	DropdownMenuSub,
-	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import { Icons } from "@workspace/ui/components/icons";
@@ -38,12 +35,11 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
+import type { FileUIPart } from "ai";
 import {
 	ArrowUp,
 	AtSign,
-	Check,
 	CirclePlus,
-	Folder,
 	Globe,
 	LayoutGrid,
 	type LucideIcon,
@@ -58,6 +54,7 @@ import {
 	FileAttachmentButton,
 	FileAttachmentChips,
 	hasUploadingAttachments,
+	useFileAttachmentDropzone,
 } from "@/components/ai-elements/file-attachment-controls";
 import {
 	type ChatModel,
@@ -66,7 +63,6 @@ import {
 import {
 	type ChatAppSourceProvider,
 	getAppSourceLabel,
-	getSelectedScopeLabel,
 } from "@/lib/chat-source-display";
 
 type ContextPage = {
@@ -74,11 +70,6 @@ type ContextPage = {
 	title: string;
 	icon: LucideIcon;
 	preview: string;
-};
-
-type ProjectSource = {
-	id: string;
-	title: string;
 };
 
 type AppSource = {
@@ -157,10 +148,7 @@ type ChatComposerProps = {
 	onWebSearchEnabledChange: (value: boolean) => void;
 	appsEnabled: boolean;
 	onAppsEnabledChange: (value: boolean) => void;
-	projectSearchTerm: string;
-	onProjectSearchTermChange: (value: string) => void;
 	selectedSourceIds: string[];
-	projectSources: ProjectSource[];
 	appSources: AppSource[];
 	onToggleSource: (sourceId: string) => void;
 	onClearSelectedSources: () => void;
@@ -202,10 +190,7 @@ export function ChatComposer({
 	onWebSearchEnabledChange,
 	appsEnabled,
 	onAppsEnabledChange,
-	projectSearchTerm,
-	onProjectSearchTermChange,
 	selectedSourceIds,
-	projectSources,
 	appSources,
 	onToggleSource,
 	onClearSelectedSources,
@@ -213,11 +198,42 @@ export function ChatComposer({
 }: ChatComposerProps) {
 	const promptRef = React.useRef<HTMLTextAreaElement | null>(null);
 	const noteMentionRangeRef = React.useRef<NoteMentionRange | null>(null);
-	const scopesLabel = getSelectedScopeLabel({
-		selectedSourceIds,
-		projectSources,
-		appSources,
+	const handleAttachmentUploadFailed = React.useCallback(
+		(id: string) => {
+			onAttachedFilesChange((files) => files.filter((file) => file.id !== id));
+		},
+		[onAttachedFilesChange],
+	);
+	const handleAttachmentUploaded = React.useCallback(
+		(id: string, uploadedFile: FileUIPart) => {
+			onAttachedFilesChange((files) =>
+				files.map((file) =>
+					file.id === id
+						? {
+								...file,
+								localUrl: undefined,
+								uploadStatus: "ready",
+								url: uploadedFile.url,
+							}
+						: file,
+				),
+			);
+		},
+		[onAttachedFilesChange],
+	);
+	const handleAttachmentsAdded = React.useCallback(
+		(files: ChatAttachment[]) => {
+			onAttachedFilesChange((currentFiles) => [...currentFiles, ...files]);
+		},
+		[onAttachedFilesChange],
+	);
+	const attachmentDropzone = useFileAttachmentDropzone({
+		disabled: isLoading,
+		onFileUploadFailed: handleAttachmentUploadFailed,
+		onFileUploaded: handleAttachmentUploaded,
+		onFilesAdded: handleAttachmentsAdded,
 	});
+	const scopesLabel = getSelectedScopeLabel(selectedSourceIds, appSources);
 	const mentionedPages = React.useMemo(
 		() =>
 			mentions.flatMap((mentionId) => {
@@ -320,7 +336,9 @@ export function ChatComposer({
 				topAccessory={topAccessory}
 			/>
 			<InputGroup
-				className={`${useCompactLayout ? "min-h-[96px]" : "min-h-[148px]"} max-h-[32rem] max-w-full overflow-hidden rounded-lg border-input/30 bg-background bg-clip-padding shadow-sm has-disabled:bg-background has-disabled:opacity-100 dark:bg-input/30 dark:has-disabled:bg-input/30`}
+				data-drag-over={attachmentDropzone.isDragOver ? "true" : undefined}
+				className={`${useCompactLayout ? "min-h-[96px]" : "min-h-[148px]"} max-h-[32rem] max-w-full overflow-hidden rounded-lg border-input/30 bg-background bg-clip-padding shadow-sm has-disabled:bg-background has-disabled:opacity-100 data-[drag-over=true]:border-ring data-[drag-over=true]:ring-3 data-[drag-over=true]:ring-ring/50 dark:bg-input/30 dark:has-disabled:bg-input/30`}
+				{...attachmentDropzone.dropzoneProps}
 			>
 				{showTopAddon ? (
 					<ChatComposerTopAddon
@@ -366,7 +384,9 @@ export function ChatComposer({
 					draft={draft}
 					attachedFiles={attachedFiles}
 					isLoading={isLoading}
-					onAttachedFilesChange={onAttachedFilesChange}
+					onAttachmentUploadFailed={handleAttachmentUploadFailed}
+					onAttachmentUploaded={handleAttachmentUploaded}
+					onAttachmentsAdded={handleAttachmentsAdded}
 					onSubmit={onSubmit}
 					onStop={onStop}
 					modelPicker={
@@ -389,9 +409,6 @@ export function ChatComposer({
 							appsEnabled={appsEnabled}
 							onAppsEnabledChange={onAppsEnabledChange}
 							selectedSourceIds={selectedSourceIds}
-							projectSearchTerm={projectSearchTerm}
-							onProjectSearchTermChange={onProjectSearchTermChange}
-							projectSources={projectSources}
 							appSources={appSources}
 							onToggleSource={onToggleSource}
 							onClearSelectedSources={onClearSelectedSources}
@@ -663,7 +680,9 @@ function ChatComposerFooter({
 	draft,
 	attachedFiles,
 	isLoading,
-	onAttachedFilesChange,
+	onAttachmentUploadFailed,
+	onAttachmentUploaded,
+	onAttachmentsAdded,
 	onSubmit,
 	onStop,
 	modelPicker,
@@ -673,7 +692,9 @@ function ChatComposerFooter({
 	draft: string;
 	attachedFiles: ChatAttachment[];
 	isLoading: boolean;
-	onAttachedFilesChange: React.Dispatch<React.SetStateAction<ChatAttachment[]>>;
+	onAttachmentUploadFailed: (id: string) => void;
+	onAttachmentUploaded: (id: string, file: FileUIPart) => void;
+	onAttachmentsAdded: (files: ChatAttachment[]) => void;
 	onSubmit: () => void | Promise<void>;
 	onStop: () => void;
 	modelPicker: React.ReactNode;
@@ -686,28 +707,9 @@ function ChatComposerFooter({
 		>
 			<FileAttachmentButton
 				disabled={isLoading}
-				onFileUploadFailed={(id) =>
-					onAttachedFilesChange((files) =>
-						files.filter((file) => file.id !== id),
-					)
-				}
-				onFileUploaded={(id, uploadedFile) =>
-					onAttachedFilesChange((files) =>
-						files.map((file) =>
-							file.id === id
-								? {
-										...file,
-										localUrl: undefined,
-										uploadStatus: "ready",
-										url: uploadedFile.url,
-									}
-								: file,
-						),
-					)
-				}
-				onFilesAdded={(files) =>
-					onAttachedFilesChange((currentFiles) => [...currentFiles, ...files])
-				}
+				onFileUploadFailed={onAttachmentUploadFailed}
+				onFileUploaded={onAttachmentUploaded}
+				onFilesAdded={onAttachmentsAdded}
 			/>
 			{scopePicker}
 			<div className="ml-auto flex min-w-0 items-center gap-1">
@@ -751,9 +753,6 @@ function ScopePicker({
 	appsEnabled,
 	onAppsEnabledChange,
 	selectedSourceIds,
-	projectSearchTerm,
-	onProjectSearchTermChange,
-	projectSources,
 	appSources,
 	onToggleSource,
 	onClearSelectedSources,
@@ -767,9 +766,6 @@ function ScopePicker({
 	appsEnabled: boolean;
 	onAppsEnabledChange: (value: boolean) => void;
 	selectedSourceIds: string[];
-	projectSearchTerm: string;
-	onProjectSearchTermChange: (value: string) => void;
-	projectSources: ProjectSource[];
 	appSources: AppSource[];
 	onToggleSource: (sourceId: string) => void;
 	onClearSelectedSources: () => void;
@@ -850,13 +846,6 @@ function ScopePicker({
 					>
 						<CirclePlus /> All sources I can access
 					</DropdownMenuCheckboxItem>
-					<ProjectScopeMenu
-						projectSources={projectSources}
-						projectSearchTerm={projectSearchTerm}
-						onProjectSearchTermChange={onProjectSearchTermChange}
-						selectedSourceIds={selectedSourceIds}
-						onToggleSource={onToggleSource}
-					/>
 					{appSources.map((source, index) => {
 						const selected = selectedSourceIds.includes(source.id);
 						const sourceKey = source.id
@@ -913,72 +902,6 @@ function ScopePicker({
 	);
 }
 
-function ProjectScopeMenu({
-	projectSources,
-	projectSearchTerm,
-	onProjectSearchTermChange,
-	selectedSourceIds,
-	onToggleSource,
-}: {
-	projectSources: ProjectSource[];
-	projectSearchTerm: string;
-	onProjectSearchTermChange: (value: string) => void;
-	selectedSourceIds: string[];
-	onToggleSource: (sourceId: string) => void;
-}) {
-	const filteredProjects = filterProjectSources(
-		projectSources,
-		projectSearchTerm,
-	);
-
-	return (
-		<DropdownMenuSub>
-			<DropdownMenuSubTrigger>
-				<Folder className="size-4 text-foreground" />
-				Projects
-			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className="w-72 border-input/30 p-0">
-				<Command>
-					<div>
-						<CommandInput
-							placeholder="Select a project"
-							value={projectSearchTerm}
-							onValueChange={onProjectSearchTermChange}
-						/>
-					</div>
-					<CommandList>
-						<CommandEmpty>No projects found.</CommandEmpty>
-						<CommandGroup heading="Projects">
-							{filteredProjects.map((project) => {
-								const selected = selectedSourceIds.includes(project.id);
-
-								return (
-									<CommandItem
-										key={project.id}
-										value={`${project.id} ${project.title}`}
-										onSelect={() => onToggleSource(project.id)}
-										className="relative w-full cursor-pointer gap-2 pr-8"
-									>
-										<Folder className="size-4 text-foreground" />
-										<div className="min-w-0 flex-1">
-											<div className="truncate">{project.title}</div>
-										</div>
-										{selected ? (
-											<span className="absolute right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center">
-												<Check className="size-4" />
-											</span>
-										) : null}
-									</CommandItem>
-								);
-							})}
-						</CommandGroup>
-					</CommandList>
-				</Command>
-			</DropdownMenuSubContent>
-		</DropdownMenuSub>
-	);
-}
-
 function ChatNoteListSkeleton() {
 	return (
 		<div className="space-y-2 px-1 py-1">
@@ -995,17 +918,20 @@ function ChatNoteListSkeleton() {
 	);
 }
 
-const filterProjectSources = (
-	projectSources: ProjectSource[],
-	query: string,
+const getSelectedScopeLabel = (
+	selectedSourceIds: string[],
+	appSources: AppSource[],
 ) => {
-	const normalizedQuery = query.trim().toLowerCase();
-
-	if (!normalizedQuery) {
-		return projectSources;
+	if (selectedSourceIds.length === 0) {
+		return "All sources";
 	}
 
-	return projectSources.filter((source) =>
-		source.title.toLowerCase().includes(normalizedQuery),
-	);
+	if (selectedSourceIds.length > 1) {
+		return `${selectedSourceIds.length} sources`;
+	}
+
+	const [selectedSourceId] = selectedSourceIds;
+	const appSource = appSources.find((source) => source.id === selectedSourceId);
+
+	return appSource ? getAppSourceLabel(appSource.provider) : "1 source";
 };

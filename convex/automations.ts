@@ -28,7 +28,6 @@ const automationAppSourceProviderValidator = v.union(
 	v.literal("jira"),
 	v.literal("posthog"),
 	v.literal("notion"),
-	v.literal("project"),
 );
 
 const automationAppSourceValidator = v.object({
@@ -47,8 +46,7 @@ type AutomationAppSource = {
 		| "yandex-tracker"
 		| "jira"
 		| "posthog"
-		| "notion"
-		| "project";
+		| "notion";
 };
 
 const automationListItemValidator = v.object({
@@ -130,7 +128,6 @@ const MAX_DUE_AUTOMATIONS = 50;
 const MAX_CONTEXT_NOTES = 8;
 const MAX_CONTEXT_NOTE_LENGTH = 2_000;
 const MAX_APP_SOURCES = 8;
-const PROJECT_SOURCE_PREFIX = "project:";
 const STALE_SCHEDULED_FUNCTION_MS = 2 * 60 * 1000;
 const DELETE_RUNS_BATCH_SIZE = 50;
 const MAX_TARGET_NOTES = MAX_CONTEXT_NOTES;
@@ -382,20 +379,6 @@ const normalizeModel = (model: string | undefined) => {
 const normalizeTimezone = (timezone: string | undefined) =>
 	clampWhitespace(timezone ?? "") || "UTC";
 
-const parseProjectSourceId = (
-	ctx: MutationCtx,
-	sourceId: string,
-): Id<"projects"> | null => {
-	if (!sourceId.startsWith(PROJECT_SOURCE_PREFIX)) {
-		return null;
-	}
-
-	return ctx.db.normalizeId(
-		"projects",
-		sourceId.slice(PROJECT_SOURCE_PREFIX.length),
-	);
-};
-
 const createAutomationChatId = () =>
 	`automation-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -570,18 +553,7 @@ const getRecentContextNotes = async (
 		}));
 	}
 
-	const selectedProjectIds = (automation.appSources ?? []).flatMap((source) => {
-		if (source.provider !== "project") {
-			return [];
-		}
-
-		const projectId = parseProjectSourceId(ctx, source.id);
-		return projectId ? [projectId] : [];
-	});
-	const projectIds = [
-		...(automation.targetProjectId ? [automation.targetProjectId] : []),
-		...selectedProjectIds,
-	].filter((projectId, index, projectIds) => projectIds.indexOf(projectId) === index);
+	const projectIds = automation.targetProjectId ? [automation.targetProjectId] : [];
 
 	if (projectIds.length === 0) {
 		return [];

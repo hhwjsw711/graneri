@@ -23,9 +23,6 @@ import {
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
-	DropdownMenuSub,
-	DropdownMenuSubContent,
-	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@workspace/ui/components/field";
@@ -60,13 +57,12 @@ import { cn } from "@workspace/ui/lib/utils";
 import { useQuery } from "convex/react";
 import {
 	AtSign,
-	Check,
 	CirclePlus,
 	Clock,
 	FileText,
-	Folder,
 	Globe,
 	LayoutGrid,
+	Plus,
 	Settings2,
 	X,
 } from "lucide-react";
@@ -93,12 +89,12 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 
 const AUTOMATION_PICKER_TRIGGER_CLASS_NAME =
 	"group/automation-picker min-w-0 max-w-[180px] justify-start overflow-hidden rounded-full font-normal text-muted-foreground";
-const PROJECT_SOURCE_PREFIX = "project:";
 
 type CreateAutomationDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onCreateAutomation: (automation: AutomationDraft) => void | Promise<void>;
+	onOpenConnectionsSettings: () => void;
 	initialAutomation?: AutomationDraft | null;
 	initialTitle?: string;
 };
@@ -245,6 +241,7 @@ function useCreateAutomationDialogElement({
 	open,
 	onOpenChange,
 	onCreateAutomation,
+	onOpenConnectionsSettings,
 	initialAutomation = null,
 	initialTitle = "",
 }: CreateAutomationDialogProps) {
@@ -254,19 +251,7 @@ function useCreateAutomationDialogElement({
 		api.notes.list,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
-	const projects = useQuery(
-		api.projects.list,
-		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
-	);
 	const connectedAppSources = useAppSources(activeWorkspaceId);
-	const projectSources = React.useMemo(
-		() =>
-			(projects ?? []).map((project) => ({
-				id: `${PROJECT_SOURCE_PREFIX}${project._id}`,
-				title: project.name,
-			})),
-		[projects],
-	);
 	const noteSources = React.useMemo<AutomationNoteSource[]>(
 		() =>
 			(notes ?? []).map((note) => ({
@@ -325,21 +310,9 @@ function useCreateAutomationDialogElement({
 					];
 				}
 
-				const project = projectSources.find(
-					(projectSource) => projectSource.id === sourceId,
-				);
-
-				return project
-					? [
-							{
-								id: project.id,
-								label: project.title,
-								provider: "project" as const,
-							},
-						]
-					: [];
+				return [];
 			}),
-		[connectedAppSources, projectSources, selectedConnectedAppIds],
+		[connectedAppSources, selectedConnectedAppIds],
 	);
 	React.useEffect(() => {
 		updateDialogState(
@@ -355,29 +328,15 @@ function useCreateAutomationDialogElement({
 			const availableAppIds = new Set(
 				connectedAppSources.map((source) => source.id),
 			);
-			const availableProjectIds = new Set(
-				projectSources.map((source) => source.id),
-			);
-			const nextIds = currentState.selectedConnectedAppIds.filter(
-				(sourceId) => {
-					if (
-						sourceId.startsWith(PROJECT_SOURCE_PREFIX) &&
-						projects === undefined
-					) {
-						return true;
-					}
-
-					return (
-						availableAppIds.has(sourceId) || availableProjectIds.has(sourceId)
-					);
-				},
+			const nextIds = currentState.selectedConnectedAppIds.filter((sourceId) =>
+				availableAppIds.has(sourceId),
 			);
 
 			return nextIds.length === currentState.selectedConnectedAppIds.length
 				? {}
 				: { selectedConnectedAppIds: nextIds };
 		});
-	}, [connectedAppSources, projectSources, projects]);
+	}, [connectedAppSources]);
 
 	React.useEffect(() => {
 		updateDialogState((currentState) => {
@@ -686,11 +645,6 @@ function useCreateAutomationDialogElement({
 									onOpenChange={handleAppSourcesPickerOpenChange}
 									sources={connectedAppSources}
 									selectedSourceIds={selectedConnectedAppIds}
-									noteSearchTerm={noteSearchTerm}
-									onNoteSearchTermChange={(value) =>
-										updateDialogState({ noteSearchTerm: value })
-									}
-									projectSources={projectSources}
 									webSearchEnabled={webSearchEnabled}
 									onWebSearchEnabledChange={(value) =>
 										updateDialogState({ webSearchEnabled: value })
@@ -700,6 +654,7 @@ function useCreateAutomationDialogElement({
 										updateDialogState({ appsEnabled: value })
 									}
 									onToggleSource={handleConnectedAppToggle}
+									onOpenConnectionsSettings={onOpenConnectionsSettings}
 								/>
 								<div className="ml-auto flex min-w-0 items-center gap-1">
 									<ChatModelPicker
@@ -750,27 +705,23 @@ function AppSourcesPicker({
 	onOpenChange,
 	sources,
 	selectedSourceIds,
-	noteSearchTerm,
-	onNoteSearchTermChange,
-	projectSources,
 	webSearchEnabled,
 	onWebSearchEnabledChange,
 	appsEnabled,
 	onAppsEnabledChange,
 	onToggleSource,
+	onOpenConnectionsSettings,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	sources: AppSource[];
 	selectedSourceIds: string[];
-	noteSearchTerm: string;
-	onNoteSearchTermChange: (value: string) => void;
-	projectSources: AutomationProjectSource[];
 	webSearchEnabled: boolean;
 	onWebSearchEnabledChange: (value: boolean) => void;
 	appsEnabled: boolean;
 	onAppsEnabledChange: (value: boolean) => void;
 	onToggleSource: (sourceId: string) => void;
+	onOpenConnectionsSettings: () => void;
 }) {
 	const keepPickerOpen = React.useCallback((event: Event) => {
 		event.preventDefault();
@@ -779,18 +730,12 @@ function AppSourcesPicker({
 		selectedSourceIds.length === 1
 			? sources.find((source) => source.id === selectedSourceIds[0])
 			: null;
-	const selectedProjectSource =
-		selectedSourceIds.length === 1
-			? projectSources.find((source) => source.id === selectedSourceIds[0])
-			: null;
 	const label =
 		selectedSourceIds.length === 1 && selectedSource
 			? getAppSourceLabel(selectedSource.provider)
-			: selectedSourceIds.length === 1 && selectedProjectSource
-				? selectedProjectSource.title
-				: selectedSourceIds.length > 1
-					? `${selectedSourceIds.length} sources`
-					: "All sources";
+			: selectedSourceIds.length > 1
+				? `${selectedSourceIds.length} sources`
+				: "All sources";
 
 	return (
 		<DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -861,13 +806,6 @@ function AppSourcesPicker({
 					>
 						<CirclePlus /> All sources I can access
 					</DropdownMenuCheckboxItem>
-					<AutomationProjectScopeMenu
-						projectSources={projectSources}
-						projectSearchTerm={noteSearchTerm}
-						onProjectSearchTermChange={onNoteSearchTermChange}
-						selectedSourceIds={selectedSourceIds}
-						onToggleProject={onToggleSource}
-					/>
 					{sources.length > 0 ? (
 						sources.map((source, index) => {
 							const selected = selectedSourceIds.includes(source.id);
@@ -894,86 +832,19 @@ function AppSourcesPicker({
 						<DropdownMenuItem disabled>No connected apps</DropdownMenuItem>
 					)}
 				</DropdownMenuGroup>
+				<DropdownMenuSeparator />
+				<DropdownMenuGroup>
+					<DropdownMenuItem
+						aria-label="Connect apps"
+						onClick={onOpenConnectionsSettings}
+					>
+						<Plus aria-hidden="true" />
+						<span aria-hidden="true">Connect tools</span>
+						<span className="sr-only">Connect apps</span>
+					</DropdownMenuItem>
+				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
-	);
-}
-
-type AutomationProjectSource = {
-	id: string;
-	title: string;
-};
-
-function AutomationProjectScopeMenu({
-	projectSources,
-	projectSearchTerm,
-	onProjectSearchTermChange,
-	selectedSourceIds,
-	onToggleProject,
-}: {
-	projectSources: AutomationProjectSource[];
-	projectSearchTerm: string;
-	onProjectSearchTermChange: (value: string) => void;
-	selectedSourceIds: string[];
-	onToggleProject: (sourceId: string) => void;
-}) {
-	const filteredProjects = React.useMemo(() => {
-		const query = projectSearchTerm.trim().toLowerCase();
-
-		if (!query) {
-			return projectSources;
-		}
-
-		return projectSources.filter((project) =>
-			project.title.toLowerCase().includes(query),
-		);
-	}, [projectSearchTerm, projectSources]);
-
-	return (
-		<DropdownMenuSub>
-			<DropdownMenuSubTrigger className="pl-2">
-				<Folder className="size-4 text-foreground" />
-				Projects
-			</DropdownMenuSubTrigger>
-			<DropdownMenuSubContent className="w-72 border-input/30 p-0">
-				<Command>
-					<div>
-						<CommandInput
-							placeholder="Select a project"
-							value={projectSearchTerm}
-							onValueChange={onProjectSearchTermChange}
-						/>
-					</div>
-					<CommandList>
-						<CommandEmpty>No projects found.</CommandEmpty>
-						<CommandGroup heading="Projects">
-							{filteredProjects.map((project) => {
-								const selected = selectedSourceIds.includes(project.id);
-
-								return (
-									<CommandItem
-										key={project.id}
-										value={`${project.id} ${project.title}`}
-										onSelect={() => onToggleProject(project.id)}
-										className="relative w-full cursor-pointer gap-2 pr-8"
-									>
-										<Folder className="size-4 text-foreground" />
-										<div className="min-w-0 flex-1">
-											<div className="truncate">{project.title}</div>
-										</div>
-										{selected ? (
-											<span className="absolute right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center">
-												<Check className="size-4" />
-											</span>
-										) : null}
-									</CommandItem>
-								);
-							})}
-						</CommandGroup>
-					</CommandList>
-				</Command>
-			</DropdownMenuSubContent>
-		</DropdownMenuSub>
 	);
 }
 

@@ -33,7 +33,6 @@ const automationAppSourceProviderValidator = v.union(
 	appConnectionProviderValidator,
 	v.literal("google-calendar"),
 	v.literal("google-drive"),
-	v.literal("project"),
 );
 
 const appConnectionStatusValidator = v.union(

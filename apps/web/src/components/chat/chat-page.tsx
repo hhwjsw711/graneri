@@ -33,7 +33,6 @@ import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { getNoteDisplayTitle } from "@/lib/note-title";
-import type { WorkspaceRecord } from "@/lib/workspaces";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc } from "../../../../../convex/_generated/dataModel";
 import { ChatComposer } from "./chat-composer";
@@ -50,7 +49,6 @@ type ChatPageProps = {
 	onOpenChat: (chatId: string) => void;
 	onPrefetchChat: (chatId: string) => void;
 	onChatRemoved: (chatId: string) => void;
-	activeWorkspace: WorkspaceRecord | null;
 	isDesktopMac: boolean;
 	onOpenConnectionsSettings: () => void;
 	onCreateNoteFromResponse?: (
@@ -87,15 +85,9 @@ const useChatPageController = ({
 	onChatPersisted,
 	chats,
 	isChatsLoading,
-	activeWorkspace,
 }: Pick<
 	ChatPageProps,
-	| "chatId"
-	| "initialMessages"
-	| "onChatPersisted"
-	| "chats"
-	| "isChatsLoading"
-	| "activeWorkspace"
+	"chatId" | "initialMessages" | "onChatPersisted" | "chats" | "isChatsLoading"
 >) => {
 	const activeWorkspaceId = useActiveWorkspaceId();
 	const currentChat = React.useMemo(
@@ -117,7 +109,6 @@ const useChatPageController = ({
 	const [modelPopoverOpen, setModelPopoverOpen] = React.useState(false);
 	const [sourcesOpen, setSourcesOpen] = React.useState(false);
 	const [summaryOpen, setSummaryOpen] = React.useState(false);
-	const [projectSearchTerm, setProjectSearchTerm] = React.useState("");
 	const [webSearchEnabled, setWebSearchEnabled] = React.useState(false);
 	const [appsEnabled, setAppsEnabled] = React.useState(true);
 	const [editingMessageId, setEditingMessageId] = React.useState<string | null>(
@@ -282,18 +273,6 @@ const useChatPageController = ({
 			})),
 		[notes],
 	);
-	const projects = useQuery(
-		api.projects.list,
-		activeWorkspace ? { workspaceId: activeWorkspace._id } : "skip",
-	);
-	const searchProjects = React.useMemo(
-		() =>
-			(projects ?? []).map((project) => ({
-				id: project._id,
-				name: project.name,
-			})),
-		[projects],
-	);
 	const workspaceSources = React.useMemo(
 		() =>
 			contextPages.map((page) => ({
@@ -304,14 +283,6 @@ const useChatPageController = ({
 				updatedAt: page.updatedAt,
 			})),
 		[contextPages],
-	);
-	const projectSources = React.useMemo(
-		() =>
-			searchProjects.map((project) => ({
-				id: `project:${project.id}`,
-				title: project.name,
-			})),
-		[searchProjects],
 	);
 	const shouldSearchDocuments = documentSearchTerm.trim().length > 0;
 	const mentionableDocuments = React.useMemo(() => {
@@ -509,7 +480,6 @@ const useChatPageController = ({
 		currentChatTitle: currentChat?.title ?? "",
 		draft,
 		error,
-		activeWorkspace,
 		handleClearSelectedSources: () => setSelectedSourceIds([]),
 		attachedFiles,
 		setAttachedFiles,
@@ -532,17 +502,14 @@ const useChatPageController = ({
 		setMentions,
 		setModelPopoverOpen,
 		setSelectedModel: handleSelectedModelChange,
-		setProjectSearchTerm,
 		setSourcesOpen,
 		setSummaryOpen,
 		stop,
 		shouldSearchDocuments,
-		projectSearchTerm,
 		sourcesOpen,
 		summaryOpen,
 		webSearchEnabled,
 		workspaceSources,
-		projectSources,
 		appSources,
 		documentSearchTerm,
 		editingMessageId,
@@ -577,12 +544,6 @@ const useChatPageController = ({
 		},
 		onToggleSource: (sourceId: string) => {
 			setSelectedSourceIds((current) => {
-				if (sourceId.startsWith("project:")) {
-					return current.includes(sourceId)
-						? current.filter((id) => id !== sourceId)
-						: [...current, sourceId];
-				}
-
 				if (sourceId.startsWith("app:")) {
 					return current.includes(sourceId)
 						? current.filter((id) => id !== sourceId)
@@ -609,7 +570,6 @@ export function ChatPage({
 	onOpenChat,
 	onPrefetchChat,
 	onChatRemoved,
-	activeWorkspace,
 	isDesktopMac,
 	onOpenConnectionsSettings,
 	onCreateNoteFromResponse,
@@ -622,7 +582,6 @@ export function ChatPage({
 		onChatPersisted,
 		chats,
 		isChatsLoading,
-		activeWorkspace,
 	});
 	const {
 		containerRef,
@@ -727,10 +686,7 @@ export function ChatPage({
 			onWebSearchEnabledChange={controller.handleWebSearchEnabledChange}
 			appsEnabled={controller.appsEnabled}
 			onAppsEnabledChange={controller.setAppsEnabled}
-			projectSearchTerm={controller.projectSearchTerm}
-			onProjectSearchTermChange={controller.setProjectSearchTerm}
 			selectedSourceIds={controller.selectedSourceIds}
-			projectSources={controller.projectSources}
 			appSources={controller.appSources}
 			onToggleSource={controller.onToggleSource}
 			onClearSelectedSources={controller.handleClearSelectedSources}
