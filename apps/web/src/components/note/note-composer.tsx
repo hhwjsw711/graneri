@@ -161,7 +161,7 @@ const NOTE_CHAT_PANEL_DOCK_OFFSET =
 const NOTE_CHAT_INLINE_PANEL_DOCK_OFFSET = COMPOSER_OVERLAY_FOOTER_PADDING;
 const INLINE_POPOVER_FOOTER_CONTAINER_CLASS = "px-6 pt-2 pb-4";
 const NOTE_COMPOSER_FOOTER_SURFACE_CLASS =
-	"min-h-[96px] max-w-full overflow-hidden rounded-lg border-input/30 bg-background bg-clip-padding shadow-sm has-disabled:bg-background has-disabled:opacity-100 dark:bg-input/30 dark:has-disabled:bg-input/30";
+	"min-h-[96px] max-w-full overflow-hidden rounded-lg border-input/30 bg-background bg-clip-padding shadow-sm has-disabled:bg-background has-disabled:opacity-100 data-[drag-over=true]:border-ring data-[drag-over=true]:ring-3 data-[drag-over=true]:ring-ring/50 dark:bg-input/30 dark:has-disabled:bg-input/30";
 const NOTE_COMPOSER_FOOTER_TOP_ROW_CLASS =
 	"min-w-0 flex-wrap gap-1 px-4 pb-0 pt-2.5";
 const NOTE_COMPOSER_FOOTER_BODY_CLASS =
@@ -2592,10 +2592,7 @@ function ChatInlinePopoverFooter({
 	return (
 		<InputGroup
 			data-drag-over={attachmentDropzone.isDragOver ? "true" : undefined}
-			className={cn(
-				NOTE_COMPOSER_FOOTER_SURFACE_CLASS,
-				"data-[drag-over=true]:border-ring data-[drag-over=true]:ring-3 data-[drag-over=true]:ring-ring/50",
-			)}
+			className={NOTE_COMPOSER_FOOTER_SURFACE_CLASS}
 			{...attachmentDropzone.dropzoneProps}
 		>
 			<InputGroupAddon

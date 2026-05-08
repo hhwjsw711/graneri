@@ -63,6 +63,7 @@ import {
 import {
 	type ChatAppSourceProvider,
 	getAppSourceLabel,
+	getSelectedScopeLabel,
 } from "@/lib/chat-source-display";
 
 type ContextPage = {
@@ -233,7 +234,7 @@ export function ChatComposer({
 		onFileUploaded: handleAttachmentUploaded,
 		onFilesAdded: handleAttachmentsAdded,
 	});
-	const scopesLabel = getSelectedScopeLabel(selectedSourceIds, appSources);
+	const scopesLabel = getSelectedScopeLabel({ selectedSourceIds, appSources });
 	const mentionedPages = React.useMemo(
 		() =>
 			mentions.flatMap((mentionId) => {
@@ -914,21 +915,3 @@ function ChatNoteListSkeleton() {
 		</div>
 	);
 }
-
-const getSelectedScopeLabel = (
-	selectedSourceIds: string[],
-	appSources: AppSource[],
-) => {
-	if (selectedSourceIds.length === 0) {
-		return "All sources";
-	}
-
-	if (selectedSourceIds.length > 1) {
-		return `${selectedSourceIds.length} sources`;
-	}
-
-	const [selectedSourceId] = selectedSourceIds;
-	const appSource = appSources.find((source) => source.id === selectedSourceId);
-
-	return appSource ? getAppSourceLabel(appSource.provider) : "1 source";
-};

@@ -1166,7 +1166,7 @@ describe("NoteComposer", () => {
 			expect(screen.getByText("Live transcript")).toBeDefined();
 			expect(screen.queryByText("line 1")).toBeNull();
 			expect(screen.getByText("line 40")).toBeDefined();
-			expect(screen.getByText("Loading earlier transcript...")).toBeDefined();
+			expect(screen.getByText("Loading earlier transcript…")).toBeDefined();
 
 			act(() => {
 				vi.advanceTimersByTime(40);
