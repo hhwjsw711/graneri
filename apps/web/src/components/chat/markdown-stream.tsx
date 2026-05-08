@@ -1,23 +1,6 @@
+import { code } from "@streamdown/code";
 import { cn } from "@workspace/ui/lib/utils";
 import { Streamdown, type StreamdownProps } from "streamdown";
-
-const CODE_FENCE_LANGUAGES = new Set([
-	"bash",
-	"diff",
-	"html",
-	"js",
-	"json",
-	"jsx",
-	"md",
-	"markdown",
-	"sh",
-	"shell",
-	"text",
-	"ts",
-	"tsx",
-	"yml",
-	"yaml",
-]);
 
 const fixNumberedListBreaks = (text: string) =>
 	text.replace(/^(\d+)\.\s*\n+\s*\n*/gm, "$1. ");
@@ -33,9 +16,7 @@ const normalizeCodeFenceLanguages = (text: string) =>
 		}
 
 		const normalizedLanguage = language.split(/\s+/)[0];
-		return CODE_FENCE_LANGUAGES.has(normalizedLanguage)
-			? `\`\`\`${normalizedLanguage}`
-			: "```text";
+		return `\`\`\`${normalizedLanguage}`;
 	});
 
 const normalizeMarkdownForStreamdown = (content: string) =>
@@ -51,6 +32,7 @@ export function MarkdownStream({
 	controls = false,
 	caret = "block",
 	mode,
+	plugins,
 	...props
 }: MarkdownStreamProps) {
 	return (
@@ -59,6 +41,7 @@ export function MarkdownStream({
 			controls={controls}
 			caret={caret}
 			mode={mode}
+			plugins={{ code, ...plugins }}
 			shikiTheme={["github-light", "github-dark"]}
 			{...props}
 		>

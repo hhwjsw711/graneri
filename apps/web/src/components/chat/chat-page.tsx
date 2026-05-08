@@ -177,6 +177,7 @@ const useChatPageController = ({
 		id: chatId,
 		messages: initialMessages,
 		transport,
+		experimental_throttle: 50,
 	});
 	const persistedMessages = React.useMemo(
 		() =>
@@ -202,15 +203,19 @@ const useChatPageController = ({
 	);
 
 	React.useEffect(() => {
+		const isLocalRequestRunning =
+			status === "submitted" || status === "streaming" || isPreparingRequest;
+
+		if (isLocalRequestRunning) {
+			return;
+		}
+
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
-			const isLocalRequestRunning =
-				status === "submitted" || status === "streaming" || isPreparingRequest;
 			const shouldUsePersistedMessages =
 				currentMessages.length === 0 ||
 				currentMessagesSeedKey === appliedPersistedMessagesSeedKeyRef.current ||
-				(!isLocalRequestRunning &&
-					persistedMessages.length > currentMessages.length);
+				persistedMessages.length > currentMessages.length;
 
 			if (shouldUsePersistedMessages) {
 				appliedPersistedMessagesSeedKeyRef.current = persistedMessagesSeedKey;
@@ -323,7 +328,7 @@ const useChatPageController = ({
 					}
 				: { text: value, ...filePayload };
 
-			void sendMessage(nextOutgoingMessage, {
+			const request = sendMessage(nextOutgoingMessage, {
 				body: {
 					model: selectedModel.model,
 					webSearchEnabled,
@@ -334,10 +339,14 @@ const useChatPageController = ({
 					convexToken,
 				},
 			});
+			void request.finally(() => {
+				setIsPreparingRequest(false);
+			});
 			setEditingMessageId(null);
 			setDraft("");
 			setAttachedFiles([]);
-		} finally {
+		} catch (error) {
+			console.error("Failed to prepare chat request", error);
 			setIsPreparingRequest(false);
 		}
 	}, [
@@ -463,11 +472,15 @@ const useChatPageController = ({
 				const requestBody = await buildRequestBody();
 				setEditingMessageId(null);
 				setDraft("");
-				void regenerate({
+				const request = regenerate({
 					messageId: assistantMessageId,
 					body: requestBody,
 				});
-			} finally {
+				void request.finally(() => {
+					setIsPreparingRequest(false);
+				});
+			} catch (error) {
+				console.error("Failed to prepare chat regeneration", error);
 				setIsPreparingRequest(false);
 			}
 		},

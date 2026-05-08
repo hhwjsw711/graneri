@@ -715,6 +715,7 @@ const useNoteComposerController = ({
 		id: currentChatId,
 		messages: initialMessages,
 		transport,
+		experimental_throttle: 50,
 	});
 
 	React.useEffect(() => {
@@ -731,10 +732,19 @@ const useNoteComposerController = ({
 	const appliedInitialMessagesSeedKeyRef = React.useRef(initialMessagesSeedKey);
 
 	React.useEffect(() => {
+		const isLocalRequestRunning =
+			chatStatus === "submitted" ||
+			chatStatus === "streaming" ||
+			isPreparingRequest;
+
 		if (previousChatIdRef.current !== currentChatId) {
 			previousChatIdRef.current = currentChatId;
 			appliedInitialMessagesSeedKeyRef.current = initialMessagesSeedKey;
 			setMessages(initialMessages);
+			return;
+		}
+
+		if (isLocalRequestRunning) {
 			return;
 		}
 
@@ -751,7 +761,14 @@ const useNoteComposerController = ({
 
 			return currentMessages;
 		});
-	}, [currentChatId, initialMessages, initialMessagesSeedKey, setMessages]);
+	}, [
+		chatStatus,
+		currentChatId,
+		initialMessages,
+		initialMessagesSeedKey,
+		isPreparingRequest,
+		setMessages,
+	]);
 
 	const resetTextareaHeight = React.useCallback(() => {
 		if (!textareaRef.current) {
@@ -1358,8 +1375,11 @@ const useNoteComposerController = ({
 					}
 				: { text: outgoingText, metadata: recipeMetadata, ...filePayload };
 
-			void sendMessage(nextOutgoingMessage, {
+			const request = sendMessage(nextOutgoingMessage, {
 				body: requestBody,
+			});
+			void request.finally(() => {
+				setIsPreparingRequest(false);
 			});
 			setEditingMessageId(null);
 			setMessage("");
@@ -1367,7 +1387,8 @@ const useNoteComposerController = ({
 			setSelectedRecipeSlug(null);
 			setIsExpanded(false);
 			resetTextareaHeight();
-		} finally {
+		} catch (error) {
+			console.error("Failed to prepare note chat request", error);
 			setIsPreparingRequest(false);
 		}
 	}, [
@@ -1547,11 +1568,15 @@ const useNoteComposerController = ({
 				setMessage("");
 				setIsExpanded(false);
 				resetTextareaHeight();
-				void regenerate({
+				const request = regenerate({
 					messageId: assistantMessageId,
 					body: requestBody,
 				});
-			} finally {
+				void request.finally(() => {
+					setIsPreparingRequest(false);
+				});
+			} catch (error) {
+				console.error("Failed to prepare note chat regeneration", error);
 				setIsPreparingRequest(false);
 			}
 		},
