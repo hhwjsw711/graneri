@@ -4,12 +4,18 @@ import type {
 	TableOfContentDataItem,
 } from "@tiptap/extension-table-of-contents";
 import { Tiptap, useEditor } from "@tiptap/react";
-import { saveDesktopTextFile } from "@workspace/platform/desktop";
+import {
+	isDesktopRuntime,
+	saveDesktopTextFile,
+} from "@workspace/platform/desktop";
+import { Button } from "@workspace/ui/components/button";
+import { Input } from "@workspace/ui/components/input";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
 import { isPanelLayoutActive } from "@workspace/ui/lib/panel-layout-activity";
 import { cn } from "@workspace/ui/lib/utils";
 import { useMutation } from "convex/react";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { ShimmerText } from "@/components/ai-elements/shimmer";
@@ -100,6 +106,60 @@ const getExportFileName = (title: string) =>
 			.replace(/[^a-z0-9]+/g, "-")
 			.replace(/^-+|-+$/g, "") || "note"
 	}.md`;
+
+type CssHighlightRegistry = {
+	set: (name: string, highlight: Highlight) => void;
+	delete: (name: string) => void;
+};
+
+type CssWithHighlights = typeof CSS & {
+	highlights?: CssHighlightRegistry;
+};
+
+declare const Highlight: (new (...ranges: Range[]) => Highlight) | undefined;
+type Highlight = object;
+
+const NOTE_SEARCH_MATCH_HIGHLIGHT = "note-search-match";
+const NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT = "note-search-active-match";
+
+const createTextMatchRanges = ({
+	element,
+	query,
+}: {
+	element: HTMLElement;
+	query: string;
+}) => {
+	const ranges: Range[] = [];
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+
+	if (!normalizedQuery) {
+		return ranges;
+	}
+
+	const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+	let currentNode = walker.nextNode();
+
+	while (currentNode) {
+		const textNode = currentNode as Text;
+		const normalizedText = textNode.data.toLocaleLowerCase();
+		let searchIndex = normalizedText.indexOf(normalizedQuery);
+
+		while (searchIndex !== -1) {
+			const range = document.createRange();
+			range.setStart(textNode, searchIndex);
+			range.setEnd(textNode, searchIndex + normalizedQuery.length);
+			ranges.push(range);
+			searchIndex = normalizedText.indexOf(
+				normalizedQuery,
+				searchIndex + normalizedQuery.length,
+			);
+		}
+
+		currentNode = walker.nextNode();
+	}
+
+	return ranges;
+};
 
 const escapeHtml = (value: string) =>
 	value
@@ -1694,6 +1754,92 @@ function NotePageContent({
 	);
 }
 
+function NoteSearchBar({
+	inputRef,
+	query,
+	onQueryChange,
+	matchCount,
+	matchIndex,
+	onPrevious,
+	onNext,
+	onClose,
+	onKeyDown,
+}: {
+	inputRef: React.RefObject<HTMLInputElement | null>;
+	query: string;
+	onQueryChange: (query: string) => void;
+	matchCount: number;
+	matchIndex: number;
+	onPrevious: () => void;
+	onNext: () => void;
+	onClose: () => void;
+	onKeyDown: React.KeyboardEventHandler<HTMLInputElement>;
+}) {
+	const matchLabel =
+		query.trim().length === 0
+			? ""
+			: matchCount > 0
+				? `${matchIndex + 1}/${matchCount}`
+				: "No results";
+
+	return (
+		<div className="fixed top-20 right-4 left-4 z-50 mx-auto flex max-w-md items-center gap-1 rounded-lg border border-border/60 bg-background/95 p-1.5 shadow-lg backdrop-blur md:right-8 md:left-auto md:w-80">
+			<Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
+			<Input
+				ref={inputRef}
+				value={query}
+				onChange={(event) => onQueryChange(event.target.value)}
+				onKeyDown={onKeyDown}
+				placeholder="Search note"
+				aria-label="Search note"
+				className="h-7 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
+			/>
+			<span
+				className={cn(
+					"min-w-14 shrink-0 text-right text-xs tabular-nums",
+					matchCount === 0 && query.trim().length > 0
+						? "text-muted-foreground"
+						: "text-foreground/70",
+				)}
+			>
+				{matchLabel}
+			</span>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon-sm"
+				className="size-7"
+				disabled={matchCount === 0}
+				aria-label="Previous note match"
+				onClick={onPrevious}
+			>
+				<ChevronUp className="size-4" />
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon-sm"
+				className="size-7"
+				disabled={matchCount === 0}
+				aria-label="Next note match"
+				onClick={onNext}
+			>
+				<ChevronDown className="size-4" />
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon-sm"
+				className="size-7"
+				aria-label="Close note search"
+				onClick={onClose}
+			>
+				<X className="size-4" />
+			</Button>
+		</div>
+	);
+}
+
 export function NotePage({
 	autoStartTranscription = false,
 	currentUser = {
@@ -1750,6 +1896,31 @@ export function NotePage({
 	);
 	const shouldHideEmptyBodyPlaceholder =
 		!controller.title.trim() && !controller.searchableText.trim();
+	const noteSearchInputRef = React.useRef<HTMLInputElement | null>(null);
+	const [noteSearchOpen, setNoteSearchOpen] = React.useState(false);
+	const [noteSearchQuery, setNoteSearchQuery] = React.useState("");
+	const [noteSearchIndex, setNoteSearchIndex] = React.useState(0);
+	const noteSearchRoot = React.useCallback(
+		() => document.querySelector<HTMLElement>(".note-tiptap"),
+		[],
+	);
+	const noteSearchRanges = React.useMemo(() => {
+		void controller.searchableText;
+		const root = noteSearchRoot();
+
+		if (!root) {
+			return [];
+		}
+
+		return createTextMatchRanges({
+			element: root,
+			query: noteSearchQuery,
+		});
+	}, [controller.searchableText, noteSearchQuery, noteSearchRoot]);
+	const activeNoteSearchRange =
+		noteSearchRanges.length > 0
+			? noteSearchRanges[Math.min(noteSearchIndex, noteSearchRanges.length - 1)]
+			: null;
 	const handleTableOfContentsSelect = React.useCallback(
 		(anchor: TableOfContentDataItem) => {
 			const topOffset = 72;
@@ -1807,27 +1978,179 @@ export function NotePage({
 		activeCommentThreadId: commentPanel.activeCommentThreadId,
 		editor: controller.editor,
 	});
+	React.useEffect(() => {
+		if (!noteSearchOpen) {
+			return;
+		}
+
+		requestAnimationFrame(() => {
+			noteSearchInputRef.current?.focus();
+			noteSearchInputRef.current?.select();
+		});
+	}, [noteSearchOpen]);
+	React.useEffect(() => {
+		if (noteSearchIndex < noteSearchRanges.length) {
+			return;
+		}
+
+		setNoteSearchIndex(0);
+	}, [noteSearchIndex, noteSearchRanges.length]);
+	React.useEffect(() => {
+		if (!activeNoteSearchRange || !noteSearchOpen) {
+			return;
+		}
+
+		activeNoteSearchRange.startContainer.parentElement?.scrollIntoView?.({
+			block: "center",
+			behavior: "smooth",
+		});
+	}, [activeNoteSearchRange, noteSearchOpen]);
+	React.useEffect(() => {
+		const highlightRegistry =
+			typeof CSS === "undefined"
+				? undefined
+				: (CSS as CssWithHighlights).highlights;
+
+		if (
+			!noteSearchOpen ||
+			!noteSearchQuery.trim() ||
+			!highlightRegistry ||
+			typeof Highlight === "undefined"
+		) {
+			highlightRegistry?.delete(NOTE_SEARCH_MATCH_HIGHLIGHT);
+			highlightRegistry?.delete(NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
+			return;
+		}
+
+		const activeRangeIndex = Math.min(
+			noteSearchIndex,
+			Math.max(0, noteSearchRanges.length - 1),
+		);
+		const matchRanges = noteSearchRanges.filter(
+			(_range, index) => index !== activeRangeIndex,
+		);
+		const activeRanges = noteSearchRanges[activeRangeIndex]
+			? [noteSearchRanges[activeRangeIndex]]
+			: [];
+
+		highlightRegistry.set(
+			NOTE_SEARCH_MATCH_HIGHLIGHT,
+			new Highlight(...matchRanges),
+		);
+		highlightRegistry.set(
+			NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT,
+			new Highlight(...activeRanges),
+		);
+
+		return () => {
+			highlightRegistry.delete(NOTE_SEARCH_MATCH_HIGHLIGHT);
+			highlightRegistry.delete(NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
+		};
+	}, [noteSearchIndex, noteSearchOpen, noteSearchQuery, noteSearchRanges]);
+	React.useEffect(() => {
+		if (!isDesktopRuntime()) {
+			return;
+		}
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.defaultPrevented ||
+				!(event.metaKey || event.ctrlKey) ||
+				event.altKey ||
+				event.shiftKey ||
+				(event.key.toLowerCase() !== "f" && event.code !== "KeyF")
+			) {
+				return;
+			}
+
+			event.preventDefault();
+			if (noteSearchOpen) {
+				requestAnimationFrame(() => {
+					noteSearchInputRef.current?.focus();
+					noteSearchInputRef.current?.select();
+				});
+			}
+			setNoteSearchOpen(true);
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [noteSearchOpen]);
+	const handleNoteSearchPrevious = React.useCallback(() => {
+		setNoteSearchIndex((current) =>
+			noteSearchRanges.length === 0
+				? 0
+				: (current - 1 + noteSearchRanges.length) % noteSearchRanges.length,
+		);
+	}, [noteSearchRanges.length]);
+	const handleNoteSearchNext = React.useCallback(() => {
+		setNoteSearchIndex((current) =>
+			noteSearchRanges.length === 0
+				? 0
+				: (current + 1) % noteSearchRanges.length,
+		);
+	}, [noteSearchRanges.length]);
+	const handleNoteSearchKeyDown = React.useCallback(
+		(event: React.KeyboardEvent<HTMLInputElement>) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setNoteSearchOpen(false);
+				return;
+			}
+
+			if (event.key !== "Enter") {
+				return;
+			}
+
+			event.preventDefault();
+			if (event.shiftKey) {
+				handleNoteSearchPrevious();
+				return;
+			}
+
+			handleNoteSearchNext();
+		},
+		[handleNoteSearchNext, handleNoteSearchPrevious],
+	);
 
 	return (
-		<NotePageContent
-			controller={controller}
-			autoStartTranscription={autoStartTranscription}
-			composerNoteContext={composerNoteContext}
-			onAutoStartTranscriptionHandled={onAutoStartTranscriptionHandled}
-			stopTranscriptionWhenMeetingEnds={stopTranscriptionWhenMeetingEnds}
-			scrollParentRef={scrollParentRef}
-			shouldHideEmptyBodyPlaceholder={shouldHideEmptyBodyPlaceholder}
-			onOpenCommentComposer={handleOpenCommentComposer}
-			commentsOpen={commentPanel.commentsOpen}
-			activeCommentThreadId={commentPanel.activeCommentThreadId}
-			currentUser={currentUser}
-			isDesktopMac={isDesktopMac}
-			handleCommentsOpenChange={commentPanel.handleCommentsOpenChange}
-			setCommentsPinned={commentPanel.setCommentsPinned}
-			onActiveThreadIdChange={commentPanel.handleActiveThreadIdChange}
-			pendingCommentSelection={commentPanel.pendingCommentSelection}
-			onPendingSelectionChange={commentPanel.handlePendingSelectionChange}
-			handleTableOfContentsSelect={handleTableOfContentsSelect}
-		/>
+		<>
+			{noteSearchOpen ? (
+				<NoteSearchBar
+					inputRef={noteSearchInputRef}
+					query={noteSearchQuery}
+					onQueryChange={(value) => {
+						setNoteSearchQuery(value);
+						setNoteSearchIndex(0);
+					}}
+					matchCount={noteSearchRanges.length}
+					matchIndex={noteSearchRanges.length > 0 ? noteSearchIndex : -1}
+					onPrevious={handleNoteSearchPrevious}
+					onNext={handleNoteSearchNext}
+					onClose={() => setNoteSearchOpen(false)}
+					onKeyDown={handleNoteSearchKeyDown}
+				/>
+			) : null}
+			<NotePageContent
+				controller={controller}
+				autoStartTranscription={autoStartTranscription}
+				composerNoteContext={composerNoteContext}
+				onAutoStartTranscriptionHandled={onAutoStartTranscriptionHandled}
+				stopTranscriptionWhenMeetingEnds={stopTranscriptionWhenMeetingEnds}
+				scrollParentRef={scrollParentRef}
+				shouldHideEmptyBodyPlaceholder={shouldHideEmptyBodyPlaceholder}
+				onOpenCommentComposer={handleOpenCommentComposer}
+				commentsOpen={commentPanel.commentsOpen}
+				activeCommentThreadId={commentPanel.activeCommentThreadId}
+				currentUser={currentUser}
+				isDesktopMac={isDesktopMac}
+				handleCommentsOpenChange={commentPanel.handleCommentsOpenChange}
+				setCommentsPinned={commentPanel.setCommentsPinned}
+				onActiveThreadIdChange={commentPanel.handleActiveThreadIdChange}
+				pendingCommentSelection={commentPanel.pendingCommentSelection}
+				onPendingSelectionChange={commentPanel.handlePendingSelectionChange}
+				handleTableOfContentsSelect={handleTableOfContentsSelect}
+			/>
+		</>
 	);
 }

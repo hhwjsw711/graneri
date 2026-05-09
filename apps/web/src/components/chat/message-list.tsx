@@ -213,6 +213,7 @@ function ChatMessageListItem({
 
 	return (
 		<div
+			data-chat-message-id={message.id}
 			className={cn(
 				"group/message flex w-full",
 				getChatMessageJustifyClass(message.role),

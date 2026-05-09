@@ -85,6 +85,16 @@ body {
 	background: var(--note-comment-active-background);
 }
 
+::highlight(chat-search-match),
+::highlight(note-search-match) {
+	background: var(--note-comment-background);
+}
+
+::highlight(chat-search-active-match),
+::highlight(note-search-active-match) {
+	background: var(--note-comment-active-background);
+}
+
 .shared-note-page-content .note-comment-anchor,
 .shared-note-page-content .note-comment-anchor:hover,
 .shared-note-page-content .note-comment-anchor[data-active-thread="true"],

@@ -1,11 +1,20 @@
 import { useChat } from "@ai-sdk/react";
+import { isDesktopRuntime } from "@workspace/platform/desktop";
 import { Button } from "@workspace/ui/components/button";
+import { Input } from "@workspace/ui/components/input";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import { cn } from "@workspace/ui/lib/utils";
 import type { UIMessage } from "ai";
 import { DefaultChatTransport } from "ai";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, FileText } from "lucide-react";
+import {
+	ArrowDown,
+	ChevronDown,
+	ChevronUp,
+	FileText,
+	Search,
+	X,
+} from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import {
@@ -78,6 +87,75 @@ const getLatestUserMessageText = (messages: UIMessage[]) => {
 
 const getStoredChatModel = (model: string | undefined): ChatModel | null =>
 	model ? (findChatModel(model) ?? null) : null;
+
+const getChatSearchMatches = (messages: UIMessage[], query: string) => {
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+
+	if (!normalizedQuery) {
+		return [];
+	}
+
+	return messages
+		.map((message) => ({
+			messageId: message.id,
+			text: getChatText(message),
+		}))
+		.filter(({ text }) => text.toLocaleLowerCase().includes(normalizedQuery));
+};
+
+type CssHighlightRegistry = {
+	set: (name: string, highlight: Highlight) => void;
+	delete: (name: string) => void;
+};
+
+type CssWithHighlights = typeof CSS & {
+	highlights?: CssHighlightRegistry;
+};
+
+declare const Highlight: (new (...ranges: Range[]) => Highlight) | undefined;
+type Highlight = object;
+
+const CHAT_SEARCH_MATCH_HIGHLIGHT = "chat-search-match";
+const CHAT_SEARCH_ACTIVE_MATCH_HIGHLIGHT = "chat-search-active-match";
+
+const createTextMatchRanges = ({
+	element,
+	query,
+}: {
+	element: HTMLElement;
+	query: string;
+}) => {
+	const ranges: Range[] = [];
+	const normalizedQuery = query.trim().toLocaleLowerCase();
+
+	if (!normalizedQuery) {
+		return ranges;
+	}
+
+	const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+	let currentNode = walker.nextNode();
+
+	while (currentNode) {
+		const textNode = currentNode as Text;
+		const normalizedText = textNode.data.toLocaleLowerCase();
+		let searchIndex = normalizedText.indexOf(normalizedQuery);
+
+		while (searchIndex !== -1) {
+			const range = document.createRange();
+			range.setStart(textNode, searchIndex);
+			range.setEnd(textNode, searchIndex + normalizedQuery.length);
+			ranges.push(range);
+			searchIndex = normalizedText.indexOf(
+				normalizedQuery,
+				searchIndex + normalizedQuery.length,
+			);
+		}
+
+		currentNode = walker.nextNode();
+	}
+
+	return ranges;
+};
 
 const useChatPageController = ({
 	chatId,
@@ -604,6 +682,10 @@ export function ChatPage({
 		scrollToBottom: scrollChatToBottom,
 	} = useStickyScrollToBottom();
 	const historyViewportRef = React.useRef<HTMLDivElement | null>(null);
+	const searchInputRef = React.useRef<HTMLInputElement | null>(null);
+	const [messageSearchOpen, setMessageSearchOpen] = React.useState(false);
+	const [messageSearchQuery, setMessageSearchQuery] = React.useState("");
+	const [messageSearchIndex, setMessageSearchIndex] = React.useState(0);
 	const handleCreateNoteFromResponse = React.useCallback(
 		(content: string) => {
 			if (!onCreateNoteFromResponse) {
@@ -625,6 +707,18 @@ export function ChatPage({
 	);
 	const shouldShowActiveChatSurface =
 		controller.hasMessages || activeChatId === chatId;
+	const canSearchMessages =
+		shouldShowActiveChatSurface && controller.hasMessages;
+	const messageSearchMatches = React.useMemo(
+		() => getChatSearchMatches(controller.messages, messageSearchQuery),
+		[controller.messages, messageSearchQuery],
+	);
+	const activeMessageSearchMatch =
+		messageSearchMatches.length > 0
+			? messageSearchMatches[
+					Math.min(messageSearchIndex, messageSearchMatches.length - 1)
+				]
+			: null;
 	const viewportRef = React.useCallback(
 		(node: HTMLDivElement | null) => {
 			historyViewportRef.current = node;
@@ -668,11 +762,184 @@ export function ChatPage({
 			return;
 		}
 
-		historyViewportRef.current?.scrollTo({
+		historyViewportRef.current?.scrollTo?.({
 			top: 0,
 			behavior: "auto",
 		});
 	}, [shouldShowActiveChatSurface]);
+	React.useEffect(() => {
+		if (!canSearchMessages) {
+			setMessageSearchOpen(false);
+			setMessageSearchQuery("");
+			setMessageSearchIndex(0);
+		}
+	}, [canSearchMessages]);
+	React.useEffect(() => {
+		if (!messageSearchOpen) {
+			return;
+		}
+
+		requestAnimationFrame(() => {
+			searchInputRef.current?.focus();
+			searchInputRef.current?.select();
+		});
+	}, [messageSearchOpen]);
+	React.useEffect(() => {
+		if (messageSearchIndex < messageSearchMatches.length) {
+			return;
+		}
+
+		setMessageSearchIndex(0);
+	}, [messageSearchIndex, messageSearchMatches.length]);
+	React.useEffect(() => {
+		if (!activeMessageSearchMatch || !messageSearchOpen) {
+			return;
+		}
+
+		const escapedMessageId =
+			typeof CSS !== "undefined" && typeof CSS.escape === "function"
+				? CSS.escape(activeMessageSearchMatch.messageId)
+				: activeMessageSearchMatch.messageId.replace(/"/g, '\\"');
+		const messageElement = document.querySelector<HTMLElement>(
+			`[data-chat-message-id="${escapedMessageId}"]`,
+		);
+
+		messageElement?.scrollIntoView?.({
+			block: "center",
+			behavior: "smooth",
+		});
+	}, [activeMessageSearchMatch, messageSearchOpen]);
+	React.useEffect(() => {
+		const highlightRegistry =
+			typeof CSS === "undefined"
+				? undefined
+				: (CSS as CssWithHighlights).highlights;
+
+		if (
+			!messageSearchOpen ||
+			!messageSearchQuery.trim() ||
+			!highlightRegistry ||
+			typeof Highlight === "undefined"
+		) {
+			highlightRegistry?.delete(CHAT_SEARCH_MATCH_HIGHLIGHT);
+			highlightRegistry?.delete(CHAT_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
+			return;
+		}
+
+		const matchRanges: Range[] = [];
+		const activeMatchRanges: Range[] = [];
+
+		for (const match of messageSearchMatches) {
+			const escapedMessageId =
+				typeof CSS !== "undefined" && typeof CSS.escape === "function"
+					? CSS.escape(match.messageId)
+					: match.messageId.replace(/"/g, '\\"');
+			const messageElement = document.querySelector<HTMLElement>(
+				`[data-chat-message-id="${escapedMessageId}"]`,
+			);
+
+			if (!messageElement) {
+				continue;
+			}
+
+			const ranges = createTextMatchRanges({
+				element: messageElement,
+				query: messageSearchQuery,
+			});
+
+			if (match.messageId === activeMessageSearchMatch?.messageId) {
+				activeMatchRanges.push(...ranges);
+				continue;
+			}
+
+			matchRanges.push(...ranges);
+		}
+
+		highlightRegistry.set(
+			CHAT_SEARCH_MATCH_HIGHLIGHT,
+			new Highlight(...matchRanges),
+		);
+		highlightRegistry.set(
+			CHAT_SEARCH_ACTIVE_MATCH_HIGHLIGHT,
+			new Highlight(...activeMatchRanges),
+		);
+
+		return () => {
+			highlightRegistry.delete(CHAT_SEARCH_MATCH_HIGHLIGHT);
+			highlightRegistry.delete(CHAT_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
+		};
+	}, [
+		activeMessageSearchMatch,
+		messageSearchMatches,
+		messageSearchOpen,
+		messageSearchQuery,
+	]);
+	React.useEffect(() => {
+		if (!canSearchMessages || !isDesktopRuntime()) {
+			return;
+		}
+
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.defaultPrevented ||
+				!(event.metaKey || event.ctrlKey) ||
+				event.altKey ||
+				event.shiftKey ||
+				(event.key.toLowerCase() !== "f" && event.code !== "KeyF")
+			) {
+				return;
+			}
+
+			event.preventDefault();
+			if (messageSearchOpen) {
+				requestAnimationFrame(() => {
+					searchInputRef.current?.focus();
+					searchInputRef.current?.select();
+				});
+			}
+			setMessageSearchOpen(true);
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [canSearchMessages, messageSearchOpen]);
+	const handleMessageSearchPrevious = React.useCallback(() => {
+		setMessageSearchIndex((current) =>
+			messageSearchMatches.length === 0
+				? 0
+				: (current - 1 + messageSearchMatches.length) %
+					messageSearchMatches.length,
+		);
+	}, [messageSearchMatches.length]);
+	const handleMessageSearchNext = React.useCallback(() => {
+		setMessageSearchIndex((current) =>
+			messageSearchMatches.length === 0
+				? 0
+				: (current + 1) % messageSearchMatches.length,
+		);
+	}, [messageSearchMatches.length]);
+	const handleMessageSearchKeyDown = React.useCallback(
+		(event: React.KeyboardEvent<HTMLInputElement>) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setMessageSearchOpen(false);
+				return;
+			}
+
+			if (event.key !== "Enter") {
+				return;
+			}
+
+			event.preventDefault();
+			if (event.shiftKey) {
+				handleMessageSearchPrevious();
+				return;
+			}
+
+			handleMessageSearchNext();
+		},
+		[handleMessageSearchNext, handleMessageSearchPrevious],
+	);
 	// Web chat uses a 4rem shell header, while the native mac shell keeps a
 	// taller md offset. Matching the shell height keeps short-chat docks flush.
 	const chatSurfaceMinHeightClass = isDesktopMac
@@ -760,6 +1027,24 @@ export function ChatPage({
 									chatSurfaceMinHeightClass,
 								)}
 							>
+								{messageSearchOpen ? (
+									<ChatMessageSearchBar
+										inputRef={searchInputRef}
+										query={messageSearchQuery}
+										onQueryChange={(value) => {
+											setMessageSearchQuery(value);
+											setMessageSearchIndex(0);
+										}}
+										matchCount={messageSearchMatches.length}
+										matchIndex={
+											messageSearchMatches.length > 0 ? messageSearchIndex : -1
+										}
+										onPrevious={handleMessageSearchPrevious}
+										onNext={handleMessageSearchNext}
+										onClose={() => setMessageSearchOpen(false)}
+										onKeyDown={handleMessageSearchKeyDown}
+									/>
+								) : null}
 								<div className="flex-1 pt-8 pb-28 md:pb-32">
 									<ChatMessages
 										messages={controller.messages}
@@ -826,5 +1111,91 @@ export function ChatPage({
 				/>
 			) : null}
 		</>
+	);
+}
+
+function ChatMessageSearchBar({
+	inputRef,
+	query,
+	onQueryChange,
+	matchCount,
+	matchIndex,
+	onPrevious,
+	onNext,
+	onClose,
+	onKeyDown,
+}: {
+	inputRef: React.RefObject<HTMLInputElement | null>;
+	query: string;
+	onQueryChange: (query: string) => void;
+	matchCount: number;
+	matchIndex: number;
+	onPrevious: () => void;
+	onNext: () => void;
+	onClose: () => void;
+	onKeyDown: React.KeyboardEventHandler<HTMLInputElement>;
+}) {
+	const matchLabel =
+		query.trim().length === 0
+			? ""
+			: matchCount > 0
+				? `${matchIndex + 1}/${matchCount}`
+				: "No results";
+
+	return (
+		<div className="fixed top-20 right-4 left-4 z-50 mx-auto flex max-w-md items-center gap-1 rounded-lg border border-border/60 bg-background/95 p-1.5 shadow-lg backdrop-blur md:right-8 md:left-auto md:w-80">
+			<Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
+			<Input
+				ref={inputRef}
+				value={query}
+				onChange={(event) => onQueryChange(event.target.value)}
+				onKeyDown={onKeyDown}
+				placeholder="Search chat"
+				aria-label="Search chat"
+				className="h-7 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
+			/>
+			<span
+				className={cn(
+					"min-w-14 shrink-0 text-right text-xs tabular-nums",
+					matchCount === 0 && query.trim().length > 0
+						? "text-muted-foreground"
+						: "text-foreground/70",
+				)}
+			>
+				{matchLabel}
+			</span>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon-sm"
+				className="size-7"
+				disabled={matchCount === 0}
+				aria-label="Previous match"
+				onClick={onPrevious}
+			>
+				<ChevronUp className="size-4" />
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon-sm"
+				className="size-7"
+				disabled={matchCount === 0}
+				aria-label="Next match"
+				onClick={onNext}
+			>
+				<ChevronDown className="size-4" />
+			</Button>
+			<Button
+				type="button"
+				variant="ghost"
+				size="icon-sm"
+				className="size-7"
+				aria-label="Close chat search"
+				onClick={onClose}
+			>
+				<X className="size-4" />
+			</Button>
+		</div>
 	);
 }

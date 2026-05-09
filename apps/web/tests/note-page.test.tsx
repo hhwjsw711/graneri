@@ -62,6 +62,11 @@ vi.mock("convex/react", () => ({
 	useQuery: useQueryMock,
 }));
 
+vi.mock("@workspace/platform/desktop", () => ({
+	isDesktopRuntime: () => true,
+	saveDesktopTextFile: vi.fn(),
+}));
+
 vi.mock("@tiptap/react", () => ({
 	Tiptap: Object.assign(
 		({ children }: React.PropsWithChildren) => <>{children}</>,

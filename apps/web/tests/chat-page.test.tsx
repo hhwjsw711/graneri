@@ -94,6 +94,10 @@ vi.mock("@ai-sdk/react", () => ({
 	useChat: useChatMock,
 }));
 
+vi.mock("@workspace/platform/desktop", () => ({
+	isDesktopRuntime: () => true,
+}));
+
 vi.mock("convex/react", () => ({
 	useQuery: useQueryMock,
 	useAction: useActionMock,
@@ -937,6 +941,57 @@ describe("ChatPage", () => {
 				convexToken: "convex-token",
 			},
 		});
+	});
+
+	it("opens chat message search with command f inside an active chat", async () => {
+		const user = userEvent.setup();
+		const { ChatPage } = await import("../src/components/chat/chat-page");
+
+		useChatMock.mockReturnValue({
+			messages: [
+				{
+					id: "user-1",
+					role: "user",
+					parts: [{ type: "text", text: "Find the deployment note" }],
+				},
+				{
+					id: "assistant-1",
+					role: "assistant",
+					parts: [{ type: "text", text: "The deployment note is ready" }],
+				},
+			],
+			sendMessage: sendMessageMock,
+			regenerate: regenerateMock,
+			setMessages: vi.fn(),
+			error: undefined,
+			status: "ready",
+			stop: stopMock,
+		});
+
+		render(
+			<ActiveWorkspaceProvider workspaceId={"workspace-1" as never}>
+				<ChatPage
+					chatId="chat-1"
+					initialMessages={[]}
+					onChatPersisted={vi.fn()}
+					chats={[]}
+					isChatsLoading={false}
+					activeChatId={"chat-1"}
+					onOpenChat={vi.fn()}
+					onPrefetchChat={vi.fn()}
+					onChatRemoved={vi.fn()}
+					onOpenConnectionsSettings={vi.fn()}
+					activeWorkspace={null}
+				/>
+			</ActiveWorkspaceProvider>,
+		);
+
+		await user.keyboard("{Meta>}f{/Meta}");
+		const searchInput = screen.getByRole("textbox", { name: "Search chat" });
+		await user.type(searchInput, "deployment");
+
+		expect(document.activeElement).toBe(searchInput);
+		expect(screen.getByText("1/2")).toBeTruthy();
 	});
 
 	it("creates a note from an assistant response using the current chat title", async () => {
