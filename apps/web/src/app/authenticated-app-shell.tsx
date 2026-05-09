@@ -81,6 +81,7 @@ import {
 	Undo2,
 } from "lucide-react";
 import * as React from "react";
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import type { AppUser, AppView, UpcomingCalendarEvent } from "@/app/app-types";
 import { HomeView, SharedView } from "@/app/home-shared-views";
@@ -801,26 +802,30 @@ const useAppShellState = ({
 	}, [inboxOpen]);
 
 	const openFreshChat = React.useCallback(() => {
-		setInboxOpen(shouldKeepPinnedInboxOpen());
-		setCurrentView("chat");
-		setSettingsOpen(false);
-		setCurrentChatId(null);
-		setChatComposerId(crypto.randomUUID());
-		window.history.pushState(null, "", "/chat");
+		flushSync(() => {
+			setInboxOpen(shouldKeepPinnedInboxOpen());
+			setCurrentView("chat");
+			setSettingsOpen(false);
+			setCurrentChatId(null);
+			setChatComposerId(crypto.randomUUID());
+			window.history.pushState(null, "", "/chat");
+		});
 	}, [shouldKeepPinnedInboxOpen]);
 
 	const openStoredChat = React.useCallback(
 		(chatId: string) => {
-			setInboxOpen(shouldKeepPinnedInboxOpen());
-			setCurrentView("chat");
-			setSettingsOpen(false);
-			setCurrentChatId(chatId);
-			setChatComposerId(chatId);
-			window.history.pushState(
-				null,
-				"",
-				`/chat?chatId=${encodeURIComponent(chatId)}`,
-			);
+			flushSync(() => {
+				setInboxOpen(shouldKeepPinnedInboxOpen());
+				setCurrentView("chat");
+				setSettingsOpen(false);
+				setCurrentChatId(chatId);
+				setChatComposerId(chatId);
+				window.history.pushState(
+					null,
+					"",
+					`/chat?chatId=${encodeURIComponent(chatId)}`,
+				);
+			});
 		},
 		[shouldKeepPinnedInboxOpen],
 	);

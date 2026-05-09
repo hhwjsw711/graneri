@@ -603,6 +603,7 @@ export function ChatPage({
 		isAtBottom: isChatViewportAtBottom,
 		scrollToBottom: scrollChatToBottom,
 	} = useStickyScrollToBottom();
+	const historyViewportRef = React.useRef<HTMLDivElement | null>(null);
 	const handleCreateNoteFromResponse = React.useCallback(
 		(content: string) => {
 			if (!onCreateNoteFromResponse) {
@@ -624,6 +625,13 @@ export function ChatPage({
 	);
 	const shouldShowActiveChatSurface =
 		controller.hasMessages || activeChatId === chatId;
+	const viewportRef = React.useCallback(
+		(node: HTMLDivElement | null) => {
+			historyViewportRef.current = node;
+			containerRef(controller.hasMessages ? node : null);
+		},
+		[containerRef, controller.hasMessages],
+	);
 	const canShowChatSummary = activeChatId === chatId;
 	const automationChatIds = React.useMemo(
 		() => new Set((automations ?? []).map((automation) => automation.chatId)),
@@ -655,6 +663,16 @@ export function ChatPage({
 			controller.setSummaryOpen(false);
 		}
 	}, [canShowChatSummary, controller.setSummaryOpen]);
+	React.useLayoutEffect(() => {
+		if (shouldShowActiveChatSurface) {
+			return;
+		}
+
+		historyViewportRef.current?.scrollTo({
+			top: 0,
+			behavior: "auto",
+		});
+	}, [shouldShowActiveChatSurface]);
 	// Web chat uses a 4rem shell header, while the native mac shell keeps a
 	// taller md offset. Matching the shell height keeps short-chat docks flush.
 	const chatSurfaceMinHeightClass = isDesktopMac
@@ -726,7 +744,7 @@ export function ChatPage({
 			<ScrollArea
 				className="min-h-0 flex-1"
 				viewportClassName="overscroll-contain"
-				viewportRef={controller.hasMessages ? containerRef : undefined}
+				viewportRef={viewportRef}
 			>
 				<div className="box-border flex w-full max-w-full min-w-0 flex-1 justify-center px-4 md:px-6">
 					<div

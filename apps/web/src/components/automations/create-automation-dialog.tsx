@@ -755,7 +755,7 @@ function AppSourcesPicker({
 				</TooltipTrigger>
 				<TooltipContent>Select scope</TooltipContent>
 			</Tooltip>
-			<DropdownMenuContent side="top" align="start" className="w-64">
+			<DropdownMenuContent side="bottom" align="start" className="w-64">
 				<DropdownMenuGroup>
 					<DropdownMenuItem
 						asChild

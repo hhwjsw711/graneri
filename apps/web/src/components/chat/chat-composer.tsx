@@ -793,7 +793,7 @@ function ScopePicker({
 				<TooltipContent>Select scope</TooltipContent>
 			</Tooltip>
 			<DropdownMenuContent
-				side="top"
+				side="bottom"
 				align="start"
 				sideOffset={4}
 				className="w-72"
