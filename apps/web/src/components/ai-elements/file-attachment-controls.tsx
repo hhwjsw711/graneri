@@ -1,3 +1,10 @@
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogTitle,
+} from "@workspace/ui/components/dialog";
 import { InputGroupButton } from "@workspace/ui/components/input-group";
 import { Spinner } from "@workspace/ui/components/spinner";
 import {
@@ -5,9 +12,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
+import { cn } from "@workspace/ui/lib/utils";
 import type { FileUIPart } from "ai";
 import { useMutation } from "convex/react";
-import { Paperclip, X } from "lucide-react";
+import { FileText, Paperclip, X } from "lucide-react";
 import * as React from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -314,32 +322,115 @@ export function FileAttachmentChips({
 	files: ChatAttachment[];
 	onRemove: (index: number) => void;
 }) {
+	const [previewImage, setPreviewImage] = React.useState<ChatAttachment | null>(
+		null,
+	);
+
 	if (files.length === 0) {
 		return null;
 	}
 
 	return (
-		<div className="no-scrollbar -m-1.5 flex min-w-0 flex-1 gap-1 overflow-x-auto p-1.5">
-			{files.map((file, index) => (
-				<InputGroupButton
-					key={file.id}
-					className="group/attachment-chip max-w-48 rounded-full pl-2!"
-					onClick={() => onRemove(index)}
-					size="sm"
-					type="button"
-					variant="secondary"
+		<>
+			<div className="no-scrollbar -m-1.5 flex min-w-0 flex-1 gap-1.5 overflow-x-auto p-1.5">
+				{files.map((file, index) => {
+					const isImage = file.mediaType.startsWith("image/");
+					const canPreview = isImage && file.url.length > 0;
+
+					return (
+						<div
+							key={file.id}
+							className={cn(
+								"group/attachment-preview relative flex size-14 shrink-0 items-center justify-center rounded-md bg-muted/50 text-muted-foreground",
+								file.uploadStatus === "uploading" && "opacity-80",
+							)}
+						>
+							<button
+								type="button"
+								className={cn(
+									"flex size-12 items-center justify-center overflow-hidden rounded-[5px] bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+									canPreview && "cursor-zoom-in",
+								)}
+								onClick={() => {
+									if (canPreview) {
+										setPreviewImage(file);
+									}
+								}}
+								aria-label={
+									canPreview
+										? `Preview ${file.filename || "attached image"}`
+										: file.filename || "Attached file"
+								}
+							>
+								{isImage ? (
+									<img
+										src={file.url}
+										alt={file.filename || "Attached image"}
+										className="size-full object-cover"
+									/>
+								) : (
+									<FileText className="size-5" />
+								)}
+							</button>
+							{file.uploadStatus === "uploading" ? (
+								<div className="absolute inset-0 flex items-center justify-center bg-background/55 backdrop-blur-[1px]">
+									<Spinner className="size-4" aria-label="Uploading file" />
+								</div>
+							) : null}
+							<button
+								type="button"
+								className="absolute -top-1.5 -right-1.5 z-10 flex size-4 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-[opacity,transform] duration-150 ease-out hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.97] group-hover/attachment-preview:opacity-100"
+								onClick={() => onRemove(index)}
+								aria-label={`Remove ${file.filename || "attachment"}`}
+							>
+								<X className="size-3" />
+							</button>
+						</div>
+					);
+				})}
+			</div>
+			<Dialog
+				open={previewImage !== null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPreviewImage(null);
+					}
+				}}
+			>
+				<DialogContent
+					showCloseButton={false}
+					className="!top-0 !left-0 !flex !h-screen !w-screen !max-w-none !translate-x-0 !translate-y-0 items-center justify-center !rounded-none !border-0 !bg-transparent p-10 !shadow-none !ring-0 sm:!max-w-none"
+					style={
+						{
+							"--tw-enter-scale": "1",
+							"--tw-exit-scale": "1",
+						} as React.CSSProperties
+					}
+					onPointerDown={(event) => {
+						if (event.target === event.currentTarget) {
+							setPreviewImage(null);
+						}
+					}}
 				>
-					{file.uploadStatus === "uploading" ? (
-						<Spinner className="size-3.5" aria-label="Uploading file" />
-					) : (
-						<Paperclip className="size-3.5" />
-					)}
-					<span className="min-w-0 truncate">
-						{file.filename || "Attached file"}
-					</span>
-					<X className="opacity-0 transition-opacity group-hover/attachment-chip:opacity-100 group-focus-visible/attachment-chip:opacity-100" />
-				</InputGroupButton>
-			))}
-		</div>
+					<DialogTitle className="sr-only">
+						{previewImage?.filename || "Attached image preview"}
+					</DialogTitle>
+					<DialogDescription className="sr-only">
+						Image attachment preview.
+					</DialogDescription>
+					{previewImage ? (
+						<img
+							src={previewImage.url}
+							alt={previewImage.filename || "Attached image preview"}
+							className="max-h-full max-w-full object-contain shadow-2xl"
+						/>
+					) : null}
+					<DialogClose className="absolute top-4 right-4 cursor-pointer rounded-full bg-background/90 p-2 text-foreground shadow-lg transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-ring">
+						<X className="size-5" />
+						<span className="sr-only">Close</span>
+					</DialogClose>
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }
