@@ -33,6 +33,7 @@ export type AutomationDraft = {
 	title: string;
 	prompt: string;
 	model: string;
+	reasoningEffort: "low" | "medium" | "high" | "xhigh";
 	authorName?: string;
 	appSources: AutomationAppSource[];
 	webSearchEnabled: boolean;

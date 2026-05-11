@@ -4,6 +4,7 @@ import { openai } from "@ai-sdk/openai";
 import { generateText, stepCountIs } from "ai";
 import { v } from "convex/values";
 import { buildConnectedAppTools } from "../packages/ai/src/app-tools.mjs";
+import { getChatModelProviderOptions } from "../packages/ai/src/models.mjs";
 import { buildPostHogTools } from "../packages/ai/src/posthog-tools.mjs";
 import { BASE_CHAT_SYSTEM_PROMPT } from "../packages/ai/src/prompts.mjs";
 import { internal } from "./_generated/api";
@@ -147,6 +148,7 @@ export const runAutomation = internalAction({
 				title: run.title,
 				preview: run.prompt,
 				model: run.model,
+				reasoningEffort: run.reasoningEffort,
 				forceTitle: true,
 				message: createTextMessage({
 					id: userMessageId,
@@ -189,6 +191,9 @@ export const runAutomation = internalAction({
 			};
 			const result = await generateText({
 				model: openai(run.model),
+				providerOptions: getChatModelProviderOptions(run.model, {
+					reasoningEffort: run.reasoningEffort,
+				}),
 				system: buildAutomationSystemPrompt({
 					targetLabel: run.targetLabel,
 					webSearchEnabled: run.webSearchEnabled,
@@ -208,6 +213,7 @@ export const runAutomation = internalAction({
 				title: run.title,
 				preview: result.text,
 				model: run.model,
+				reasoningEffort: run.reasoningEffort,
 				forceTitle: true,
 				message: createTextMessage({
 					id: assistantMessageId,

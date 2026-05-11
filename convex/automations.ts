@@ -1,6 +1,8 @@
 import { ConvexError, v } from "convex/values";
 import {
 	DEFAULT_CHAT_MODEL_ID,
+	DEFAULT_REASONING_EFFORT,
+	findReasoningEffort,
 	isSupportedChatModel,
 } from "../packages/ai/src/models.mjs";
 import { internal } from "./_generated/api";
@@ -18,6 +20,13 @@ const automationSchedulePeriodValidator = v.union(
 const automationRunReasonValidator = v.union(
 	v.literal("scheduled"),
 	v.literal("manual"),
+);
+
+const reasoningEffortValidator = v.union(
+	v.literal("low"),
+	v.literal("medium"),
+	v.literal("high"),
+	v.literal("xhigh"),
 );
 
 const automationAppSourceProviderValidator = v.union(
@@ -54,6 +63,7 @@ const automationListItemValidator = v.object({
 	title: v.string(),
 	prompt: v.string(),
 	model: v.string(),
+	reasoningEffort: reasoningEffortValidator,
 	authorName: v.optional(v.string()),
 	webSearchEnabled: v.boolean(),
 	appsEnabled: v.boolean(),
@@ -92,6 +102,7 @@ const automationRunStartValidator = v.union(
 		title: v.string(),
 		prompt: v.string(),
 		model: v.string(),
+		reasoningEffort: reasoningEffortValidator,
 		chatId: v.string(),
 		targetLabel: v.string(),
 		webSearchEnabled: v.boolean(),
@@ -376,6 +387,9 @@ const normalizeModel = (model: string | undefined) => {
 	});
 };
 
+const normalizeReasoningEffort = (reasoningEffort: string | undefined) =>
+	findReasoningEffort(reasoningEffort)?.id ?? DEFAULT_REASONING_EFFORT;
+
 const normalizeTimezone = (timezone: string | undefined) =>
 	clampWhitespace(timezone ?? "") || "UTC";
 
@@ -501,6 +515,7 @@ const toListItem = (automation: Doc<"automations">) => ({
 	title: automation.title,
 	prompt: automation.prompt,
 	model: normalizeModel(automation.model),
+	reasoningEffort: normalizeReasoningEffort(automation.reasoningEffort),
 	authorName: automation.authorName,
 	webSearchEnabled: automation.webSearchEnabled ?? false,
 	appsEnabled: automation.appsEnabled ?? true,
@@ -658,6 +673,7 @@ export const create = mutation({
 		title: v.string(),
 		prompt: v.string(),
 		model: v.optional(v.string()),
+		reasoningEffort: v.optional(reasoningEffortValidator),
 		webSearchEnabled: v.optional(v.boolean()),
 		appsEnabled: v.optional(v.boolean()),
 		appSources: v.optional(v.array(automationAppSourceValidator)),
@@ -730,6 +746,7 @@ export const create = mutation({
 			title: normalizeTitle(args.title, prompt),
 			prompt,
 			model: normalizeModel(args.model),
+			reasoningEffort: normalizeReasoningEffort(args.reasoningEffort),
 			webSearchEnabled: args.webSearchEnabled ?? false,
 			appsEnabled: args.appsEnabled ?? true,
 			appSources,
@@ -776,6 +793,7 @@ export const update = mutation({
 		title: v.string(),
 		prompt: v.string(),
 		model: v.optional(v.string()),
+		reasoningEffort: v.optional(reasoningEffortValidator),
 		webSearchEnabled: v.optional(v.boolean()),
 		appsEnabled: v.optional(v.boolean()),
 		appSources: v.optional(v.array(automationAppSourceValidator)),
@@ -818,6 +836,7 @@ export const update = mutation({
 			title: normalizeTitle(args.title, prompt),
 			prompt,
 			model: normalizeModel(args.model),
+			reasoningEffort: normalizeReasoningEffort(args.reasoningEffort),
 			webSearchEnabled: args.webSearchEnabled ?? false,
 			appsEnabled: args.appsEnabled ?? true,
 			appSources,
@@ -1005,6 +1024,7 @@ export const beginRun = internalMutation({
 			title: automation.title,
 			prompt: automation.prompt,
 			model: normalizeModel(automation.model),
+			reasoningEffort: normalizeReasoningEffort(automation.reasoningEffort),
 			chatId: automation.chatId,
 			targetLabel: automation.targetLabel,
 			webSearchEnabled: automation.webSearchEnabled ?? false,

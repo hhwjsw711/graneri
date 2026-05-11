@@ -62,10 +62,18 @@ import {
 	type AutomationTarget,
 } from "@/components/automations/automation-types";
 import { getAutomationSchedulePeriodLabel } from "@/components/automations/automation-utils";
-import { ChatModelPicker } from "@/components/chat/model-picker";
+import {
+	ChatModelPicker,
+	type ReasoningEffort,
+} from "@/components/chat/model-picker";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { type AppSource, useAppSources } from "@/hooks/use-app-sources";
+import { getStoredChatModel, storeChatModel } from "@/lib/ai/chat-model";
 import { defaultChatModel, findChatModel } from "@/lib/ai/models";
+import {
+	getStoredReasoningEffort,
+	storeReasoningEffort,
+} from "@/lib/ai/reasoning-effort";
 import {
 	type ChatAppSourceProvider,
 	getAppSourceLabel,
@@ -281,6 +289,7 @@ type AutomationDialogState = {
 	prompt: string;
 	promptMentions: AutomationPromptMention[];
 	selectedModel: typeof defaultChatModel;
+	reasoningEffort: ReasoningEffort;
 	schedulePeriod: AutomationSchedulePeriod;
 	scheduledAt: Date;
 	target: AutomationTarget | null;
@@ -301,7 +310,8 @@ const createEmptyAutomationDialogState = (): AutomationDialogState => ({
 	title: "",
 	prompt: "",
 	promptMentions: [],
-	selectedModel: defaultChatModel,
+	selectedModel: getStoredChatModel(),
+	reasoningEffort: getStoredReasoningEffort(),
 	schedulePeriod: "daily",
 	scheduledAt: createInitialScheduledAt(),
 	target: null,
@@ -329,6 +339,7 @@ const createAutomationDialogState = (
 		title: initialAutomation.title,
 		prompt: initialAutomation.prompt,
 		selectedModel: findChatModel(initialAutomation.model) ?? defaultChatModel,
+		reasoningEffort: initialAutomation.reasoningEffort,
 		schedulePeriod: initialAutomation.schedulePeriod,
 		scheduledAt: new Date(initialAutomation.scheduledAt),
 		webSearchEnabled: initialAutomation.webSearchEnabled,
@@ -391,6 +402,7 @@ function useCreateAutomationDialogElement({
 		prompt,
 		promptMentions,
 		selectedModel,
+		reasoningEffort,
 		schedulePeriod,
 		scheduledAt,
 		target,
@@ -574,6 +586,7 @@ function useCreateAutomationDialogElement({
 			title: trimmedTitle || trimmedPrompt,
 			prompt: trimmedPrompt,
 			model: selectedModel.model,
+			reasoningEffort,
 			webSearchEnabled,
 			appsEnabled,
 			appSources: selectedConnectedAppSources,
@@ -589,6 +602,7 @@ function useCreateAutomationDialogElement({
 		scheduledAt,
 		selectedConnectedAppSources,
 		selectedModel.model,
+		reasoningEffort,
 		selectedNoteIds,
 		selectedNoteSources,
 		target,
@@ -680,13 +694,18 @@ function useCreateAutomationDialogElement({
 										open={modelPickerOpen}
 										onOpenChange={handleModelPickerOpenChange}
 										selectedModel={selectedModel}
-										onSelectedModelChange={(value) =>
-											updateDialogState({ selectedModel: value })
-										}
+										onSelectedModelChange={(value) => {
+											storeChatModel(value);
+											updateDialogState({ selectedModel: value });
+										}}
+										reasoningEffort={reasoningEffort}
+										onReasoningEffortChange={(value) => {
+											storeReasoningEffort(value);
+											updateDialogState({ reasoningEffort: value });
+										}}
 										triggerClassName="text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
 										triggerIconClassName="text-current"
 										modelNameClassName="max-w-[120px] truncate"
-										contentClassName="w-72"
 										menuLabel="Model"
 									/>
 								</div>

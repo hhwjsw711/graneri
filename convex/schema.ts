@@ -452,6 +452,14 @@ export default defineSchema({
 		title: v.string(),
 		prompt: v.string(),
 		model: v.optional(v.string()),
+		reasoningEffort: v.optional(
+			v.union(
+				v.literal("low"),
+				v.literal("medium"),
+				v.literal("high"),
+				v.literal("xhigh"),
+			),
+		),
 		webSearchEnabled: v.optional(v.boolean()),
 		appsEnabled: v.optional(v.boolean()),
 		appSources: v.optional(v.array(
