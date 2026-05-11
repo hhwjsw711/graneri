@@ -417,40 +417,6 @@ export const getWorkspaceChatContext = query({
 	},
 });
 
-export const getProjectChatContext = query({
-	args: {
-		workspaceId: v.id("workspaces"),
-		projectIds: v.array(v.id("projects")),
-	},
-	returns: v.array(noteChatContextValidator),
-	handler: async (ctx, args) => {
-		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
-		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
-		const uniqueProjectIds = [...new Set(args.projectIds)].slice(0, 10);
-		const noteGroups = await Promise.all(
-			uniqueProjectIds.map((projectId) =>
-				ctx.db
-					.query("notes")
-					.withIndex("by_owner_ws_project_arch_upd", (q) =>
-						q
-							.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-							.eq("workspaceId", args.workspaceId)
-							.eq("projectId", projectId)
-							.eq("isArchived", false),
-					)
-					.order("desc")
-					.take(MAX_CHAT_CONTEXT_NOTES),
-			),
-		);
-
-		return noteGroups.flat().slice(0, MAX_CHAT_CONTEXT_NOTES).map((note) => ({
-			id: note._id,
-			title: note.title,
-			searchableText: note.searchableText,
-		}));
-	},
-});
-
 export const getShared = query({
 	args: {
 		shareId: v.string(),

@@ -905,8 +905,7 @@ const useAppShellState = ({
 							noteIds: automation.target.noteIds,
 						}
 					: {
-							kind: "project" as const,
-							projectId: automation.target.projectId,
+							kind: "workspace" as const,
 						};
 			const input = {
 				title: automation.title,

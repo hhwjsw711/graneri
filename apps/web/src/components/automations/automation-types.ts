@@ -13,14 +13,13 @@ export type AutomationSchedulePeriod =
 
 export type AutomationTarget =
 	| {
-			kind: "project";
-			label: string;
-			projectId: Id<"projects">;
-	  }
-	| {
 			kind: "notes";
 			label: string;
 			noteIds: Array<Id<"notes">>;
+	  }
+	| {
+			kind: "workspace";
+			label: string;
 	  };
 
 export type AutomationAppSource = {

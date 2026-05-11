@@ -15,7 +15,6 @@ describe("chat source display", () => {
 		expect(
 			getSelectedScopeLabel({
 				selectedSourceIds: ["app:notion"],
-				projectSources: [],
 				appSources: [
 					{
 						id: "app:notion",
@@ -26,26 +25,10 @@ describe("chat source display", () => {
 		).toBe("Notion");
 	});
 
-	it("shows the project source title", () => {
-		expect(
-			getSelectedScopeLabel({
-				selectedSourceIds: ["project:123"],
-				projectSources: [
-					{
-						id: "project:123",
-						title: "Internal",
-					},
-				],
-				appSources: [],
-			}),
-		).toBe("Internal");
-	});
-
 	it("falls back when the selected source is not in known app or project sources", () => {
 		expect(
 			getSelectedScopeLabel({
 				selectedSourceIds: ["note-1"],
-				projectSources: [],
 				appSources: [],
 			}),
 		).toBe("1 source");

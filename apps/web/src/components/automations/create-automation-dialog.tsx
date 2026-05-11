@@ -269,6 +269,94 @@ const getPromptDocument = (
 	};
 };
 
+const findMentionRange = ({
+	label,
+	occupiedRanges,
+	prompt,
+}: {
+	label: string;
+	occupiedRanges: Array<Pick<AutomationPromptMention, "from" | "to">>;
+	prompt: string;
+}) => {
+	const mentionText = `@${label}`;
+	let cursor = 0;
+
+	while (cursor < prompt.length) {
+		const index = prompt.indexOf(mentionText, cursor);
+		if (index < 0) {
+			return null;
+		}
+
+		const end = index + mentionText.length;
+		const overlaps = occupiedRanges.some(
+			(range) => index < range.to && end > range.from,
+		);
+		if (!overlaps) {
+			return {
+				from: index,
+				to: end,
+			};
+		}
+
+		cursor = end;
+	}
+
+	return null;
+};
+
+const getInitialAutomationMentions = ({
+	automation,
+}: {
+	automation: AutomationDraft;
+}) => {
+	const mentions: AutomationPromptMention[] = [];
+
+	for (const source of automation.appSources ?? []) {
+		const label = getAppSourceLabel(source.provider);
+		const range = findMentionRange({
+			label,
+			occupiedRanges: mentions,
+			prompt: automation.prompt,
+		});
+
+		if (!range) {
+			continue;
+		}
+
+		mentions.push({
+			id: source.id,
+			label,
+			type: "tool",
+			provider: source.provider,
+			...range,
+		});
+	}
+
+	if (automation.target.kind === "notes") {
+		for (const noteId of automation.target.noteIds) {
+			const label = automation.target.label;
+			const range = findMentionRange({
+				label,
+				occupiedRanges: mentions,
+				prompt: automation.prompt,
+			});
+
+			if (!range) {
+				continue;
+			}
+
+			mentions.push({
+				id: noteId,
+				label,
+				type: "note",
+				...range,
+			});
+		}
+	}
+
+	return mentions.sort((a, b) => a.from - b.from);
+};
+
 const createInitialScheduledAt = () => {
 	const nextDate = new Date();
 	nextDate.setHours(9, 0, 0, 0);
@@ -334,10 +422,15 @@ const createAutomationDialogState = (
 		};
 	}
 
+	const promptMentions = getInitialAutomationMentions({
+		automation: initialAutomation,
+	});
+
 	return {
 		...emptyState,
 		title: initialAutomation.title,
 		prompt: initialAutomation.prompt,
+		promptMentions,
 		selectedModel: findChatModel(initialAutomation.model) ?? defaultChatModel,
 		reasoningEffort: initialAutomation.reasoningEffort,
 		schedulePeriod: initialAutomation.schedulePeriod,
@@ -345,7 +438,7 @@ const createAutomationDialogState = (
 		webSearchEnabled: initialAutomation.webSearchEnabled,
 		appsEnabled: initialAutomation.appsEnabled,
 		target:
-			initialAutomation.target.kind === "project"
+			initialAutomation.target.kind === "workspace"
 				? initialAutomation.target
 				: null,
 		selectedConnectedAppIds: (initialAutomation.appSources ?? []).map(
@@ -564,6 +657,7 @@ function useCreateAutomationDialogElement({
 	);
 
 	const handleCreate = React.useCallback(async () => {
+		const trimmedTitle = title.trim();
 		const trimmedPrompt = prompt.trim();
 		const effectiveTarget =
 			selectedNoteIds.length > 0
@@ -575,15 +669,20 @@ function useCreateAutomationDialogElement({
 								: `${selectedNoteIds.length} notes`,
 						noteIds: selectedNoteIds,
 					} satisfies AutomationTarget)
-				: target;
+				: (target ??
+					({
+						kind: "workspace",
+						label: "Workspace",
+					} satisfies AutomationTarget));
 		if (!trimmedPrompt || !effectiveTarget) {
 			return;
 		}
-
-		const trimmedTitle = title.trim();
+		if (!trimmedTitle) {
+			return;
+		}
 
 		await onCreateAutomation({
-			title: trimmedTitle || trimmedPrompt,
+			title: trimmedTitle,
 			prompt: trimmedPrompt,
 			model: selectedModel.model,
 			reasoningEffort,
@@ -616,7 +715,7 @@ function useCreateAutomationDialogElement({
 		scheduledAt: scheduledAt.getTime(),
 	});
 	const canCreateAutomation =
-		prompt.trim().length > 0 && (!!target || selectedNoteIds.length > 0);
+		title.trim().length > 0 && prompt.trim().length > 0;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>

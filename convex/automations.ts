@@ -73,14 +73,13 @@ const automationListItemValidator = v.object({
 	timezone: v.string(),
 	target: v.union(
 		v.object({
-			kind: v.literal("project"),
-			label: v.string(),
-			projectId: v.id("projects"),
-		}),
-		v.object({
 			kind: v.literal("notes"),
 			label: v.string(),
 			noteIds: v.array(v.id("notes")),
+		}),
+		v.object({
+			kind: v.literal("workspace"),
+			label: v.string(),
 		}),
 	),
 	chatId: v.string(),
@@ -148,22 +147,29 @@ const DAY_MS = 24 * HOUR_MS;
 type AutomationSchedulePeriod = Doc<"automations">["schedulePeriod"];
 type AutomationTarget =
 	| {
-			kind: "project";
-			projectId: Id<"projects">;
-	  }
-	| {
 			kind: "notes";
 			noteIds: Array<Id<"notes">>;
+	  }
+	| {
+			kind: "workspace";
 	  };
+
+type AutomationMentionPosition = {
+	id: string;
+	label: string;
+	from: number;
+	to: number;
+	type: "note" | "tool";
+	provider?: AutomationAppSource["provider"];
+};
 
 const automationTargetValidator = v.union(
 	v.object({
-		kind: v.literal("project"),
-		projectId: v.id("projects"),
-	}),
-	v.object({
 		kind: v.literal("notes"),
 		noteIds: v.array(v.id("notes")),
+	}),
+	v.object({
+		kind: v.literal("workspace"),
 	}),
 );
 
@@ -197,28 +203,6 @@ const requireOwnedWorkspace = async (
 	return workspace;
 };
 
-const requireOwnedProject = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	workspaceId: Id<"workspaces">,
-	projectId: Id<"projects">,
-) => {
-	const project = await ctx.db.get(projectId);
-
-	if (
-		!project ||
-		project.ownerTokenIdentifier !== ownerTokenIdentifier ||
-		project.workspaceId !== workspaceId
-	) {
-		throw new ConvexError({
-			code: "PROJECT_NOT_FOUND",
-			message: "Project not found.",
-		});
-	}
-
-	return project;
-};
-
 const requireOwnedNote = async (
 	ctx: QueryCtx | MutationCtx,
 	ownerTokenIdentifier: string,
@@ -247,7 +231,7 @@ const normalizeTargetNoteIds = (noteIds: Array<Id<"notes">>) => {
 	if (uniqueNoteIds.length === 0) {
 		throw new ConvexError({
 			code: "AUTOMATION_TARGET_REQUIRED",
-			message: "Select at least one note or project.",
+			message: "Select at least one note or tool.",
 		});
 	}
 
@@ -267,19 +251,13 @@ const requireOwnedAutomationTarget = async (
 	workspaceId: Id<"workspaces">,
 	target: AutomationTarget,
 ) => {
-	if (target.kind === "project") {
-		const project = await requireOwnedProject(
-			ctx,
-			ownerTokenIdentifier,
-			workspaceId,
-			target.projectId,
-		);
+	if (target.kind === "workspace") {
+		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, workspaceId);
 
 		return {
-			kind: "project" as const,
-			targetProjectId: project._id,
+			kind: "workspace" as const,
 			targetNoteIds: undefined,
-			targetLabel: project.name,
+			targetLabel: "Workspace",
 		};
 	}
 
@@ -293,10 +271,11 @@ const requireOwnedAutomationTarget = async (
 
 	return {
 		kind: "notes" as const,
-		targetProjectId: undefined,
 		targetNoteIds: noteIds,
 		targetLabel:
-			notes.length === 1 ? normalizeTitle(notes[0].title, "Note") : `${notes.length} notes`,
+			notes.length === 1
+				? truncate(clampWhitespace(notes[0].title) || "Note", 80)
+				: `${notes.length} notes`,
 	};
 };
 
@@ -327,9 +306,18 @@ const truncate = (value: string, maxLength: number) =>
 		? `${value.slice(0, maxLength - 1).trimEnd()}…`
 		: value;
 
-const normalizeTitle = (title: string, prompt: string) =>
-	truncate(clampWhitespace(title) || clampWhitespace(prompt), 80) ||
-	"Automation";
+const normalizeTitle = (title: string) => {
+	const normalized = clampWhitespace(title);
+
+	if (!normalized) {
+		throw new ConvexError({
+			code: "TITLE_REQUIRED",
+			message: "Automation title is required.",
+		});
+	}
+
+	return truncate(normalized, 80);
+};
 
 const normalizePrompt = (prompt: string) => {
 	const normalized = clampWhitespace(prompt);
@@ -395,6 +383,124 @@ const normalizeTimezone = (timezone: string | undefined) =>
 
 const createAutomationChatId = () =>
 	`automation-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+const createTextMessage = ({
+	id,
+	role,
+	text,
+	metadata,
+	createdAt,
+}: {
+	id: string;
+	role: "user" | "assistant";
+	text: string;
+	metadata: Record<string, unknown>;
+	createdAt: number;
+}) => ({
+	id,
+	role,
+	partsJson: JSON.stringify([{ type: "text", text }]),
+	metadataJson: JSON.stringify(metadata),
+	text,
+	createdAt,
+});
+
+const findMentionRange = ({
+	text,
+	label,
+	occupiedRanges,
+}: {
+	text: string;
+	label: string;
+	occupiedRanges: Array<{ from: number; to: number }>;
+}) => {
+	const token = `@${label}`;
+	let from = text.indexOf(token);
+
+	while (from !== -1) {
+		const to = from + token.length;
+		const overlaps = occupiedRanges.some(
+			(range) => from < range.to && to > range.from,
+		);
+
+		if (!overlaps) {
+			return { from, to };
+		}
+
+		from = text.indexOf(token, from + token.length);
+	}
+
+	return null;
+};
+
+const getAutomationCreationMentionPositions = async (
+	ctx: MutationCtx,
+	automation: Doc<"automations">,
+) => {
+	const mentions: AutomationMentionPosition[] = [];
+	const occupiedRanges: Array<{ from: number; to: number }> = [];
+
+	for (const source of automation.appSources ?? []) {
+		const range = findMentionRange({
+			text: automation.prompt,
+			label: source.label,
+			occupiedRanges,
+		});
+
+		if (!range) {
+			continue;
+		}
+
+		occupiedRanges.push(range);
+		mentions.push({
+			id: source.id,
+			label: source.label,
+			from: range.from,
+			to: range.to,
+			type: "tool",
+			provider: source.provider,
+		});
+	}
+
+	if (automation.targetKind !== "notes") {
+		return mentions.sort((a, b) => a.from - b.from);
+	}
+
+	for (const noteId of automation.targetNoteIds ?? []) {
+		const note = await ctx.db.get(noteId);
+
+		if (
+			!note ||
+			note.ownerTokenIdentifier !== automation.ownerTokenIdentifier ||
+			note.workspaceId !== automation.workspaceId ||
+			note.isArchived
+		) {
+			continue;
+		}
+
+		const label = truncate(clampWhitespace(note.title) || "Note", 80);
+		const range = findMentionRange({
+			text: automation.prompt,
+			label,
+			occupiedRanges,
+		});
+
+		if (!range) {
+			continue;
+		}
+
+		occupiedRanges.push(range);
+		mentions.push({
+			id: note._id,
+			label,
+			from: range.from,
+			to: range.to,
+			type: "note",
+		});
+	}
+
+	return mentions.sort((a, b) => a.from - b.from);
+};
 
 const getTimeParts = (scheduledAt: number) => {
 	const scheduledDate = new Date(scheduledAt);
@@ -510,6 +616,142 @@ const scheduleAutomationRun = async (
 		},
 	);
 
+const getScheduleDescription = (
+	schedulePeriod: AutomationSchedulePeriod,
+	scheduledAt: number,
+	timezone: string,
+) => {
+	if (schedulePeriod === "hourly") {
+		return "hourly";
+	}
+
+	const timeLabel = new Intl.DateTimeFormat("en", {
+		hour: "numeric",
+		minute: "2-digit",
+		timeZone: timezone,
+	}).format(new Date(scheduledAt));
+
+	switch (schedulePeriod) {
+		case "daily":
+			return `daily at ${timeLabel}`;
+		case "weekdays":
+			return `weekdays at ${timeLabel}`;
+		case "weekly":
+			return `weekly at ${timeLabel}`;
+	}
+};
+
+const getAutomationCreatedRunDescription = (
+	automation: Doc<"automations">,
+	scheduleDescription: string,
+) => {
+	if (automation.targetKind === "workspace") {
+		return `It will run ${scheduleDescription} and report back in this chat.`;
+	}
+
+	return `It will run ${scheduleDescription} for ${automation.targetLabel} and report back in this chat.`;
+};
+
+const saveAutomationCreatedMessages = async (
+	ctx: MutationCtx,
+	automation: Doc<"automations">,
+	createdAt: number,
+) => {
+	const scheduleDescription = getScheduleDescription(
+		automation.schedulePeriod,
+		automation.scheduledAt,
+		automation.timezone,
+	);
+	const userText = automation.prompt;
+	const assistantText = [
+		`Created the automation: \`${automation.title}\`.`,
+		"",
+		getAutomationCreatedRunDescription(automation, scheduleDescription),
+	].join("\n");
+	const existingChat = await ctx.db
+		.query("chats")
+		.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_chatId", (q) =>
+			q
+				.eq("ownerTokenIdentifier", automation.ownerTokenIdentifier)
+				.eq("workspaceId", automation.workspaceId)
+				.eq("chatId", automation.chatId),
+		)
+		.unique();
+	const chatId =
+		existingChat?._id ??
+		(await ctx.db.insert("chats", {
+			ownerTokenIdentifier: automation.ownerTokenIdentifier,
+			workspaceId: automation.workspaceId,
+			authorName: automation.authorName,
+			chatId: automation.chatId,
+			noteId: undefined,
+			isStarred: false,
+			title: automation.title,
+			preview: assistantText,
+			model: automation.model,
+			reasoningEffort: automation.reasoningEffort,
+			isArchived: false,
+			archivedAt: undefined,
+			createdAt,
+			updatedAt: createdAt,
+			lastMessageAt: createdAt,
+		}));
+
+	if (existingChat) {
+		await ctx.db.patch(existingChat._id, {
+			preview: assistantText,
+			model: automation.model,
+			reasoningEffort: automation.reasoningEffort,
+			isArchived: false,
+			archivedAt: undefined,
+			updatedAt: createdAt,
+			lastMessageAt: createdAt,
+		});
+	}
+
+	const metadata = {
+		source: "automation",
+		event: "created",
+		automationId: String(automation._id),
+		schedulePeriod: automation.schedulePeriod,
+		nextRunAt: automation.nextRunAt ?? null,
+	};
+	const mentionPositions =
+		await getAutomationCreationMentionPositions(ctx, automation);
+	const userMessage = createTextMessage({
+		id: `automation-created-user-${automation._id}`,
+		role: "user",
+		text: userText,
+		createdAt,
+		metadata: {
+			...metadata,
+			...(mentionPositions.length > 0 ? { mentionPositions } : {}),
+		},
+	});
+	const assistantMessage = createTextMessage({
+		id: `automation-created-${automation._id}`,
+		role: "assistant",
+		text: assistantText,
+		createdAt,
+		metadata,
+	});
+
+	await Promise.all(
+		[userMessage, assistantMessage].map((message) =>
+			ctx.db.insert("chatMessages", {
+				chatId,
+				ownerTokenIdentifier: automation.ownerTokenIdentifier,
+				messageId: message.id,
+				role: message.role,
+				partsJson: message.partsJson,
+				metadataJson: message.metadataJson,
+				text: message.text,
+				createdAt: message.createdAt,
+			}),
+		),
+	);
+};
+
 const toListItem = (automation: Doc<"automations">) => ({
 	id: automation._id,
 	title: automation.title,
@@ -531,9 +773,8 @@ const toListItem = (automation: Doc<"automations">) => ({
 					noteIds: automation.targetNoteIds ?? [],
 				}
 			: {
-					kind: "project" as const,
+					kind: "workspace" as const,
 					label: automation.targetLabel,
-					projectId: automation.targetProjectId as Id<"projects">,
 				},
 	chatId: automation.chatId,
 	createdAt: automation.createdAt,
@@ -568,38 +809,7 @@ const getRecentContextNotes = async (
 		}));
 	}
 
-	const projectIds = automation.targetProjectId ? [automation.targetProjectId] : [];
-
-	if (projectIds.length === 0) {
-		return [];
-	}
-
-	const notes = (
-		await Promise.all(
-			projectIds.map((projectId) =>
-				ctx.db
-					.query("notes")
-					.withIndex("by_owner_ws_project_arch_upd", (q) =>
-						q
-							.eq("ownerTokenIdentifier", automation.ownerTokenIdentifier)
-							.eq("workspaceId", automation.workspaceId)
-							.eq("projectId", projectId)
-							.eq("isArchived", false),
-					)
-					.order("desc")
-					.take(MAX_CONTEXT_NOTES),
-			),
-		)
-	)
-		.flat()
-		.sort((first, second) => second.updatedAt - first.updatedAt)
-		.slice(0, MAX_CONTEXT_NOTES);
-
-	return notes.map((note) => ({
-		title: note.title,
-		text: truncate(note.searchableText, MAX_CONTEXT_NOTE_LENGTH),
-		updatedAt: note.updatedAt,
-	}));
+	return [];
 };
 
 export const list = query({
@@ -743,7 +953,7 @@ export const create = mutation({
 			ownerTokenIdentifier,
 			workspaceId: args.workspaceId,
 			authorName: getAuthorName(identity),
-			title: normalizeTitle(args.title, prompt),
+			title: normalizeTitle(args.title),
 			prompt,
 			model: normalizeModel(args.model),
 			reasoningEffort: normalizeReasoningEffort(args.reasoningEffort),
@@ -754,7 +964,6 @@ export const create = mutation({
 			scheduledAt: args.scheduledAt,
 			timezone: normalizeTimezone(args.timezone),
 			targetKind: target.kind,
-			targetProjectId: target.targetProjectId,
 			targetNoteIds: target.targetNoteIds,
 			targetLabel: target.targetLabel,
 			chatId,
@@ -782,6 +991,7 @@ export const create = mutation({
 				message: "Failed to save automation.",
 			});
 		}
+		await saveAutomationCreatedMessages(ctx, automation, now);
 
 		return toListItem(automation);
 	},
@@ -833,7 +1043,7 @@ export const update = mutation({
 			: undefined;
 
 		await ctx.db.patch(automation._id, {
-			title: normalizeTitle(args.title, prompt),
+			title: normalizeTitle(args.title),
 			prompt,
 			model: normalizeModel(args.model),
 			reasoningEffort: normalizeReasoningEffort(args.reasoningEffort),
@@ -844,7 +1054,6 @@ export const update = mutation({
 			scheduledAt: args.scheduledAt,
 			timezone: normalizeTimezone(args.timezone),
 			targetKind: target.kind,
-			targetProjectId: target.targetProjectId,
 			targetNoteIds: target.targetNoteIds,
 			targetLabel: target.targetLabel,
 			nextRunAt,

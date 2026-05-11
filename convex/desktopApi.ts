@@ -92,7 +92,6 @@ const MAX_CHAT_TITLE_LENGTH = 80;
 const MAX_NOTE_CONTEXT_LENGTH = 16_000;
 const APP_SOURCE_PREFIX = "app:";
 const WORKSPACE_SOURCE_PREFIX = "workspace:";
-const PROJECT_SOURCE_PREFIX = "project:";
 const chatModels = CHAT_SERVER_MODELS;
 const fallbackChatModel = chatModels[0];
 const generateMessageId = createIdGenerator({
@@ -159,8 +158,7 @@ const getReferencedNoteIds = ({
 		...((selectedSourceIds ?? []).filter(
 			(value) =>
 				!value.startsWith(APP_SOURCE_PREFIX) &&
-				!value.startsWith(WORKSPACE_SOURCE_PREFIX) &&
-				!value.startsWith(PROJECT_SOURCE_PREFIX),
+				!value.startsWith(WORKSPACE_SOURCE_PREFIX),
 		) as string[]),
 	]
 		.filter(
@@ -173,18 +171,6 @@ const getSelectedAppSourceIds = (selectedSourceIds: string[] | undefined) =>
 	(selectedSourceIds ?? []).filter((value) =>
 		value.startsWith(APP_SOURCE_PREFIX),
 	);
-
-const getSelectedProjectIds = ({
-	selectedSourceIds,
-}: Pick<ChatRequestBody, "selectedSourceIds">): Id<"projects">[] =>
-	(selectedSourceIds ?? [])
-		.filter((value) => value.startsWith(PROJECT_SOURCE_PREFIX))
-		.map((value) => value.slice(PROJECT_SOURCE_PREFIX.length))
-		.filter(
-			(value, index, values): value is string =>
-				Boolean(value) && values.indexOf(value) === index,
-		)
-		.map((value) => value as Id<"projects">);
 
 const hasWorkspaceSourceSelected = ({
 	selectedSourceIds,
@@ -313,10 +299,8 @@ const getNotesContext = async ({
 	}
 
 	const noteIds = getReferencedNoteIds({ mentions, selectedSourceIds });
-	const projectIds = getSelectedProjectIds({ selectedSourceIds });
 	const shouldUseWorkspaceScope =
 		noteIds.length === 0 &&
-		projectIds.length === 0 &&
 		((selectedSourceIds ?? []).length === 0 ||
 			hasWorkspaceSourceSelected({ selectedSourceIds }));
 	const notes =
@@ -325,11 +309,6 @@ const getNotesContext = async ({
 					workspaceId: workspaceId as Id<"workspaces">,
 					ids: noteIds,
 				})
-			: projectIds.length > 0
-				? await client.query(api.notes.getProjectChatContext, {
-						workspaceId: workspaceId as Id<"workspaces">,
-						projectIds,
-					})
 			: shouldUseWorkspaceScope
 				? await client.query(api.notes.getWorkspaceChatContext, {
 						workspaceId: workspaceId as Id<"workspaces">,

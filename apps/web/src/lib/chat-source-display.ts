@@ -38,16 +38,11 @@ export const getAppSourceLabel = (provider: ChatAppSourceProvider) =>
 
 export const getSelectedScopeLabel = ({
 	appSources,
-	projectSources = [],
 	selectedSourceIds,
 }: {
 	appSources: Array<{
 		id: string;
 		provider: ChatAppSourceProvider;
-	}>;
-	projectSources?: Array<{
-		id: string;
-		title: string;
 	}>;
 	selectedSourceIds: string[];
 }) => {
@@ -65,9 +60,5 @@ export const getSelectedScopeLabel = ({
 		return getAppSourceLabel(appSource.provider);
 	}
 
-	const projectSource = projectSources.find(
-		(source) => source.id === selectedSourceId,
-	);
-
-	return projectSource?.title ?? "1 source";
+	return "1 source";
 };
