@@ -68,6 +68,12 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 		pendingGenerateTranscript: "",
 		utterances: [],
 	};
+	const noteDraft = {
+		workspaceId: "workspace_1",
+		title: "Draft title",
+		content: "{}",
+		searchableText: "Draft title",
+	};
 
 	await api.getMeta();
 	await api.authFetch(request);
@@ -79,6 +85,7 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 	});
 	await api.startDetectedMeetingNote();
 	await api.saveTranscriptDraft("note_1", transcriptDraft);
+	await api.saveNoteDraft("note_1", noteDraft);
 	await api.saveTextFile("meeting.txt", "notes");
 
 	assert.deepEqual(ipcRenderer.invocations, [
@@ -96,6 +103,10 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 		{
 			args: ["note_1", transcriptDraft],
 			channel: "app:save-transcript-draft",
+		},
+		{
+			args: ["note_1", noteDraft],
+			channel: "app:save-note-draft",
 		},
 		{ args: ["meeting.txt", "notes"], channel: "app:save-text-file" },
 	]);

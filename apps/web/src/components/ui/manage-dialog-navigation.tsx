@@ -15,6 +15,7 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
+	SidebarMenuSkeleton,
 } from "@workspace/ui/components/sidebar";
 import type { LucideIcon } from "lucide-react";
 
@@ -34,11 +35,13 @@ type ManageDialogNavigationAction = {
 export function ManageDialogSidebarNav({
 	activeItemId,
 	footerAction,
+	isLoading,
 	items,
 	onSelect,
 }: {
 	activeItemId: string | null;
 	footerAction?: ManageDialogNavigationAction;
+	isLoading?: boolean;
 	items: ManageDialogNavigationItem[];
 	onSelect: (itemId: string) => void;
 }) {
@@ -66,6 +69,13 @@ export function ManageDialogSidebarNav({
 										</SidebarMenuItem>
 									);
 								})}
+								{isLoading
+									? ["version-skeleton-1", "version-skeleton-2"].map((id) => (
+											<SidebarMenuItem key={id}>
+												<SidebarMenuSkeleton showIcon />
+											</SidebarMenuItem>
+										))
+									: null}
 							</SidebarMenu>
 						</SidebarGroupContent>
 					</SidebarGroup>

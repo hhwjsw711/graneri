@@ -542,6 +542,7 @@ function NotesList({
 											noteId={note._id}
 											onMoveToTrash={onNoteTrashed}
 											align="end"
+											showVersionHistory={false}
 										>
 											<button
 												type="button"

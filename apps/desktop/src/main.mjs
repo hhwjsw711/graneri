@@ -71,6 +71,7 @@ const transcriptDraftsDirPath = join(
 	app.getPath("userData"),
 	"transcript-drafts",
 );
+const noteDraftsDirPath = join(app.getPath("userData"), "note-drafts");
 const microphoneCaptureEventChannel = "app:microphone-capture-event";
 const systemAudioCaptureEventChannel = "app:system-audio-capture-event";
 const transcriptionSessionStateChannel = "app:transcription-session-state";
@@ -88,6 +89,8 @@ const systemAudioAttachRetryBackoffMs = [750, 1_500, 3_000];
 const realtimeSessionRolloverMs = 29 * 60 * 1000;
 const transcriptDraftStorageVersion = 1;
 const transcriptDraftMaxAgeMs = 72 * 60 * 60 * 1000;
+const noteDraftStorageVersion = 1;
+const noteDraftMaxAgeMs = 72 * 60 * 60 * 1000;
 const meetingDetectionDebounceMs = 8_000;
 const meetingDetectionDismissMs = 30 * 60 * 1000;
 const meetingWidgetAutoHideMs = 12 * 1000;
@@ -2319,6 +2322,109 @@ const saveTranscriptDraft = async ({ noteKey, draft }) => {
 
 const clearTranscriptDraft = async (noteKey) => {
 	await rm(getTranscriptDraftPath(noteKey), { force: true });
+	return { ok: true };
+};
+
+const getNoteDraftPath = (noteKey) =>
+	join(
+		noteDraftsDirPath,
+		`${Buffer.from(noteKey, "utf8").toString("base64url")}.json`,
+	);
+
+const ensureNoteDraftsDir = async () => {
+	await mkdir(noteDraftsDirPath, { recursive: true });
+};
+
+const pruneNoteDrafts = async () => {
+	try {
+		await ensureNoteDraftsDir();
+		const entries = await readdir(noteDraftsDirPath, {
+			withFileTypes: true,
+		});
+
+		await Promise.all(
+			entries.map(async (entry) => {
+				if (!entry.isFile()) {
+					return;
+				}
+
+				const filePath = join(noteDraftsDirPath, entry.name);
+
+				try {
+					const fileStats = await stat(filePath);
+
+					if (Date.now() - fileStats.mtimeMs > noteDraftMaxAgeMs) {
+						await rm(filePath, { force: true });
+					}
+				} catch {
+					await rm(filePath, { force: true });
+				}
+			}),
+		);
+	} catch (error) {
+		console.warn("Failed to prune note drafts.", error);
+	}
+};
+
+const loadNoteDraft = async (noteKey) => {
+	await pruneNoteDrafts();
+
+	const filePath = getNoteDraftPath(noteKey);
+
+	try {
+		const rawValue = await readFile(filePath, "utf8");
+		const parsed = JSON.parse(rawValue);
+
+		if (
+			parsed?.version !== noteDraftStorageVersion ||
+			parsed?.noteId !== noteKey ||
+			typeof parsed?.updatedAt !== "number" ||
+			Date.now() - parsed.updatedAt > noteDraftMaxAgeMs
+		) {
+			await rm(filePath, { force: true });
+			return { draft: null };
+		}
+
+		return { draft: parsed };
+	} catch (error) {
+		if (
+			error &&
+			typeof error === "object" &&
+			"code" in error &&
+			error.code === "ENOENT"
+		) {
+			return { draft: null };
+		}
+
+		await rm(filePath, { force: true }).catch(() => {});
+		return { draft: null };
+	}
+};
+
+const saveNoteDraft = async ({ noteKey, draft }) => {
+	await pruneNoteDrafts();
+	await ensureNoteDraftsDir();
+
+	await writeFile(
+		getNoteDraftPath(noteKey),
+		JSON.stringify(
+			{
+				...draft,
+				version: noteDraftStorageVersion,
+				noteId: noteKey,
+				updatedAt: Date.now(),
+			},
+			null,
+			2,
+		),
+		"utf8",
+	);
+
+	return { ok: true };
+};
+
+const clearNoteDraft = async (noteKey) => {
+	await rm(getNoteDraftPath(noteKey), { force: true });
 	return { ok: true };
 };
 
@@ -5229,6 +5335,37 @@ ipcMain.handle("app:clear-transcript-draft", async (_event, noteKey) => {
 	}
 
 	return await clearTranscriptDraft(noteKey.trim());
+});
+
+ipcMain.handle("app:load-note-draft", async (_event, noteKey) => {
+	if (typeof noteKey !== "string" || !noteKey.trim()) {
+		throw new Error("Note draft key must be a non-empty string.");
+	}
+
+	return await loadNoteDraft(noteKey.trim());
+});
+
+ipcMain.handle("app:save-note-draft", async (_event, noteKey, draft) => {
+	if (typeof noteKey !== "string" || !noteKey.trim()) {
+		throw new Error("Note draft key must be a non-empty string.");
+	}
+
+	if (!draft || typeof draft !== "object") {
+		throw new Error("Note draft payload must be an object.");
+	}
+
+	return await saveNoteDraft({
+		noteKey: noteKey.trim(),
+		draft,
+	});
+});
+
+ipcMain.handle("app:clear-note-draft", async (_event, noteKey) => {
+	if (typeof noteKey !== "string" || !noteKey.trim()) {
+		throw new Error("Note draft key must be a non-empty string.");
+	}
+
+	return await clearNoteDraft(noteKey.trim());
 });
 
 ipcMain.handle(

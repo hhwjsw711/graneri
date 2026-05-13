@@ -1,6 +1,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, expect, test, vi } from "vitest";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -121,6 +122,155 @@ test("notes.save updates content without dropping existing metadata", async () =
 	expect(note?.updatedAt).toBe(Date.now());
 });
 
+test("notes.save records version history for changed payloads", async () => {
+	vi.useFakeTimers();
+	vi.setSystemTime(new Date("2026-04-10T18:00:00.000Z"));
+
+	const { asOwner, noteId, workspaceId } = await createWorkspaceAndNote();
+
+	await asOwner.mutation(api.notes.save, {
+		workspaceId,
+		id: noteId,
+		title: "Updated title",
+		content: "new-content",
+		searchableText: "new text",
+	});
+
+	const versions = await asOwner.query(api.notes.listVersions, {
+		id: noteId,
+		workspaceId,
+	});
+
+	expect(versions).toHaveLength(2);
+	expect(versions[0]).toMatchObject({
+		id: "current",
+		isCurrent: true,
+		authorName: "Existing Author",
+		title: "Updated title",
+		content: "new-content",
+		searchableText: "new text",
+		createdAt: Date.now(),
+	});
+	expect(versions[1]).toMatchObject({
+		isCurrent: false,
+		authorName: "Existing Author",
+		title: "Old title",
+		content: "old-content",
+		searchableText: "old text",
+		createdAt: Date.now(),
+	});
+});
+
+test("notes.save groups version history by revision interval", async () => {
+	vi.useFakeTimers();
+	vi.setSystemTime(new Date("2026-04-10T18:00:00.000Z"));
+
+	const { asOwner, noteId, workspaceId } = await createWorkspaceAndNote();
+
+	await asOwner.mutation(api.notes.save, {
+		workspaceId,
+		id: noteId,
+		title: "First autosave",
+		content: "first-content",
+		searchableText: "first text",
+	});
+
+	vi.setSystemTime(new Date("2026-04-10T18:00:10.000Z"));
+
+	await asOwner.mutation(api.notes.save, {
+		workspaceId,
+		id: noteId,
+		title: "Second autosave",
+		content: "second-content",
+		searchableText: "second text",
+	});
+
+	let versions = await asOwner.query(api.notes.listVersions, {
+		id: noteId,
+		workspaceId,
+	});
+
+	expect(versions).toHaveLength(2);
+	expect(versions[1]).toMatchObject({
+		title: "Old title",
+		content: "old-content",
+	});
+
+	vi.setSystemTime(new Date("2026-04-10T18:00:31.000Z"));
+
+	await asOwner.mutation(api.notes.save, {
+		workspaceId,
+		id: noteId,
+		title: "Third autosave",
+		content: "third-content",
+		searchableText: "third text",
+	});
+
+	versions = await asOwner.query(api.notes.listVersions, {
+		id: noteId,
+		workspaceId,
+	});
+
+	expect(versions).toHaveLength(3);
+	expect(versions[1]).toMatchObject({
+		title: "Second autosave",
+		content: "second-content",
+	});
+});
+
+test("notes.restoreVersion preserves current note and restores selected revision", async () => {
+	vi.useFakeTimers();
+	vi.setSystemTime(new Date("2026-04-10T18:00:00.000Z"));
+
+	const { asOwner, noteId, workspaceId } = await createWorkspaceAndNote();
+
+	await asOwner.mutation(api.notes.save, {
+		workspaceId,
+		id: noteId,
+		title: "Updated title",
+		content: "new-content",
+		searchableText: "new text",
+	});
+
+	const versionsBeforeRestore = await asOwner.query(api.notes.listVersions, {
+		id: noteId,
+		workspaceId,
+	});
+	const revisionId = versionsBeforeRestore.find(
+		(version) => version.id !== "current",
+	)?.id as Id<"noteRevisions"> | undefined;
+	expect(revisionId).toBeDefined();
+
+	vi.setSystemTime(new Date("2026-04-10T18:01:00.000Z"));
+
+	await asOwner.mutation(api.notes.restoreVersion, {
+		workspaceId,
+		id: noteId,
+		revisionId: revisionId as Id<"noteRevisions">,
+	});
+
+	const note = await asOwner.query(api.notes.get, {
+		id: noteId,
+		workspaceId,
+	});
+	expect(note).toMatchObject({
+		title: "Old title",
+		content: "old-content",
+		searchableText: "old text",
+	});
+
+	const versionsAfterRestore = await asOwner.query(api.notes.listVersions, {
+		id: noteId,
+		workspaceId,
+	});
+	expect(versionsAfterRestore).toHaveLength(3);
+	expect(versionsAfterRestore[1]).toMatchObject({
+		title: "Updated title",
+		content: "new-content",
+		searchableText: "new text",
+	});
+});
+
 test("notes.save is a no-op when the payload is unchanged", async () => {
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date("2026-04-10T18:00:00.000Z"));
@@ -160,6 +310,13 @@ test("notes.save is a no-op when the payload is unchanged", async () => {
 		templateSlug: "enhanced",
 		visibility: "public",
 	});
+
+	const versions = await asOwner.query(api.notes.listVersions, {
+		id: noteId,
+		workspaceId,
+	});
+	expect(versions).toHaveLength(1);
+	expect(versions[0]?.id).toBe("current");
 });
 
 test("notes.create and notes.rename preserve empty titles", async () => {

@@ -106,6 +106,12 @@ const createOpenGranDesktopApi = ({ ipcRenderer, platform, env }) => ({
 		ipcRenderer.invoke("app:save-transcript-draft", noteKey, draft),
 	clearTranscriptDraft: (noteKey) =>
 		ipcRenderer.invoke("app:clear-transcript-draft", noteKey),
+	loadNoteDraft: (noteKey) =>
+		ipcRenderer.invoke("app:load-note-draft", noteKey),
+	saveNoteDraft: (noteKey, draft) =>
+		ipcRenderer.invoke("app:save-note-draft", noteKey, draft),
+	clearNoteDraft: (noteKey) =>
+		ipcRenderer.invoke("app:clear-note-draft", noteKey),
 	saveTextFile: (defaultFileName, content) =>
 		ipcRenderer.invoke("app:save-text-file", defaultFileName, content),
 });

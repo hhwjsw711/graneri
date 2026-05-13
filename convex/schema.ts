@@ -238,15 +238,12 @@ export default defineSchema({
 			"isArchived",
 			"updatedAt",
 		])
-		.index(
-			"by_ownerTokenIdentifier_and_workspaceId_and_isArchived_and_archivedAt",
-			[
-				"ownerTokenIdentifier",
-				"workspaceId",
-				"isArchived",
-				"archivedAt",
-			],
-		)
+		.index("by_owner_ws_archived_archivedAt", [
+			"ownerTokenIdentifier",
+			"workspaceId",
+			"isArchived",
+			"archivedAt",
+		])
 		.index("by_owner_ws_vis_arch_upd", [
 			"ownerTokenIdentifier",
 			"workspaceId",
@@ -291,6 +288,26 @@ export default defineSchema({
 			"updatedAt",
 		])
 		.index("by_shareId", ["shareId"]),
+	noteRevisions: defineTable({
+		ownerTokenIdentifier: v.string(),
+		workspaceId: v.id("workspaces"),
+		noteId: v.id("notes"),
+		authorName: v.string(),
+		title: v.string(),
+		content: v.string(),
+		searchableText: v.string(),
+		createdAt: v.number(),
+	})
+		.index("by_owner_ws_note_createdAt", [
+			"ownerTokenIdentifier",
+			"workspaceId",
+			"noteId",
+			"createdAt",
+		])
+		.index("by_ownerTokenIdentifier_and_noteId", [
+			"ownerTokenIdentifier",
+			"noteId",
+		]),
 	noteCommentThreads: defineTable({
 		ownerTokenIdentifier: v.string(),
 		workspaceId: v.id("workspaces"),
@@ -388,15 +405,12 @@ export default defineSchema({
 			"isArchived",
 			"updatedAt",
 		])
-		.index(
-			"by_ownerTokenIdentifier_and_workspaceId_and_isArchived_and_archivedAt",
-			[
-				"ownerTokenIdentifier",
-				"workspaceId",
-				"isArchived",
-				"archivedAt",
-			],
-		)
+		.index("by_owner_ws_archived_archivedAt", [
+			"ownerTokenIdentifier",
+			"workspaceId",
+			"isArchived",
+			"archivedAt",
+		])
 		.index("by_owner_ws_note_chat_arch_upd", [
 			"ownerTokenIdentifier",
 			"workspaceId",

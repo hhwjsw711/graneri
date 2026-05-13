@@ -52,6 +52,19 @@ const removeAllNotesResultValidator = v.object({
 
 const REMOVE_ALL_NOTES_BATCH_SIZE = 100;
 const MAX_CHAT_CONTEXT_NOTES = 20;
+const MAX_NOTE_REVISIONS = 50;
+const NOTE_REVISION_INTERVAL_MS = 30_000;
+
+const noteVersionValidator = v.object({
+	id: v.union(v.id("noteRevisions"), v.literal("current")),
+	isCurrent: v.boolean(),
+	authorName: v.string(),
+	title: v.string(),
+	content: v.string(),
+	searchableText: v.string(),
+	createdAt: v.number(),
+});
+
 export const requireIdentity = async (ctx: QueryCtx | MutationCtx) => {
 	const identity = await ctx.auth.getUserIdentity();
 
@@ -222,12 +235,127 @@ const deleteNoteBatch = async (
 		)
 		.take(REMOVE_ALL_NOTES_BATCH_SIZE);
 
-	await Promise.all(notes.map((note) => ctx.db.delete(note._id)));
+	await Promise.all(
+		notes.map(async (note) => {
+			await removeNoteRevisions({
+				ctx,
+				ownerTokenIdentifier: note.ownerTokenIdentifier,
+				noteId: note._id,
+			});
+			await ctx.db.delete(note._id);
+		}),
+	);
 
 	return {
 		deletedCount: notes.length,
 		hasMore: notes.length === REMOVE_ALL_NOTES_BATCH_SIZE,
 	};
+};
+
+const pruneNoteRevisions = async ({
+	ctx,
+	ownerTokenIdentifier,
+	workspaceId,
+	noteId,
+}: {
+	ctx: MutationCtx;
+	ownerTokenIdentifier: string;
+	workspaceId: Id<"workspaces">;
+	noteId: Id<"notes">;
+}) => {
+	const revisions = await ctx.db
+		.query("noteRevisions")
+		.withIndex("by_owner_ws_note_createdAt", (q) =>
+			q
+				.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+				.eq("workspaceId", workspaceId)
+				.eq("noteId", noteId),
+		)
+		.order("desc")
+		.take(MAX_NOTE_REVISIONS + 1);
+
+	await Promise.all(
+		revisions.slice(MAX_NOTE_REVISIONS).map((revision) =>
+			ctx.db.delete(revision._id),
+		),
+	);
+};
+
+const createNoteRevision = async ({
+	ctx,
+	note,
+	now,
+}: {
+	ctx: MutationCtx;
+	note: Doc<"notes">;
+	now: number;
+}) => {
+	await ctx.db.insert("noteRevisions", {
+		ownerTokenIdentifier: note.ownerTokenIdentifier,
+		workspaceId: note.workspaceId,
+		noteId: note._id,
+		authorName: note.authorName ?? "",
+		title: note.title,
+		content: note.content,
+		searchableText: note.searchableText,
+		createdAt: now,
+	});
+
+	await pruneNoteRevisions({
+		ctx,
+		ownerTokenIdentifier: note.ownerTokenIdentifier,
+		workspaceId: note.workspaceId,
+		noteId: note._id,
+	});
+};
+
+const maybeCreateNoteRevision = async ({
+	ctx,
+	note,
+	now,
+}: {
+	ctx: MutationCtx;
+	note: Doc<"notes">;
+	now: number;
+}) => {
+	const latestRevision = await ctx.db
+		.query("noteRevisions")
+		.withIndex("by_owner_ws_note_createdAt", (q) =>
+			q
+				.eq("ownerTokenIdentifier", note.ownerTokenIdentifier)
+				.eq("workspaceId", note.workspaceId)
+				.eq("noteId", note._id),
+		)
+		.order("desc")
+		.first();
+
+	if (
+		latestRevision &&
+		now - latestRevision.createdAt < NOTE_REVISION_INTERVAL_MS
+	) {
+		return;
+	}
+
+	await createNoteRevision({ ctx, note, now });
+};
+
+const removeNoteRevisions = async ({
+	ctx,
+	ownerTokenIdentifier,
+	noteId,
+}: {
+	ctx: MutationCtx;
+	ownerTokenIdentifier: string;
+	noteId: Id<"notes">;
+}) => {
+	const revisions = await ctx.db
+		.query("noteRevisions")
+		.withIndex("by_ownerTokenIdentifier_and_noteId", (q) =>
+			q.eq("ownerTokenIdentifier", ownerTokenIdentifier).eq("noteId", noteId),
+		)
+		.take(MAX_NOTE_REVISIONS);
+
+	await Promise.all(revisions.map((revision) => ctx.db.delete(revision._id)));
 };
 
 export const getLatest = query({
@@ -344,6 +472,107 @@ export const get = query({
 		}
 
 		return normalizeNote(note);
+	},
+});
+
+export const listVersions = query({
+	args: {
+		id: v.id("notes"),
+		workspaceId: v.id("workspaces"),
+	},
+	returns: v.array(noteVersionValidator),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
+		const note = await ctx.db.get(args.id);
+
+		if (
+			!note ||
+			note.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			note.workspaceId !== args.workspaceId ||
+			note.isArchived
+		) {
+			return [];
+		}
+
+		const revisions = await ctx.db
+			.query("noteRevisions")
+			.withIndex("by_owner_ws_note_createdAt", (q) =>
+				q
+					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+					.eq("workspaceId", args.workspaceId)
+					.eq("noteId", args.id),
+			)
+			.order("desc")
+			.take(MAX_NOTE_REVISIONS);
+
+		return [
+			{
+				id: "current" as const,
+				isCurrent: true,
+				authorName: note.authorName ?? "",
+				title: note.title,
+				content: note.content,
+				searchableText: note.searchableText,
+				createdAt: note.updatedAt,
+			},
+			...revisions.map((revision) => ({
+				id: revision._id,
+				isCurrent: false,
+				authorName: revision.authorName,
+				title: revision.title,
+				content: revision.content,
+				searchableText: revision.searchableText,
+				createdAt: revision.createdAt,
+			})),
+		];
+	},
+});
+
+export const restoreVersion = mutation({
+	args: {
+		id: v.id("notes"),
+		workspaceId: v.id("workspaces"),
+		revisionId: v.id("noteRevisions"),
+	},
+	returns: v.id("notes"),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const ownerTokenIdentifier = identity.tokenIdentifier;
+		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
+		const note = ensureOwnedNote({
+			note: await ctx.db.get(args.id),
+			ownerTokenIdentifier,
+			workspaceId: args.workspaceId,
+		});
+		const revision = await ctx.db.get(args.revisionId);
+
+		if (
+			!revision ||
+			revision.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			revision.workspaceId !== args.workspaceId ||
+			revision.noteId !== args.id
+		) {
+			throw new ConvexError({
+				code: "VERSION_NOT_FOUND",
+				message: "Version not found.",
+			});
+		}
+
+		const now = Date.now();
+
+		await createNoteRevision({ ctx, note, now });
+		await ctx.db.patch(args.id, {
+			authorName: note.authorName ?? getAuthorName(identity),
+			title: revision.title,
+			content: revision.content,
+			searchableText: revision.searchableText,
+			isArchived: false,
+			archivedAt: undefined,
+			updatedAt: now,
+		});
+
+		return args.id;
 	},
 });
 
@@ -574,6 +803,12 @@ export const save = mutation({
 			) {
 				return args.id;
 			}
+
+			await maybeCreateNoteRevision({
+				ctx,
+				note: existing,
+				now,
+			});
 
 			await ctx.db.patch(args.id, {
 				authorName: existing.authorName ?? authorName,
@@ -901,6 +1136,11 @@ export const remove = mutation({
 			noteId: args.id,
 			ownerTokenIdentifier: note.ownerTokenIdentifier,
 		});
+		await removeNoteRevisions({
+			ctx,
+			ownerTokenIdentifier: note.ownerTokenIdentifier,
+			noteId: args.id,
+		});
 		await ctx.db.delete(args.id);
 
 		return null;
@@ -965,6 +1205,11 @@ export const removeAll = mutation({
 						ownerTokenIdentifier: note.ownerTokenIdentifier,
 					},
 				);
+				await removeNoteRevisions({
+					ctx,
+					ownerTokenIdentifier: note.ownerTokenIdentifier,
+					noteId: note._id,
+				});
 				await ctx.db.delete(note._id);
 			}),
 		);
@@ -1014,6 +1259,11 @@ export const removeAllForWorkspace = internalMutation({
 						ownerTokenIdentifier: note.ownerTokenIdentifier,
 					},
 				);
+				await removeNoteRevisions({
+					ctx,
+					ownerTokenIdentifier: note.ownerTokenIdentifier,
+					noteId: note._id,
+				});
 				await ctx.db.delete(note._id);
 			}),
 		);

@@ -29,15 +29,13 @@ const loadExpiredArchivedNotes = async (
 ) =>
 	await ctx.db
 		.query("notes")
-		.withIndex(
-			"by_ownerTokenIdentifier_and_workspaceId_and_isArchived_and_archivedAt",
-			(q) =>
-				q
-					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-					.eq("workspaceId", workspaceId)
-					.eq("isArchived", true)
-					.gt("archivedAt", 0)
-					.lte("archivedAt", cutoffTimestamp),
+		.withIndex("by_owner_ws_archived_archivedAt", (q) =>
+			q
+				.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+				.eq("workspaceId", workspaceId)
+				.eq("isArchived", true)
+				.gt("archivedAt", 0)
+				.lte("archivedAt", cutoffTimestamp),
 		)
 		.order("asc")
 		.take(EXPIRED_TRASH_NOTES_BATCH_SIZE);
@@ -50,15 +48,13 @@ const loadExpiredArchivedChats = async (
 ) =>
 	await ctx.db
 		.query("chats")
-		.withIndex(
-			"by_ownerTokenIdentifier_and_workspaceId_and_isArchived_and_archivedAt",
-			(q) =>
-				q
-					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-					.eq("workspaceId", workspaceId)
-					.eq("isArchived", true)
-					.gt("archivedAt", 0)
-					.lte("archivedAt", cutoffTimestamp),
+		.withIndex("by_owner_ws_archived_archivedAt", (q) =>
+			q
+				.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+				.eq("workspaceId", workspaceId)
+				.eq("isArchived", true)
+				.gt("archivedAt", 0)
+				.lte("archivedAt", cutoffTimestamp),
 		)
 		.order("asc")
 		.take(EXPIRED_TRASH_CHATS_BATCH_SIZE);

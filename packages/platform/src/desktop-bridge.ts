@@ -154,6 +154,16 @@ export type DesktopTranscriptDraft = {
 	pendingGenerateTranscript: string;
 };
 
+export type DesktopNoteDraft = {
+	version: number;
+	workspaceId: string;
+	noteId: string;
+	updatedAt: number;
+	title: string;
+	content: string;
+	searchableText: string;
+};
+
 export interface OpenGranDesktopBridge {
 	platform: DesktopPlatform;
 	getMeta: () => Promise<{
@@ -257,6 +267,14 @@ export interface OpenGranDesktopBridge {
 		draft: Omit<DesktopTranscriptDraft, "version" | "noteKey" | "updatedAt">,
 	) => Promise<{ ok: boolean }>;
 	clearTranscriptDraft: (noteKey: string) => Promise<{ ok: boolean }>;
+	loadNoteDraft: (noteKey: string) => Promise<{
+		draft: DesktopNoteDraft | null;
+	}>;
+	saveNoteDraft: (
+		noteKey: string,
+		draft: Omit<DesktopNoteDraft, "version" | "noteId" | "updatedAt">,
+	) => Promise<{ ok: boolean }>;
+	clearNoteDraft: (noteKey: string) => Promise<{ ok: boolean }>;
 	saveTextFile: (
 		defaultFileName: string,
 		content: string,

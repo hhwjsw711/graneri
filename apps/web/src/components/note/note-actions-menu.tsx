@@ -53,6 +53,7 @@ import {
 	FileText,
 	Folder,
 	Globe,
+	History,
 	Link2,
 	Lock,
 	Pencil,
@@ -67,6 +68,7 @@ import { archiveNoteChats } from "@/lib/optimistic-note-chats";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { NoteTitleEditInput } from "./note-title-edit-input";
+import { NoteVersionHistoryDialog } from "./note-version-history-dialog";
 import { optimisticPatchNote } from "./optimistic-patch-note";
 import { optimisticRenameNote } from "./optimistic-rename-note";
 import {
@@ -252,6 +254,7 @@ type NoteActionsMenuProps = {
 	align?: "start" | "center" | "end";
 	side?: "top" | "right" | "bottom" | "left";
 	showRename?: boolean;
+	showVersionHistory?: boolean;
 	itemsBeforeDefaults?: React.ReactNode;
 	itemsAfterDefaults?: React.ReactNode;
 };
@@ -269,6 +272,7 @@ function useNoteActionsMenu({
 	const ignoreInitialRenameInteractOutsideRef = React.useRef(false);
 	const [confirmOpen, setConfirmOpen] = React.useState(false);
 	const [menuOpen, setMenuOpen] = React.useState(false);
+	const [versionHistoryOpen, setVersionHistoryOpen] = React.useState(false);
 	const [renameOpen, setRenameOpen] = React.useState(false);
 	const [renameValue, setRenameValue] = React.useState("");
 	const renameInputRef = React.useRef<HTMLInputElement>(null);
@@ -550,6 +554,11 @@ function useNoteActionsMenu({
 		setConfirmOpen(true);
 	}, []);
 
+	const handleVersionHistoryOpen = React.useCallback(() => {
+		setMenuOpen(false);
+		setVersionHistoryOpen(true);
+	}, []);
+
 	const handleStartRename = React.useCallback(() => {
 		setMenuOpen(false);
 		preventMenuCloseAutoFocusRef.current = true;
@@ -568,6 +577,8 @@ function useNoteActionsMenu({
 		setConfirmOpen,
 		menuOpen,
 		setMenuOpen,
+		versionHistoryOpen,
+		setVersionHistoryOpen,
 		renameOpen,
 		renameValue,
 		setRenameValue,
@@ -588,6 +599,7 @@ function useNoteActionsMenu({
 		handleCopyLink,
 		handleMoveToTrash,
 		handleConfirmTrashOpen,
+		handleVersionHistoryOpen,
 		handleStartRename,
 		handleRenameCancel,
 		handleRename,
@@ -608,6 +620,7 @@ export function NoteActionsMenu({
 	align = "start",
 	side = "bottom",
 	showRename = true,
+	showVersionHistory = true,
 	itemsBeforeDefaults,
 	itemsAfterDefaults,
 	onRenamePreviewChange,
@@ -617,6 +630,8 @@ export function NoteActionsMenu({
 		setConfirmOpen,
 		menuOpen,
 		setMenuOpen,
+		versionHistoryOpen,
+		setVersionHistoryOpen,
 		renameOpen,
 		renameValue,
 		setRenameValue,
@@ -637,6 +652,7 @@ export function NoteActionsMenu({
 		handleCopyLink,
 		handleMoveToTrash,
 		handleConfirmTrashOpen,
+		handleVersionHistoryOpen,
 		handleStartRename,
 		handleRenameCancel,
 		handleRename,
@@ -676,12 +692,14 @@ export function NoteActionsMenu({
 								isUpdatingProject,
 								isUpdatingStar,
 								showRename,
+								showVersionHistory,
 							}}
 							onSetVisibility={handleSetVisibility}
 							onSetProject={handleSetProject}
 							onStartRename={handleStartRename}
 							onToggleStar={handleToggleStar}
 							onCopyLink={handleCopyLink}
+							onOpenVersionHistory={handleVersionHistoryOpen}
 							onConfirmTrash={handleConfirmTrashOpen}
 						/>
 					</DropdownMenu>
@@ -728,12 +746,14 @@ export function NoteActionsMenu({
 								isUpdatingProject,
 								isUpdatingStar,
 								showRename,
+								showVersionHistory,
 							}}
 							onSetVisibility={handleSetVisibility}
 							onSetProject={handleSetProject}
 							onStartRename={handleStartRename}
 							onToggleStar={handleToggleStar}
 							onCopyLink={handleCopyLink}
+							onOpenVersionHistory={handleVersionHistoryOpen}
 							onConfirmTrash={handleConfirmTrashOpen}
 						/>
 					</DropdownMenu>
@@ -784,6 +804,24 @@ export function NoteActionsMenu({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+			<NoteVersionHistoryDialog
+				initialVersion={
+					note
+						? {
+								id: "current",
+								isCurrent: true,
+								authorName: note.authorName ?? "",
+								title: note.title,
+								content: note.content,
+								searchableText: note.searchableText,
+								createdAt: note.updatedAt,
+							}
+						: null
+				}
+				noteId={noteId}
+				open={versionHistoryOpen}
+				onOpenChange={setVersionHistoryOpen}
+			/>
 		</>
 	);
 }
@@ -1014,6 +1052,7 @@ function NoteActionsDropdownContent({
 	onStartRename,
 	onToggleStar,
 	onCopyLink,
+	onOpenVersionHistory,
 	onConfirmTrash,
 }: {
 	align: "start" | "center" | "end";
@@ -1028,16 +1067,23 @@ function NoteActionsDropdownContent({
 		isUpdatingProject: boolean;
 		isUpdatingStar: boolean;
 		showRename: boolean;
+		showVersionHistory: boolean;
 	};
 	onSetVisibility: (visibility: NoteVisibility) => Promise<void>;
 	onSetProject: (projectId: Id<"projects"> | null) => Promise<void>;
 	onStartRename: () => void;
 	onToggleStar: () => Promise<void>;
 	onCopyLink: () => Promise<void>;
+	onOpenVersionHistory: () => void;
 	onConfirmTrash: () => void;
 }) {
-	const { isUpdatingShare, isUpdatingProject, isUpdatingStar, showRename } =
-		status;
+	const {
+		isUpdatingShare,
+		isUpdatingProject,
+		isUpdatingStar,
+		showRename,
+		showVersionHistory,
+	} = status;
 
 	return (
 		<DropdownMenuContent
@@ -1123,6 +1169,16 @@ function NoteActionsDropdownContent({
 				<Link2 />
 				Copy link
 			</DropdownMenuItem>
+			{showVersionHistory ? (
+				<DropdownMenuItem
+					className="cursor-pointer"
+					disabled={!note}
+					onSelect={onOpenVersionHistory}
+				>
+					<History />
+					Version history
+				</DropdownMenuItem>
+			) : null}
 			{itemsAfterDefaults}
 			<DropdownMenuItem className="cursor-pointer" onSelect={onConfirmTrash}>
 				<Archive />
