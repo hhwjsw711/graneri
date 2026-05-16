@@ -1780,7 +1780,7 @@ const NotePageEditorPane = React.memo(function NotePageEditorPane({
 
 						<div className="sticky bottom-0 z-10 mt-auto h-0">
 							<div className={COMPOSER_DOCK_WRAPPER_CLASS}>
-								<div className="pointer-events-auto relative mx-auto w-full max-w-xl">
+								<div className="pointer-events-auto relative mx-auto w-[calc(100%-2rem)] max-w-xl">
 									<NoteComposer
 										autoStartTranscription={autoStartTranscription}
 										desktopSafeTop={isDesktopMac}

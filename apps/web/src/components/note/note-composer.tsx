@@ -4155,7 +4155,7 @@ function NoteComposerDock({
 			<ChatComposerForm
 				activateInlineOnFocus={controller.canActivateInlineFromComposer}
 				controller={controller}
-				formClassName="group/composer mx-auto w-[calc(100%-2rem)] max-w-full min-w-0 md:w-full"
+				formClassName="group/composer mx-auto w-full max-w-full min-w-0"
 				speechControls={<NoteComposerSpeechControls controller={controller} />}
 			/>
 		</div>

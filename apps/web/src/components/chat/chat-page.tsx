@@ -1153,7 +1153,7 @@ export function ChatPage({
 
 								<div className="sticky bottom-0 z-10 mt-auto h-0">
 									<div className={COMPOSER_DOCK_WRAPPER_CLASS}>
-										<div className="pointer-events-auto relative mx-auto w-[calc(100%-2rem)] min-w-0 max-w-full md:w-full md:max-w-xl">
+										<div className="pointer-events-auto relative mx-auto w-[calc(100%-2rem)] min-w-0 max-w-full md:max-w-xl">
 											{composer}
 										</div>
 									</div>
