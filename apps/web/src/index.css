@@ -379,6 +379,73 @@ body {
 	line-height: 1.7142857143;
 }
 
+.note-chat-sidebar-streamdown {
+	color: inherit;
+	font-family: var(--font-sans);
+	font-size: 0.875rem;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+}
+
+.note-chat-sidebar-streamdown > :first-child {
+	margin-top: 0;
+}
+
+.note-chat-sidebar-streamdown > :last-child {
+	margin-bottom: 0;
+}
+
+.note-chat-sidebar-streamdown :where(p) {
+	margin: 0 0 0.5rem;
+}
+
+.note-chat-sidebar-streamdown :where(h1, h2, h3, h4, h5, h6) {
+	margin: 1rem 0 0.5rem;
+	font-weight: 600;
+	letter-spacing: 0;
+	line-height: 1.2;
+}
+
+.note-chat-sidebar-streamdown :where(h1) {
+	font-size: 1.5rem;
+}
+
+.note-chat-sidebar-streamdown :where(h2) {
+	font-size: 1.125rem;
+}
+
+.note-chat-sidebar-streamdown :where(h3, h4, h5, h6) {
+	font-size: 1rem;
+}
+
+.note-chat-sidebar-streamdown :where(ul, ol) {
+	margin: 0 0 0.75rem;
+	padding-left: 1.25rem;
+}
+
+.note-chat-sidebar-streamdown :where(ul) {
+	list-style: disc;
+}
+
+.note-chat-sidebar-streamdown :where(ol) {
+	list-style: decimal;
+}
+
+.note-chat-sidebar-streamdown :where(ul ul, ul ol, ol ul, ol ol) {
+	margin-top: 0.25rem;
+	margin-bottom: 0.25rem;
+}
+
+.note-chat-sidebar-streamdown :where(li) {
+	margin: 0.125rem 0;
+}
+
+.note-chat-sidebar-streamdown :where(hr) {
+	margin: 1rem 0;
+	border: 0;
+	border-top: 1px solid var(--border);
+}
+
 .onboarding-confetti-canvas {
 	position: absolute;
 	inset: 0;

@@ -2068,6 +2068,9 @@ function NoteChatMessages({
 				isLoading={isChatLoading}
 				messageStackClassName="gap-2"
 				messages={chatMessages}
+				streamdownClassName={
+					disablePadding ? "note-chat-sidebar-streamdown" : undefined
+				}
 				textContainerClassName=""
 				turnClassName={() => "flex flex-col gap-3"}
 				renderAssistantActions={({ displayText, message, timestamp }) => (
