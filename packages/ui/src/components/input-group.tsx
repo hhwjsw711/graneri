@@ -31,22 +31,34 @@ const INPUT_GROUP_OVERLAY_CONTENT_SELECTOR = [
 ].join(",");
 
 function focusInputGroupControl(container: HTMLDivElement) {
-	const control = container.querySelector<
-		HTMLInputElement | HTMLTextAreaElement
-	>('[data-slot="input-group-control"]:not([disabled])');
+	const control = container.querySelector<HTMLElement>(
+		'[data-slot="input-group-control"]:not([disabled])',
+	);
 
 	if (!control) {
 		return;
 	}
 
-	control.focus({ preventScroll: true });
+	const focusTarget = control.matches(
+		"input, textarea, [contenteditable='true']",
+	)
+		? control
+		: control.querySelector<HTMLElement>(
+				"input, textarea, [contenteditable='true']",
+			);
+
+	if (!focusTarget) {
+		return;
+	}
+
+	focusTarget.focus({ preventScroll: true });
 
 	if (
-		control instanceof HTMLInputElement ||
-		control instanceof HTMLTextAreaElement
+		focusTarget instanceof HTMLInputElement ||
+		focusTarget instanceof HTMLTextAreaElement
 	) {
-		const cursorPosition = control.value.length;
-		control.setSelectionRange(cursorPosition, cursorPosition);
+		const cursorPosition = focusTarget.value.length;
+		focusTarget.setSelectionRange(cursorPosition, cursorPosition);
 	}
 }
 
@@ -62,7 +74,11 @@ function shouldIgnoreInputGroupFocusTarget(
 	);
 
 	return (
-		Boolean(target.closest('[data-slot="input-group-control"]')) ||
+		Boolean(
+			target.closest(
+				"input, textarea, [contenteditable='true'], [data-slot='input-group-control'] button",
+			),
+		) ||
 		(Boolean(targetInputGroup) && targetInputGroup !== currentTarget) ||
 		(targetOverlayContent !== null &&
 			!targetOverlayContent.contains(currentTarget)) ||

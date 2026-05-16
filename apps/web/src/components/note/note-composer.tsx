@@ -531,6 +531,8 @@ const useNoteComposerController = ({
 	const panelModeRef = React.useRef(panelModeState);
 	const presentationModeRef = React.useRef(presentationModeState);
 	const shouldFocusInlineChatRef = React.useRef(false);
+	const shouldIgnoreNextOutsidePointerDownRef = React.useRef(false);
+	const suppressRecipePickerUntilUserActionRef = React.useRef(false);
 	const panelMode = panelModeState;
 	const presentationMode = presentationModeState;
 
@@ -1198,14 +1200,22 @@ const useNoteComposerController = ({
 	const closeRightSidebar = React.useCallback(() => {
 		setRightSidebarOpen(false);
 	}, [setRightSidebarOpen]);
+	const closeComposerPopovers = React.useCallback(() => {
+		if (recipePopoverOpen) {
+			suppressRecipePickerUntilUserActionRef.current = true;
+		}
+		setModelPopoverOpen(false);
+		setRecipePopoverOpen(false);
+	}, [recipePopoverOpen]);
 	const toggleTranscriptPanel = React.useCallback(() => {
+		closeComposerPopovers();
 		closeRightSidebar();
 		startTranscriptPanelTransition(() => {
 			setPanelMode((currentValue) =>
 				currentValue === "transcript" ? null : "transcript",
 			);
 		});
-	}, [closeRightSidebar, setPanelMode]);
+	}, [closeComposerPopovers, closeRightSidebar, setPanelMode]);
 
 	const resetComposerForNoteChange = React.useCallback(() => {
 		setCurrentChatId(createDraftChatId());
@@ -1308,6 +1318,11 @@ const useNoteComposerController = ({
 		}
 
 		const handlePointerDown = (event: PointerEvent) => {
+			if (shouldIgnoreNextOutsidePointerDownRef.current) {
+				shouldIgnoreNextOutsidePointerDownRef.current = false;
+				return;
+			}
+
 			const target = event.target;
 			if (!(target instanceof Node)) {
 				return;
@@ -1330,6 +1345,10 @@ const useNoteComposerController = ({
 				return;
 			}
 
+			if (composerEditorRef.current?.contains(target)) {
+				return;
+			}
+
 			if (inlinePanelRef.current?.contains(target)) {
 				return;
 			}
@@ -1347,11 +1366,20 @@ const useNoteComposerController = ({
 		};
 	}, [panelMode, setPanelMode, shouldShowInlinePanel]);
 
+	React.useEffect(() => {
+		if (panelMode === "chat" && presentationMode === "inline") {
+			return;
+		}
+
+		closeComposerPopovers();
+	}, [closeComposerPopovers, panelMode, presentationMode]);
+
 	const openDraftChat = React.useCallback(() => {
 		if (isChatLoading) {
 			stop();
 		}
 
+		closeComposerPopovers();
 		const nextChatId = createDraftChatId();
 		setCurrentChatId(nextChatId);
 		setMessages([]);
@@ -1364,6 +1392,7 @@ const useNoteComposerController = ({
 
 		openRightSidebar(presentationMode);
 	}, [
+		closeComposerPopovers,
 		isChatLoading,
 		openRightSidebar,
 		presentationMode,
@@ -1632,6 +1661,7 @@ const useNoteComposerController = ({
 			stop();
 		}
 
+		closeComposerPopovers();
 		handlePrefetchNoteChat(chatId);
 		setCurrentChatId(chatId);
 		setEditingMessageId(null);
@@ -1644,6 +1674,7 @@ const useNoteComposerController = ({
 	};
 
 	const handleSelectInlinePresentation = () => {
+		closeComposerPopovers();
 		setPresentationMode("inline");
 		closeRightSidebar();
 		shouldFocusInlineChatRef.current = true;
@@ -1653,15 +1684,49 @@ const useNoteComposerController = ({
 	const handleSelectRightPresentation = (
 		mode: Exclude<NoteChatPresentation, "inline">,
 	) => {
+		closeComposerPopovers();
 		openRightSidebar(mode);
 	};
 
 	const handleHideChat = () => {
+		closeComposerPopovers();
 		closeRightSidebar();
 		setPanelMode(null);
 	};
 
-	const handleComposerPointerDown = React.useCallback(() => {}, []);
+	const openInlineChatFromComposer = React.useCallback(() => {
+		if (!latestNoteChat) {
+			return;
+		}
+
+		if (isChatLoading) {
+			stop();
+		}
+
+		closeComposerPopovers();
+		handlePrefetchNoteChat(latestNoteChat.chatId);
+		setCurrentChatId(latestNoteChat.chatId);
+
+		closeRightSidebar();
+		setPresentationMode("inline");
+		setEditingMessageId(null);
+		shouldIgnoreNextOutsidePointerDownRef.current = true;
+		shouldFocusInlineChatRef.current = true;
+		setPanelMode("chat");
+	}, [
+		closeComposerPopovers,
+		closeRightSidebar,
+		handlePrefetchNoteChat,
+		isChatLoading,
+		latestNoteChat,
+		setPanelMode,
+		setPresentationMode,
+		stop,
+	]);
+
+	const handleComposerPointerDown = React.useCallback(() => {
+		openInlineChatFromComposer();
+	}, [openInlineChatFromComposer]);
 
 	React.useEffect(() => {
 		if (!editingMessageId) {
@@ -1684,30 +1749,8 @@ const useNoteComposerController = ({
 	}, [editingMessageId, handleCancelEdit]);
 
 	const handleComposerFocus = React.useCallback(() => {
-		if (!latestNoteChat) {
-			return;
-		}
-
-		if (isChatLoading) {
-			stop();
-		}
-
-		handlePrefetchNoteChat(latestNoteChat.chatId);
-		closeRightSidebar();
-		setPresentationMode("inline");
-		setCurrentChatId(latestNoteChat.chatId);
-		setEditingMessageId(null);
-		shouldFocusInlineChatRef.current = true;
-		setPanelMode("chat");
-	}, [
-		closeRightSidebar,
-		handlePrefetchNoteChat,
-		isChatLoading,
-		latestNoteChat,
-		setPanelMode,
-		setPresentationMode,
-		stop,
-	]);
+		openInlineChatFromComposer();
+	}, [openInlineChatFromComposer]);
 
 	return {
 		autoStartKey: transcriptSession.autoStartKey,
@@ -1791,6 +1834,7 @@ const useNoteComposerController = ({
 		sidebarPanelWidth,
 		sidebarPanelWidthCss,
 		setPanelMode,
+		canActivateInlineFromComposer: Boolean(latestNoteChat),
 		setModelPopoverOpen,
 		setReasoningEffort: handleReasoningEffortChange,
 		setSelectedModel: handleSelectedModelChange,
@@ -1798,6 +1842,7 @@ const useNoteComposerController = ({
 		setSelectedRecipeSlug,
 		reasoningEffort: selectedReasoningEffort,
 		selectedModel,
+		suppressRecipePickerUntilUserActionRef,
 		stop,
 		shouldShowInlinePanel,
 		toggleTranscriptPanel,
@@ -2499,6 +2544,7 @@ function ChatInlinePopoverFooter({
 	onModelPopoverOpenChange,
 	onSelectedModelChange,
 	onReasoningEffortChange,
+	suppressRecipePickerUntilUserActionRef,
 	recipePopoverOpen,
 	recipes,
 	modelPopoverOpen,
@@ -2529,6 +2575,7 @@ function ChatInlinePopoverFooter({
 	onModelPopoverOpenChange: (open: boolean) => void;
 	onSelectedModelChange: (model: ChatModel) => void;
 	onReasoningEffortChange: (value: ReasoningEffort) => void;
+	suppressRecipePickerUntilUserActionRef: React.MutableRefObject<boolean>;
 	recipePopoverOpen: boolean;
 	recipes: RecipePrompt[];
 	modelPopoverOpen: boolean;
@@ -2551,6 +2598,7 @@ function ChatInlinePopoverFooter({
 		() => {},
 	);
 	const recipePopoverOpenRef = React.useRef(recipePopoverOpen);
+	const previousRecipePopoverOpenRef = React.useRef(recipePopoverOpen);
 	const selectedRecipeIndexRef = React.useRef(0);
 	const [activeMentionQuery, setActiveMentionQuery] = React.useState("");
 	const [recipePickerPosition, setRecipePickerPosition] =
@@ -2571,6 +2619,10 @@ function ChatInlinePopoverFooter({
 		);
 	}, [activeMentionQuery, recipes]);
 	filteredRecipesRef.current = filteredRecipes;
+	if (previousRecipePopoverOpenRef.current && !recipePopoverOpen) {
+		suppressRecipePickerUntilUserActionRef.current = true;
+	}
+	previousRecipePopoverOpenRef.current = recipePopoverOpen;
 	recipePopoverOpenRef.current = recipePopoverOpen;
 	selectedRecipeIndexRef.current = selectedRecipeIndex;
 
@@ -2650,6 +2702,14 @@ function ChatInlinePopoverFooter({
 							range: Range;
 							query: string;
 						}) => {
+							if (suppressRecipePickerUntilUserActionRef.current) {
+								activeMentionRangeRef.current = null;
+								recipePopoverOpenRef.current = false;
+								setRecipePickerPosition(null);
+								onRecipePopoverOpenChange(false);
+								return;
+							}
+
 							const rect = getMentionAnchorRect(editor, range);
 							const normalizedQuery = query.trim().toLowerCase();
 							const nextRecipes = normalizedQuery
@@ -2700,23 +2760,27 @@ function ChatInlinePopoverFooter({
 		editorProps: {
 			attributes: {
 				class:
-					"chat-composer-tiptap min-h-[44px] max-h-[24rem] w-full flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent pt-3 pr-3 pb-0 pl-3.5 text-left text-[14px] leading-[1.6] font-normal shadow-none ring-0 outline-none focus-visible:ring-0 disabled:bg-transparent aria-invalid:ring-0 dark:bg-transparent dark:disabled:bg-transparent",
+					"chat-composer-tiptap min-h-full max-h-[24rem] w-full flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent pt-3 pr-3 pb-0 pl-3.5 text-left text-[14px] leading-[1.6] font-normal shadow-none ring-0 outline-none focus-visible:ring-0 disabled:bg-transparent aria-invalid:ring-0 dark:bg-transparent dark:disabled:bg-transparent",
 			},
 			handleDOMEvents: {
+				pointerdown: () => {
+					if (activateInlineOnFocus) {
+						handleComposerPointerDown();
+					} else {
+						suppressRecipePickerUntilUserActionRef.current = false;
+					}
+
+					return false;
+				},
 				focus: () => {
 					if (activateInlineOnFocus) {
 						handleComposerFocus();
 					}
 					return false;
 				},
-				pointerdown: () => {
-					if (activateInlineOnFocus) {
-						handleComposerPointerDown();
-					}
-					return false;
-				},
 			},
 			handleKeyDown: (_view, event) => {
+				suppressRecipePickerUntilUserActionRef.current = false;
 				if (recipePopoverOpenRef.current) {
 					return handleRecipePickerKeyDown({
 						event,
@@ -2733,6 +2797,7 @@ function ChatInlinePopoverFooter({
 			},
 		},
 		onUpdate: ({ editor }) => {
+			suppressRecipePickerUntilUserActionRef.current = false;
 			const nextValue = editor.getText({ blockSeparator: "\n" });
 			handleComposerValueChange(nextValue);
 			onRecipeSelect(getRecipeSlugFromComposerContent(editor.getJSON()));
@@ -2828,6 +2893,56 @@ function ChatInlinePopoverFooter({
 		},
 		[onAttachedFilesChange],
 	);
+	const handleInputGroupPointerDown = React.useCallback(
+		(event: React.PointerEvent<HTMLDivElement>) => {
+			if (!activateInlineOnFocus) {
+				return;
+			}
+
+			const target = event.target;
+			if (
+				target instanceof HTMLElement &&
+				target.closest(
+					"button, a[href], input, select, textarea, [role='button'], [data-slot='dropdown-menu-content'], [data-slot='select-content']",
+				)
+			) {
+				return;
+			}
+
+			handleComposerPointerDown();
+		},
+		[activateInlineOnFocus, handleComposerPointerDown],
+	);
+	React.useEffect(() => {
+		if (!activateInlineOnFocus) {
+			return;
+		}
+
+		const composerEditorElement = composerEditorRef.current;
+		if (!composerEditorElement) {
+			return;
+		}
+
+		const handlePointerDown = (event: PointerEvent) => {
+			event.preventDefault();
+			event.stopPropagation();
+			handleComposerPointerDown();
+		};
+
+		composerEditorElement.addEventListener("pointerdown", handlePointerDown, {
+			capture: true,
+		});
+
+		return () => {
+			composerEditorElement.removeEventListener(
+				"pointerdown",
+				handlePointerDown,
+				{
+					capture: true,
+				},
+			);
+		};
+	}, [activateInlineOnFocus, composerEditorRef, handleComposerPointerDown]);
 	const attachmentDropzone = useFileAttachmentDropzone({
 		disabled: isChatLoading || !shouldShowRecipeControls,
 		onFileUploadFailed: handleAttachmentUploadFailed,
@@ -2840,6 +2955,7 @@ function ChatInlinePopoverFooter({
 				data-drag-over={attachmentDropzone.isDragOver ? "true" : undefined}
 				className={NOTE_COMPOSER_FOOTER_SURFACE_CLASS}
 				{...attachmentDropzone.dropzoneProps}
+				onPointerDown={handleInputGroupPointerDown}
 			>
 				{shouldShowRecipeControls && attachedFiles.length > 0 ? (
 					<InputGroupAddon
@@ -2865,10 +2981,33 @@ function ChatInlinePopoverFooter({
 					ref={composerEditorRef}
 					className={cn(
 						NOTE_COMPOSER_FOOTER_BODY_CLASS,
-						"chat-composer-editor flex w-full flex-1 cursor-text",
+						"chat-composer-editor relative flex w-full flex-1 cursor-text",
 						isSidebarCompact && "[&_.chat-composer-tiptap]:px-3.5",
 					)}
+					onFocusCapture={() => {
+						if (activateInlineOnFocus) {
+							handleComposerFocus();
+						}
+					}}
+					onPointerDownCapture={() => {
+						if (activateInlineOnFocus) {
+							handleComposerPointerDown();
+						}
+					}}
 				>
+					{activateInlineOnFocus ? (
+						<button
+							type="button"
+							className="absolute inset-0 z-10 cursor-text bg-transparent p-0 text-left"
+							aria-label="Open follow-up chat"
+							onClick={handleComposerPointerDown}
+							onPointerDown={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								handleComposerPointerDown();
+							}}
+						/>
+					) : null}
 					{composerEditor ? (
 						<Tiptap editor={composerEditor}>
 							<Tiptap.Content />
@@ -3277,6 +3416,9 @@ function ChatComposerForm({
 				onModelPopoverOpenChange={controller.setModelPopoverOpen}
 				onSelectedModelChange={controller.setSelectedModel}
 				onReasoningEffortChange={controller.setReasoningEffort}
+				suppressRecipePickerUntilUserActionRef={
+					controller.suppressRecipePickerUntilUserActionRef
+				}
 				recipePopoverOpen={controller.recipePopoverOpen}
 				recipes={controller.recipes}
 				modelPopoverOpen={controller.modelPopoverOpen}
@@ -3955,7 +4097,7 @@ function NoteComposerDock({
 	return (
 		<div className="flex items-center gap-3 pt-2">
 			<ChatComposerForm
-				activateInlineOnFocus
+				activateInlineOnFocus={controller.canActivateInlineFromComposer}
 				controller={controller}
 				formClassName="group/composer mx-auto w-[calc(100%-2rem)] max-w-full min-w-0 md:w-full"
 				speechControls={<NoteComposerSpeechControls controller={controller} />}
