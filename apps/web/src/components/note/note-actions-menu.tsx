@@ -976,21 +976,25 @@ function NoteProjectMoveSubmenu({
 				Move to
 			</DropdownMenuSubTrigger>
 			<DropdownMenuPortal>
-				<DropdownMenuSubContent className="w-72 border-input/30 p-0">
+				<DropdownMenuSubContent className="w-60 border-input/30 p-0">
 					<Command>
 						<CommandInput
 							ref={searchInputRef}
 							placeholder="Move note to..."
+							className="h-9"
 							value={searchValue}
 							onValueChange={setSearchValue}
 							disabled={!note || isUpdatingProject}
 						/>
-						<CommandList>
+						<CommandList className="max-h-60">
 							<CommandEmpty>No projects found.</CommandEmpty>
-							<CommandGroup heading="Main">
+							<CommandGroup
+								heading="Main"
+								className="p-1 **:[[cmdk-group-heading]]:py-1"
+							>
 								<CommandItem
 									value="notes top level"
-									className="relative w-full cursor-pointer gap-2 pr-8"
+									className="relative w-full cursor-pointer gap-2 py-1.5 pr-8"
 									disabled={!note || isUpdatingProject}
 									onSelect={() => {
 										setOpen(false);
@@ -1007,12 +1011,15 @@ function NoteProjectMoveSubmenu({
 								</CommandItem>
 							</CommandGroup>
 							{(projects?.length ?? 0) > 0 ? (
-								<CommandGroup heading="Projects">
+								<CommandGroup
+									heading="Projects"
+									className="p-1 **:[[cmdk-group-heading]]:py-1"
+								>
 									{projects?.map((project) => (
 										<CommandItem
 											key={project._id}
 											value={`${project._id} ${project.name}`}
-											className="relative w-full cursor-pointer gap-2 pr-8"
+											className="relative w-full cursor-pointer gap-2 py-1.5 pr-8"
 											disabled={!note || isUpdatingProject}
 											onSelect={() => {
 												setOpen(false);
