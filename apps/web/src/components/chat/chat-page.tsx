@@ -291,10 +291,7 @@ const useChatPageController = ({
 	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
 		DesktopLocalFolder[]
 	>([]);
-	const localFolderStorageScope = React.useMemo(
-		() => `chat:${chatId}`,
-		[chatId],
-	);
+	const localFolderStorageScope = `chat:${chatId}`;
 	const [selectedSourceIds, setSelectedSourceIds] = React.useState<string[]>(
 		[],
 	);

@@ -645,12 +645,12 @@ export const handleChatRequest = async (
 	});
 	const localFolderRoots = canUseLocalFolderTools()
 		? await resolveLocalFolderRoots(
-				localFolders
-					.map((folder) => folder?.path)
-					.filter(
-						(path): path is string =>
-							typeof path === "string" && path.length > 0,
-					),
+				localFolders.reduce<string[]>((paths, folder) => {
+					if (typeof folder?.path === "string" && folder.path.length > 0) {
+						paths.push(folder.path);
+					}
+					return paths;
+				}, []),
 			)
 		: [];
 	const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);

@@ -466,10 +466,7 @@ const useNoteComposerController = ({
 	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
 		DesktopLocalFolder[]
 	>([]);
-	const localFolderStorageScope = React.useMemo(
-		() => `note-chat:${currentChatId}`,
-		[currentChatId],
-	);
+	const localFolderStorageScope = `note-chat:${currentChatId}`;
 	const [, startTranscriptPanelTransition] = React.useTransition();
 	const noteId = (noteContext.noteId as Id<"notes"> | null) ?? null;
 	const noteStorageScopeKey = getNoteStorageScopeKey(noteId);
