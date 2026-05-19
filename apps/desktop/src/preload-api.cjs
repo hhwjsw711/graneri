@@ -112,6 +112,8 @@ const createOpenGranDesktopApi = ({ ipcRenderer, platform, env }) => ({
 		ipcRenderer.invoke("app:save-note-draft", noteKey, draft),
 	clearNoteDraft: (noteKey) =>
 		ipcRenderer.invoke("app:clear-note-draft", noteKey),
+	shareLocalFolders: (paths) =>
+		ipcRenderer.invoke("app:share-local-folders", paths),
 	saveTextFile: (defaultFileName, content) =>
 		ipcRenderer.invoke("app:save-text-file", defaultFileName, content),
 });

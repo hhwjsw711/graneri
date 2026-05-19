@@ -387,6 +387,13 @@ const getToolGroupInfo = (part: UIMessage["parts"][number]) => {
 		};
 	}
 
+	if (groupKey === "local-folder") {
+		return {
+			key: "local-folder",
+			label: "Local folder",
+		};
+	}
+
 	return null;
 };
 

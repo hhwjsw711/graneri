@@ -32,6 +32,11 @@ import {
 	createImageGenerationTool,
 } from "../../../packages/ai/src/image-generation-tool.mjs";
 import {
+	buildLocalFolderSystemContext,
+	buildLocalFolderTools,
+} from "../../../packages/ai/src/local-folder-tools.mjs";
+import { extractTextFromUIMessage } from "../../../packages/ai/src/local-path-references.mjs";
+import {
 	CHAT_SERVER_MODELS,
 	CHAT_TITLE_MODEL_ID,
 	NOTE_GENERATION_MODEL_ID,
@@ -79,6 +84,11 @@ const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,
 });
+
+const shouldEnableImageGeneration = (message) =>
+	/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
+		extractTextFromUIMessage(message),
+	);
 const structuredNoteSchema = z.object({
 	title: z.string().min(1),
 	overview: z.array(z.string()),
@@ -596,7 +606,11 @@ const isAuthorizedLocalAppRequest = (request, allowedOrigin) => {
 	return getRequestOrigin(request) === allowedOrigin;
 };
 
-const handleChatRequest = async (request, response) => {
+const handleChatRequest = async ({
+	getSharedLocalFolders,
+	request,
+	response,
+}) => {
 	if (shouldProxyHostedAiRequest()) {
 		await proxyHostedAiRequest({
 			path: "/api/chat",
@@ -623,6 +637,7 @@ const handleChatRequest = async (request, response) => {
 		appsEnabled = true,
 		mentions,
 		selectedSourceIds,
+		localFolders = [],
 		convexToken,
 		recipeSlug,
 		noteContext,
@@ -767,13 +782,27 @@ const handleChatRequest = async (request, response) => {
 		convexClient,
 		workspaceId: resolvedWorkspaceId,
 	});
+	const localFolderRoots =
+		typeof getSharedLocalFolders === "function"
+			? getSharedLocalFolders(
+					(localFolders ?? [])
+						.map((folder) => folder?.id)
+						.filter((id) => typeof id === "string" && id),
+				)
+			: [];
+	const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
+	const imageGenerationEnabled = Boolean(
+		convexClient && message && shouldEnableImageGeneration(message),
+	);
 	const systemPrompt = `${buildChatSystemPrompt({
 		notesContext,
 		attachedNoteContext,
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}\n\n${buildImageGenerationInstruction()}${
+	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
+		localFolderContext ? `\n\n${localFolderContext}` : ""
+	}${
 		trackerConnection
 			? `\n\nThe selected app source for this chat is Yandex Tracker (${trackerConnection.displayName}). Treat it as the preferred source for project history, integrations, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Tracker, search Tracker first before saying the context is unavailable.`
 			: ""
@@ -814,7 +843,7 @@ const handleChatRequest = async (request, response) => {
 					}),
 				}
 			: {}),
-		...(convexClient
+		...(imageGenerationEnabled
 			? {
 					generate_image: createImageGenerationTool({
 						uploadGeneratedImage: createConvexGeneratedImageUploader({
@@ -825,6 +854,9 @@ const handleChatRequest = async (request, response) => {
 				}
 			: {}),
 		...appTools,
+		...(localFolderRoots.length > 0
+			? buildLocalFolderTools(localFolderRoots)
+			: {}),
 	};
 	const agent = new ToolLoopAgent({
 		model: openai(selectedModel.model),
@@ -1175,7 +1207,10 @@ const serveStaticAsset = async (request, response, options = {}) => {
 	serveFile(response, join(distDir, "index.html"));
 };
 
-export const startLocalServer = async ({ onAuthCallback } = {}) => {
+export const startLocalServer = async ({
+	getSharedLocalFolders,
+	onAuthCallback,
+} = {}) => {
 	let localServerOrigin = null;
 	const server = createServer((request, response) => {
 		const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -1220,7 +1255,11 @@ export const startLocalServer = async ({ onAuthCallback } = {}) => {
 				return;
 			}
 
-			void handleChatRequest(request, response).catch((error) => {
+			void handleChatRequest({
+				getSharedLocalFolders,
+				request,
+				response,
+			}).catch((error) => {
 				const message =
 					error instanceof Error ? error.message : "Unexpected server error.";
 				sendJson(response, 500, { error: message });

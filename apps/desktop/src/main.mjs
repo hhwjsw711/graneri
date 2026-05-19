@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
 	appendFile,
 	mkdir,
 	readdir,
 	readFile,
+	realpath,
 	rm,
 	stat,
 	writeFile,
@@ -92,6 +94,7 @@ const transcriptDraftStorageVersion = 1;
 const transcriptDraftMaxAgeMs = 72 * 60 * 60 * 1000;
 const noteDraftStorageVersion = 1;
 const noteDraftMaxAgeMs = 72 * 60 * 60 * 1000;
+const maxSharedLocalFolders = 12;
 const meetingDetectionDebounceMs = 8_000;
 const meetingDetectionDismissMs = 30 * 60 * 1000;
 const meetingWidgetAutoHideMs = 12 * 1000;
@@ -173,6 +176,54 @@ const createInitialNotificationPreferences = () => ({
 	notifyForScheduledMeetings: false,
 	notifyForAutoDetectedMeetings: false,
 });
+const createLocalFolderId = (folderPath) =>
+	createHash("sha256").update(folderPath).digest("hex").slice(0, 24);
+
+const toSharedLocalFolderPayload = (folder) => ({
+	id: folder.id,
+	name: folder.name,
+	path: folder.path,
+});
+
+const shareLocalFolders = async (paths) => {
+	if (!Array.isArray(paths)) {
+		throw new Error("Local folder paths must be an array.");
+	}
+
+	const folders = [];
+
+	for (const value of paths) {
+		if (typeof value !== "string" || !value.trim()) {
+			continue;
+		}
+
+		const folderPath = await realpath(value.trim());
+		const folderStat = await stat(folderPath);
+
+		if (!folderStat.isDirectory()) {
+			throw new Error("Only folders can be shared with Ask AI.");
+		}
+
+		const folder = {
+			id: createLocalFolderId(folderPath),
+			name: folderPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? folderPath,
+			path: folderPath,
+		};
+
+		sharedLocalFolders.set(folder.id, folder);
+		folders.push(toSharedLocalFolderPayload(folder));
+	}
+
+	while (sharedLocalFolders.size > maxSharedLocalFolders) {
+		const firstKey = sharedLocalFolders.keys().next().value;
+		if (!firstKey) {
+			break;
+		}
+		sharedLocalFolders.delete(firstKey);
+	}
+
+	return { folders };
+};
 const getCurrentDayWindow = () => {
 	const now = new Date();
 	const timeMin = new Date(now);
@@ -262,6 +313,7 @@ let microphoneActivitySession = null;
 let microphoneActivityEventSequence = 0;
 let systemAudioCaptureSession = null;
 let systemAudioCaptureStartRequestId = 0;
+const sharedLocalFolders = new Map();
 let systemAudioPermissionState = "prompt";
 let meetingWidgetWindow = null;
 let latestMeetingWidgetSize = { width: 360, height: 104 };
@@ -1983,6 +2035,11 @@ const closeLocalServer = async () => {
 const ensureLocalServer = async () => {
 	if (!localServer) {
 		localServer = await startLocalServer({
+			getSharedLocalFolders: (ids) =>
+				ids
+					.map((id) => sharedLocalFolders.get(id))
+					.filter(Boolean)
+					.map(toSharedLocalFolderPayload),
 			onAuthCallback: handleDesktopAuthCallback,
 		});
 	}
@@ -2626,7 +2683,7 @@ const createDesktopRealtimeClientSecret = async ({ lang, source, speaker }) => {
 		return clientSecret;
 	}
 
-	const requestId = crypto.randomUUID();
+	const requestId = randomUUID();
 	const response = await fetch(
 		"https://api.openai.com/v1/realtime/client_secrets",
 		{
@@ -3011,7 +3068,7 @@ const appendTranscriptionTailUtterance = (speaker) => {
 
 	appendTranscriptionUtterance({
 		endedAt: Date.now(),
-		id: `${state.sessionId ?? "session"}:${speaker}:manual:${crypto.randomUUID()}`,
+		id: `${state.sessionId ?? "session"}:${speaker}:manual:${randomUUID()}`,
 		speaker,
 		startedAt: liveEntry.startedAt ?? Date.now(),
 		text,
@@ -3413,7 +3470,7 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 	});
 	const policy = transcriptionPolicy ?? refreshTranscriptionPolicy();
 	transcriptionPolicy = policy;
-	currentTranscriptionSessionCorrelationId = crypto.randomUUID();
+	currentTranscriptionSessionCorrelationId = randomUUID();
 
 	patchTranscriptionSessionState({
 		error: null,
@@ -5325,6 +5382,10 @@ ipcMain.handle("app:clear-note-draft", async (_event, noteKey) => {
 	}
 
 	return await clearNoteDraft(noteKey.trim());
+});
+
+ipcMain.handle("app:share-local-folders", async (_event, paths) => {
+	return await shareLocalFolders(paths);
 });
 
 ipcMain.handle(

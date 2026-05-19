@@ -163,6 +163,12 @@ export type DesktopNoteDraft = {
 	searchableText: string;
 };
 
+export type DesktopLocalFolder = {
+	id: string;
+	name: string;
+	path: string;
+};
+
 export interface OpenGranDesktopBridge {
 	platform: DesktopPlatform;
 	getMeta: () => Promise<{
@@ -274,6 +280,9 @@ export interface OpenGranDesktopBridge {
 		draft: Omit<DesktopNoteDraft, "version" | "noteId" | "updatedAt">,
 	) => Promise<{ ok: boolean }>;
 	clearNoteDraft: (noteKey: string) => Promise<{ ok: boolean }>;
+	shareLocalFolders: (paths: string[]) => Promise<{
+		folders: DesktopLocalFolder[];
+	}>;
 	saveTextFile: (
 		defaultFileName: string,
 		content: string,

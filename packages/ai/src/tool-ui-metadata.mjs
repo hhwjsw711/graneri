@@ -44,6 +44,33 @@ export const toolUiMetadata = {
 		complete: "Searched Jira",
 		subtitleKeys: ["query", "jql", "q"],
 	},
+	get_shared_local_folders: {
+		groupKey: "local-folder",
+		icon: "folder",
+		running: "Checking shared folders",
+		complete: "Checked shared folders",
+	},
+	list_local_directory: {
+		groupKey: "local-folder",
+		icon: "folder-open",
+		running: "Reading local folder",
+		complete: "Read local folder",
+		subtitleKeys: ["relativePath"],
+	},
+	read_local_file: {
+		groupKey: "local-folder",
+		icon: "file-text",
+		running: "Reading local file",
+		complete: "Read local file",
+		subtitleKeys: ["relativePath"],
+	},
+	search_local_files: {
+		groupKey: "local-folder",
+		icon: "file-search",
+		running: "Searching local files",
+		complete: "Searched local files",
+		subtitleKeys: ["query"],
+	},
 	notion_fetch: {
 		icon: "file-search",
 		running: "Reading Notion",
@@ -97,5 +124,4 @@ export const toolUiMetadata = {
 	},
 };
 
-export const getToolUiMetadata = (toolName) =>
-	toolUiMetadata[toolName] ?? null;
+export const getToolUiMetadata = (toolName) => toolUiMetadata[toolName] ?? null;

@@ -7,8 +7,10 @@ import Text from "@tiptap/extension-text";
 import { Tiptap, useEditor } from "@tiptap/react";
 import {
 	canOpenDesktopSoundSettings,
+	getDesktopBridge,
 	openDesktopSoundSettings,
 } from "@workspace/platform/desktop";
+import type { DesktopLocalFolder } from "@workspace/platform/desktop-bridge";
 import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent, CardHeader } from "@workspace/ui/components/card";
 import {
@@ -149,6 +151,10 @@ import {
 import { transcriptionSessionManager } from "@/lib/transcription-session-manager";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
+import {
+	extractLocalPathReferences,
+	mergeLocalFolders,
+} from "../../../../../packages/ai/src/local-path-references.mjs";
 import { SpeechInput } from "../ai-elements/speech-input";
 import {
 	DESKTOP_DOCKED_PANEL_DEFAULT_WIDTH,
@@ -455,6 +461,9 @@ const useNoteComposerController = ({
 		createDraftChatId(),
 	);
 	const [isPreparingRequest, setIsPreparingRequest] = React.useState(false);
+	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
+		DesktopLocalFolder[]
+	>([]);
 	const [, startTranscriptPanelTransition] = React.useTransition();
 	const noteId = (noteContext.noteId as Id<"notes"> | null) ?? null;
 	const noteStorageScopeKey = getNoteStorageScopeKey(noteId);
@@ -1445,6 +1454,25 @@ const useNoteComposerController = ({
 		stop,
 	]);
 
+	const shareLocalFoldersFromText = React.useCallback(async (text: string) => {
+		const bridge = getDesktopBridge();
+
+		if (!bridge?.shareLocalFolders) {
+			return [];
+		}
+
+		const paths = extractLocalPathReferences(text);
+		if (paths.length === 0) {
+			return [];
+		}
+
+		const result = await bridge.shareLocalFolders(paths);
+		setSharedLocalFolders((currentFolders) =>
+			mergeLocalFolders(currentFolders, result.folders),
+		);
+		return result.folders;
+	}, []);
+
 	const handleSend = React.useCallback(async () => {
 		const nextMessage = getMessageTextWithoutRecipeMention(
 			message,
@@ -1469,9 +1497,16 @@ const useNoteComposerController = ({
 		try {
 			const currentNoteContext = readNoteContext();
 			const convexToken = await getCachedConvexToken();
+			const outgoingText = nextMessage || selectedRecipe?.name || "";
+			const newlySharedLocalFolders =
+				await shareLocalFoldersFromText(outgoingText);
 			const requestBody = {
 				model: selectedModel.model,
 				reasoningEffort: selectedReasoningEffort,
+				localFolders: mergeLocalFolders(
+					sharedLocalFolders,
+					newlySharedLocalFolders,
+				),
 				convexToken,
 				noteContext: {
 					noteId: currentNoteContext.noteId,
@@ -1489,7 +1524,6 @@ const useNoteComposerController = ({
 						recipeOnly: nextMessage.length === 0,
 					}
 				: undefined;
-			const outgoingText = nextMessage || selectedRecipe?.name || "";
 			const readyFiles = getReadyFileParts(attachedFiles);
 			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
 			const nextOutgoingMessage = editingMessageId
@@ -1530,6 +1564,8 @@ const useNoteComposerController = ({
 		selectedReasoningEffort,
 		editingMessageId,
 		selectedModel.model,
+		shareLocalFoldersFromText,
+		sharedLocalFolders,
 		sendMessage,
 		setPanelMode,
 	]);
@@ -1597,6 +1633,7 @@ const useNoteComposerController = ({
 		return {
 			model: selectedModel.model,
 			reasoningEffort: selectedReasoningEffort,
+			localFolders: sharedLocalFolders,
 			convexToken,
 			noteContext: {
 				noteId: currentNoteContext.noteId,
@@ -1610,6 +1647,7 @@ const useNoteComposerController = ({
 		selectedReasoningEffort,
 		selectedModel.model,
 		selectedRecipe?.slug,
+		sharedLocalFolders,
 	]);
 
 	const handleDeleteMessage = React.useCallback(

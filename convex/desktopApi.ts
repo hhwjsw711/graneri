@@ -23,6 +23,7 @@ import {
 	createConvexGeneratedImageUploader,
 	createImageGenerationTool,
 } from "../packages/ai/src/image-generation-tool.mjs";
+import { extractTextFromUIMessage } from "../packages/ai/src/local-path-references.mjs";
 import {
 	CHAT_SERVER_MODELS,
 	CHAT_TITLE_MODEL_ID,
@@ -103,6 +104,13 @@ const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,
 });
+const shouldEnableImageGeneration = (message: UIMessage | undefined) =>
+	Boolean(
+		message &&
+			/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
+				extractTextFromUIMessage(message),
+			),
+	);
 const structuredNoteSchema = z.object({
 	title: z.string().min(1),
 	overview: z.array(z.string()),
@@ -640,6 +648,10 @@ export const handleChatRequest = async (request: Request) => {
 	const appTools = appsEnabled
 		? await buildWorkspaceToolSet(appConnections)
 		: {};
+	const imageGenerationRequested = shouldEnableImageGeneration(lastUserMessage);
+	const imageGenerationEnabled = Boolean(
+		convexClient && imageGenerationRequested,
+	);
 	const tools = {
 		...(webSearchEnabled
 			? {
@@ -652,7 +664,7 @@ export const handleChatRequest = async (request: Request) => {
 					}),
 				}
 			: {}),
-		...(convexClient
+		...(convexClient && imageGenerationRequested
 			? {
 					generate_image: createImageGenerationTool({
 						uploadGeneratedImage: createConvexGeneratedImageUploader({
@@ -676,7 +688,7 @@ export const handleChatRequest = async (request: Request) => {
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}\n\n${buildImageGenerationInstruction()}`;
+	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}`;
 	const result = streamText({
 		model: openai(selectedModel.model),
 		providerOptions,

@@ -27,6 +27,12 @@ import {
 	createImageGenerationTool,
 } from "../../../packages/ai/src/image-generation-tool.mjs";
 import {
+	buildLocalFolderSystemContext,
+	buildLocalFolderTools,
+	resolveLocalFolderRoots,
+} from "../../../packages/ai/src/local-folder-tools.mjs";
+import { extractTextFromUIMessage } from "../../../packages/ai/src/local-path-references.mjs";
+import {
 	buildChatSystemPrompt,
 	CHAT_TITLE_SYSTEM_PROMPT,
 } from "../../../packages/ai/src/prompts.mjs";
@@ -49,6 +55,7 @@ type ChatRequestBody = {
 	appsEnabled?: boolean;
 	mentions?: string[];
 	selectedSourceIds?: string[];
+	localFolders?: Array<{ id?: string; name?: string; path?: string }>;
 	convexToken?: string | null;
 	recipeSlug?: string | null;
 	noteContext?: {
@@ -67,6 +74,13 @@ const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,
 });
+
+const shouldEnableImageGeneration = (message: UIMessage) =>
+	/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
+		extractTextFromUIMessage(message),
+	);
+
+const canUseLocalFolderTools = () => process.env.OPENGRAN_ENV_MODE === "local";
 
 const getConvexUrl = () => {
 	const value = process.env.CONVEX_URL ?? process.env.VITE_CONVEX_URL;
@@ -445,6 +459,7 @@ export const handleChatRequest = async (
 		appsEnabled = true,
 		mentions,
 		selectedSourceIds,
+		localFolders = [],
 		convexToken,
 		recipeSlug,
 		noteContext,
@@ -628,13 +643,29 @@ export const handleChatRequest = async (
 		convexClient,
 		workspaceId: resolvedWorkspaceId,
 	});
+	const localFolderRoots = canUseLocalFolderTools()
+		? await resolveLocalFolderRoots(
+				localFolders
+					.map((folder) => folder?.path)
+					.filter(
+						(path): path is string =>
+							typeof path === "string" && path.length > 0,
+					),
+			)
+		: [];
+	const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
+	const imageGenerationEnabled = Boolean(
+		convexClient && shouldEnableImageGeneration(message),
+	);
 	const systemPrompt = `${buildChatSystemPrompt({
 		notesContext,
 		attachedNoteContext,
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}\n\n${buildImageGenerationInstruction()}${
+	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
+		localFolderContext ? `\n\n${localFolderContext}` : ""
+	}${
 		trackerConnection
 			? `\n\nThe selected app source for this chat is Yandex Tracker (${trackerConnection.displayName}). Treat it as the preferred source for project history, integrations, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Tracker, search Tracker first before saying the context is unavailable.`
 			: ""
@@ -675,7 +706,7 @@ export const handleChatRequest = async (
 		});
 	}
 
-	if (convexClient) {
+	if (imageGenerationEnabled && convexClient) {
 		enabledTools.generate_image = createImageGenerationTool({
 			uploadGeneratedImage: createConvexGeneratedImageUploader({
 				chatAttachmentsApi: api.chatAttachments,
@@ -685,6 +716,9 @@ export const handleChatRequest = async (
 	}
 
 	Object.assign(enabledTools, appTools);
+	if (localFolderRoots.length > 0) {
+		Object.assign(enabledTools, buildLocalFolderTools(localFolderRoots));
+	}
 
 	const hasEnabledTools = Object.keys(enabledTools).length > 0;
 	const chatMessages = await validateUIMessages<

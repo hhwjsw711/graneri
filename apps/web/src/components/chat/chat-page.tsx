@@ -1,5 +1,9 @@
 import { useChat } from "@ai-sdk/react";
-import { isDesktopRuntime } from "@workspace/platform/desktop";
+import {
+	getDesktopBridge,
+	isDesktopRuntime,
+} from "@workspace/platform/desktop";
+import type { DesktopLocalFolder } from "@workspace/platform/desktop-bridge";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
@@ -61,6 +65,10 @@ import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc } from "../../../../../convex/_generated/dataModel";
+import {
+	extractLocalPathReferences,
+	mergeLocalFolders,
+} from "../../../../../packages/ai/src/local-path-references.mjs";
 import { ChatComposer, type ChatComposerMention } from "./chat-composer";
 import { ChatHistoryList } from "./chat-history-list";
 
@@ -280,6 +288,9 @@ const useChatPageController = ({
 		null,
 	);
 	const [isPreparingRequest, setIsPreparingRequest] = React.useState(false);
+	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
+		DesktopLocalFolder[]
+	>([]);
 	const [selectedSourceIds, setSelectedSourceIds] = React.useState<string[]>(
 		[],
 	);
@@ -483,6 +494,24 @@ const useChatPageController = ({
 			})),
 		[contextPages],
 	);
+	const shareLocalFoldersFromText = React.useCallback(async (text: string) => {
+		const bridge = getDesktopBridge();
+
+		if (!bridge?.shareLocalFolders) {
+			return [];
+		}
+
+		const paths = extractLocalPathReferences(text);
+		if (paths.length === 0) {
+			return [];
+		}
+
+		const result = await bridge.shareLocalFolders(paths);
+		setSharedLocalFolders((currentFolders) =>
+			mergeLocalFolders(currentFolders, result.folders),
+		);
+		return result.folders;
+	}, []);
 	const handleSubmit = React.useCallback(async () => {
 		const value = draft;
 
@@ -498,6 +527,7 @@ const useChatPageController = ({
 
 		try {
 			const convexToken = await getCachedConvexToken();
+			const newlySharedLocalFolders = await shareLocalFoldersFromText(value);
 			onChatPersisted?.(chatId);
 			const readyFiles = getReadyFileParts(attachedFiles);
 			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
@@ -525,6 +555,10 @@ const useChatPageController = ({
 					body: {
 						model: selectedModel.model,
 						reasoningEffort: selectedReasoningEffort,
+						localFolders: mergeLocalFolders(
+							sharedLocalFolders,
+							newlySharedLocalFolders,
+						),
 						webSearchEnabled,
 						appsEnabled,
 						mentions: mentionIds,
@@ -556,6 +590,8 @@ const useChatPageController = ({
 		onChatPersisted,
 		selectedReasoningEffort,
 		selectedModel.model,
+		shareLocalFoldersFromText,
+		sharedLocalFolders,
 		sendMessage,
 		webSearchEnabled,
 		selectedSourceIds,
@@ -612,6 +648,7 @@ const useChatPageController = ({
 		return {
 			model: selectedModel.model,
 			reasoningEffort: selectedReasoningEffort,
+			localFolders: sharedLocalFolders,
 			webSearchEnabled,
 			appsEnabled,
 			mentions: mentionIds,
@@ -626,6 +663,7 @@ const useChatPageController = ({
 		selectedReasoningEffort,
 		selectedModel.model,
 		selectedSourceIds,
+		sharedLocalFolders,
 		webSearchEnabled,
 	]);
 

@@ -3,6 +3,9 @@ import {
 	Database,
 	FileImage,
 	FileSearch,
+	FileText,
+	Folder,
+	FolderOpen,
 	Globe,
 	Search,
 } from "lucide-react";
@@ -60,6 +63,9 @@ const toolIconRegistry = {
 	database: Database,
 	"file-image": FileImage,
 	"file-search": FileSearch,
+	"file-text": FileText,
+	folder: Folder,
+	"folder-open": FolderOpen,
 	globe: Globe,
 	search: Search,
 } satisfies Record<string, React.ComponentType<{ className?: string }>>;

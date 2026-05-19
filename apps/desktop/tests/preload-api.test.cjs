@@ -86,6 +86,7 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 	await api.startDetectedMeetingNote();
 	await api.saveTranscriptDraft("note_1", transcriptDraft);
 	await api.saveNoteDraft("note_1", noteDraft);
+	await api.shareLocalFolders(["/Users/test/Documents/project"]);
 	await api.saveTextFile("meeting.txt", "notes");
 
 	assert.deepEqual(ipcRenderer.invocations, [
@@ -107,6 +108,10 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 		{
 			args: ["note_1", noteDraft],
 			channel: "app:save-note-draft",
+		},
+		{
+			args: [["/Users/test/Documents/project"]],
+			channel: "app:share-local-folders",
 		},
 		{ args: ["meeting.txt", "notes"], channel: "app:save-text-file" },
 	]);
