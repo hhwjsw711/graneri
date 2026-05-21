@@ -31,6 +31,7 @@ export function MarkdownStream({
 	className,
 	controls = false,
 	caret = "block",
+	linkSafety = { enabled: false },
 	mode,
 	plugins,
 	...props
@@ -40,6 +41,7 @@ export function MarkdownStream({
 			className={cn("wrap-break-word", className)}
 			controls={controls}
 			caret={caret}
+			linkSafety={linkSafety}
 			mode={mode}
 			plugins={{ code, ...plugins }}
 			shikiTheme={["github-light", "github-dark"]}
