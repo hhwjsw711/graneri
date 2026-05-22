@@ -24,6 +24,16 @@ const automationAppSourceSchema = z.object({
 	]),
 });
 
+const getAvailableAppSourceDescription = (appSources) => {
+	if (appSources.length === 0) {
+		return "No connected app source ids are available in this chat. Omit appSourceIds.";
+	}
+
+	return `Available connected app source ids: ${appSources
+		.map((source) => `${source.id} (${source.label})`)
+		.join(", ")}. Only use ids from this list.`;
+};
+
 export const buildAutomationCreationInstruction = ({ now, timezone }) =>
 	[
 		"When the user asks to create, schedule, run, watch, check, summarize, or report on something automatically on a recurring cadence, use the create_automation tool.",
@@ -65,7 +75,7 @@ export const createAutomationTool = ({
 				.array(z.string().min(1))
 				.optional()
 				.describe(
-					"Optional selected connected app source ids to attach to the automation. Omit to use the chat's selected app sources.",
+					`Optional selected connected app source ids to attach to the automation. Omit to use the chat's selected app sources. ${getAvailableAppSourceDescription(appSources)}`,
 				),
 		}),
 		policy: {
@@ -81,6 +91,21 @@ export const createAutomationTool = ({
 			schedulePeriod,
 			title,
 		}) => {
+			if (appSourceIds && appSourceIds.length > 0) {
+				const validAppSourceIds = new Set(
+					appSources.map((source) => source.id),
+				);
+				const unknownAppSourceIds = appSourceIds.filter(
+					(sourceId) => !validAppSourceIds.has(sourceId),
+				);
+
+				if (unknownAppSourceIds.length > 0) {
+					throw new Error(
+						`Unknown automation app source id${unknownAppSourceIds.length === 1 ? "" : "s"}: ${unknownAppSourceIds.join(", ")}`,
+					);
+				}
+			}
+
 			const selectedAppSources =
 				appSourceIds && appSourceIds.length > 0
 					? appSources.filter((source) => appSourceIds.includes(source.id))

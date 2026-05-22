@@ -44,7 +44,9 @@ import { extractTextFromUIMessage } from "../../../packages/ai/src/local-path-re
 import {
 	CHAT_SERVER_MODELS,
 	CHAT_TITLE_MODEL_ID,
+	getChatModelProviderOptions,
 	NOTE_GENERATION_MODEL_ID,
+	normalizeReasoningEffort,
 } from "../../../packages/ai/src/models.mjs";
 import {
 	parseTemplateStreamToStructuredNote,
@@ -673,6 +675,7 @@ const handleChatRequest = async ({
 		message,
 		messages = [],
 		model,
+		reasoningEffort,
 		workspaceId,
 		webSearchEnabled = false,
 		appsEnabled = true,
@@ -693,6 +696,10 @@ const handleChatRequest = async ({
 	}
 
 	const selectedModel = resolveChatModel(model);
+	const resolvedReasoningEffort = normalizeReasoningEffort(reasoningEffort);
+	const providerOptions = getChatModelProviderOptions(selectedModel.model, {
+		reasoningEffort: resolvedReasoningEffort,
+	});
 	const resolvedWorkspaceId = workspaceId ?? null;
 	const resolvedTimezone = timezone?.trim() || "UTC";
 	const convexClient =
@@ -745,6 +752,7 @@ const handleChatRequest = async ({
 				noteId: resolvedNoteId ?? undefined,
 				preview: getChatPreviewFromMessage(lastUserMessage),
 				model: selectedModel.model,
+				reasoningEffort: resolvedReasoningEffort,
 				message: toStoredMessage(lastUserMessage),
 			});
 		} catch (error) {
@@ -922,7 +930,7 @@ const handleChatRequest = async ({
 							...automation,
 						}),
 					defaultModel: selectedModel.model,
-					defaultReasoningEffort: "low",
+					defaultReasoningEffort: resolvedReasoningEffort,
 					defaultTimezone: resolvedTimezone,
 					enabled: automationCreationEnabled,
 					webSearchEnabled,
@@ -935,6 +943,7 @@ const handleChatRequest = async ({
 	};
 	const agent = new ToolLoopAgent({
 		model: openai(selectedModel.model),
+		providerOptions,
 		instructions: systemPrompt,
 		tools: Object.keys(enabledTools).length > 0 ? enabledTools : undefined,
 		stopWhen: Object.keys(enabledTools).length > 0 ? stepCountIs(5) : undefined,
@@ -967,6 +976,7 @@ const handleChatRequest = async ({
 					title: generatedChatTitle,
 					preview: getChatPreviewFromMessage(responseMessage),
 					model: selectedModel.model,
+					reasoningEffort: resolvedReasoningEffort,
 					message: toStoredMessage(responseMessage),
 				});
 			} catch (error) {
