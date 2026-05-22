@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { withToolTiming } from "./tool-timing.mjs";
 
 export const defineAiTool = ({
+	deferLoading = true,
 	description,
 	execute,
 	inputSchema,
@@ -20,6 +21,11 @@ export const defineAiTool = ({
 			inputSchema,
 			metadata: {
 				ui,
+			},
+			providerOptions: {
+				openai: {
+					deferLoading,
+				},
 			},
 			execute: async (input) => await withToolTiming(async () => execute(input)),
 		}),

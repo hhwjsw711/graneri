@@ -127,6 +127,13 @@ export const buildRemoteMcpTools = async (connection) =>
 					mcpToolName: definition.name,
 					ui: getRemoteMcpToolUiMetadata(connection),
 				},
+				providerOptions: {
+					...(discoveredTool.providerOptions ?? {}),
+					openai: {
+						...(discoveredTool.providerOptions?.openai ?? {}),
+						deferLoading: true,
+					},
+				},
 				execute: async (args, options) =>
 					await executeRemoteMcpTool(connection, definition, args, options),
 			};

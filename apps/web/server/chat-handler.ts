@@ -34,6 +34,7 @@ import {
 	resolveLocalFolderRoots,
 } from "../../../packages/ai/src/local-folder-tools.mjs";
 import { extractTextFromUIMessage } from "../../../packages/ai/src/local-path-references.mjs";
+import { addOpenAIToolSearch } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
 	buildChatSystemPrompt,
 	CHAT_TITLE_SYSTEM_PROMPT,
@@ -698,12 +699,13 @@ export const handleChatRequest = async (
 		Object.assign(enabledTools, buildLocalFolderTools(localFolderRoots));
 	}
 
-	const hasEnabledTools = Object.keys(enabledTools).length > 0;
+	const tools = addOpenAIToolSearch(enabledTools);
+	const hasEnabledTools = Object.keys(tools).length > 0;
 	const chatMessages = await validateUIMessages<
-		UIMessage<unknown, never, InferUITools<typeof enabledTools>>
+		UIMessage<unknown, never, InferUITools<typeof tools>>
 	>({
 		messages: incomingMessages,
-		tools: enabledTools,
+		tools,
 	});
 	const lastUserMessage =
 		message.role === "user"
@@ -737,7 +739,7 @@ export const handleChatRequest = async (
 		model: openai(resolvedModel.model),
 		providerOptions,
 		instructions: systemPrompt,
-		tools: hasEnabledTools ? enabledTools : undefined,
+		tools: hasEnabledTools ? tools : undefined,
 		stopWhen: hasEnabledTools ? stepCountIs(5) : undefined,
 	});
 

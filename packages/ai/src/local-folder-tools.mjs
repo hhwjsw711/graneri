@@ -141,6 +141,11 @@ const TRANSCRIPTION_MEDIA_TYPES = {
 	".webm": "audio/webm",
 };
 const VIDEO_TRANSCRIPTION_EXTENSIONS = new Set([".mov", ".mp4"]);
+const deferredOpenAIToolOptions = {
+	openai: {
+		deferLoading: true,
+	},
+};
 const MEDIA_TOOL_CANDIDATES = {
 	ffmpeg: [
 		process.env.OPENGRAN_FFMPEG_PATH,
@@ -1386,6 +1391,7 @@ export const buildLocalFolderTools = (roots) => {
 		list_local_directory: tool({
 			description:
 				"List files and folders inside a local folder explicitly shared by the desktop user.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({
 				rootIndex: rootSchema.describe(
 					"Shared folder index from the system context.",
@@ -1403,6 +1409,7 @@ export const buildLocalFolderTools = (roots) => {
 		read_local_file: tool({
 			description:
 				"Read a text-like file inside a local folder explicitly shared by the desktop user.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({
 				rootIndex: rootSchema.describe(
 					"Shared folder index from the system context.",
@@ -1420,6 +1427,7 @@ export const buildLocalFolderTools = (roots) => {
 		transcribe_local_audio: tool({
 			description:
 				"Transcribe an audio or video file inside a local folder explicitly shared by the desktop user. Use this when the user asks what an audio or video recording says or what a meeting recording was about.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({
 				rootIndex: rootSchema.describe(
 					"Shared folder index from the system context.",
@@ -1452,6 +1460,7 @@ export const buildLocalFolderTools = (roots) => {
 		inspect_local_image: tool({
 			description:
 				"Inspect an image inside a local folder explicitly shared by the desktop user. Use this to describe a screenshot/photo/image, extract visible text, read charts, or answer questions about a specific image file.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({
 				rootIndex: rootSchema.describe(
 					"Shared folder index from the system context.",
@@ -1482,6 +1491,7 @@ export const buildLocalFolderTools = (roots) => {
 		search_local_images: tool({
 			description:
 				"Semantically search images inside a local folder explicitly shared by the desktop user. Use this when the user asks to find screenshots, photos, diagrams, images containing text, or images matching a visual description.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({
 				rootIndex: rootSchema.describe(
 					"Shared folder index from the system context.",
@@ -1515,6 +1525,7 @@ export const buildLocalFolderTools = (roots) => {
 		search_local_files: tool({
 			description:
 				"Search file names and text-like file contents inside a local folder explicitly shared by the desktop user.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({
 				rootIndex: rootSchema.describe(
 					"Shared folder index from the system context.",
@@ -1529,6 +1540,7 @@ export const buildLocalFolderTools = (roots) => {
 		run_local_bash: tool({
 			description:
 				"Run bash commands inside a virtual snapshot of text-like files from one local folder explicitly shared by the desktop user. Use for broad, multi-step text exploration with commands like find, grep, cat, head, tail, wc, sort, uniq, sed, awk, and jq. This does not run on the user's real filesystem and snapshot writes do not modify real files.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({
 				rootIndex: rootSchema.describe(
 					"Shared folder index from the system context.",
@@ -1545,6 +1557,7 @@ export const buildLocalFolderTools = (roots) => {
 		}),
 		get_shared_local_folders: tool({
 			description: "Return the local folders shared with this chat request.",
+			providerOptions: deferredOpenAIToolOptions,
 			inputSchema: z.object({}),
 			execute: async () =>
 				withDuration(async () => ({

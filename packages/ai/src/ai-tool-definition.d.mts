@@ -31,6 +31,7 @@ export type AiToolDefinition<
 };
 
 export declare function defineAiTool<TInput, TOutput>(args: {
+	deferLoading?: boolean;
 	description: string;
 	execute(input: TInput): Promise<TOutput> | TOutput;
 	inputSchema: z.ZodType<TInput>;

@@ -45,6 +45,7 @@ export const createAutomationTool = ({
 	webSearchEnabled,
 }) =>
 	defineAiTool({
+		deferLoading: false,
 		name: "create_automation",
 		description:
 			"Create a recurring OpenGran automation from the current chat. Use this when the user asks for a task to run automatically on a schedule.",

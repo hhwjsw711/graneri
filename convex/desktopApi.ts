@@ -24,6 +24,7 @@ import {
 	createImageGenerationTool,
 } from "../packages/ai/src/image-generation-tool.mjs";
 import { extractTextFromUIMessage } from "../packages/ai/src/local-path-references.mjs";
+import { addOpenAIToolSearch } from "../packages/ai/src/openai-tool-search.mjs";
 import {
 	CHAT_SERVER_MODELS,
 	CHAT_TITLE_MODEL_ID,
@@ -655,7 +656,7 @@ export const handleChatRequest = async (request: Request) => {
 	const imageGenerationEnabled = Boolean(
 		convexClient && imageGenerationRequested,
 	);
-	const tools = {
+	const tools = addOpenAIToolSearch({
 		...(webSearchEnabled
 			? {
 					web_search: openai.tools.webSearch({
@@ -678,7 +679,7 @@ export const handleChatRequest = async (request: Request) => {
 				}
 			: {}),
 		...appTools,
-	};
+	});
 
 	const userProfileContext =
 		convexClient &&
