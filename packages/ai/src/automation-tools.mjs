@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineAiTool } from "./ai-tool-definition.mjs";
+import { automationAppSourceProviders } from "./app-source-providers.mjs";
 import { toolUiMetadata } from "./tool-ui-metadata.mjs";
 
 const automationSchedulePeriodSchema = z.enum([
@@ -8,17 +9,6 @@ const automationSchedulePeriodSchema = z.enum([
 	"weekdays",
 	"weekly",
 ]);
-
-export const automationAppSourceProviders = [
-	"google-calendar",
-	"google-drive",
-	"jira-mcp",
-	"notion",
-	"posthog",
-	"yandex-calendar",
-	"yandex-tracker",
-	"zoom",
-];
 
 const automationAppSourceSchema = z.object({
 	id: z.string().min(1),

@@ -20,6 +20,7 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api.js";
+import { buildSelectedAppSourceInstructions } from "../../../packages/ai/src/app-source-providers.mjs";
 import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
 import {
 	buildChatTitlePrompt,
@@ -798,34 +799,9 @@ const handleChatRequest = async ({
 				workspaceId: resolvedWorkspaceId,
 			})
 		: [];
-	const trackerConnection =
-		selectedAppConnections.find(
-			(connection) => connection.provider === "yandex-tracker",
-		) ?? null;
-	const yandexCalendarConnection =
-		selectedAppConnections.find(
-			(connection) => connection.provider === "yandex-calendar",
-		) ?? null;
-	const jiraConnection =
-		selectedAppConnections.find(
-			(connection) => connection.provider === "jira-mcp",
-		) ?? null;
-	const googleCalendarConnection =
-		selectedAppConnections.find(
-			(connection) => connection.provider === "google-calendar",
-		) ?? null;
-	const googleDriveConnection =
-		selectedAppConnections.find(
-			(connection) => connection.provider === "google-drive",
-		) ?? null;
-	const posthogConnection =
-		selectedAppConnections.find(
-			(connection) => connection.provider === "posthog",
-		) ?? null;
-	const notionConnection =
-		selectedAppConnections.find(
-			(connection) => connection.provider === "notion",
-		) ?? null;
+	const selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
+		selectedAppConnections,
+	);
 	const appTools = await buildConvexWorkspaceToolSet({
 		connections: selectedAppConnections,
 		convexClient,
@@ -868,33 +844,7 @@ const handleChatRequest = async ({
 	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
 		automationContext.instruction ? `\n\n${automationContext.instruction}` : ""
 	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
-		trackerConnection
-			? `\n\nThe selected app source for this chat is Yandex Tracker (${trackerConnection.displayName}). Treat it as the preferred source for project history, integrations, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Tracker, search Tracker first before saying the context is unavailable.`
-			: ""
-	}${
-		googleCalendarConnection
-			? "\n\nThe selected app source for this chat is Google Calendar. Treat it as the preferred source for meeting schedules, event timing, attendee context, and calendar availability."
-			: ""
-	}${
-		yandexCalendarConnection
-			? "\n\nThe selected app source for this chat is Yandex Calendar. Treat it as the preferred source for meeting schedules, event timing, attendee context, and calendar availability."
-			: ""
-	}${
-		jiraConnection
-			? `\n\nThe selected app source for this chat is Jira (${jiraConnection.displayName}). Treat it as the preferred source for project history, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Jira, use the Jira MCP tools before saying the context is unavailable.`
-			: ""
-	}${
-		googleDriveConnection
-			? "\n\nThe selected app source for this chat is Google Drive. Treat it as the preferred source for connected Google docs, spreadsheets, presentations, and file metadata. Only read-only Drive tools are available in this chat."
-			: ""
-	}${
-		posthogConnection
-			? `\n\nThe selected app source for this chat is PostHog (${posthogConnection.displayName}). Treat it as the preferred source for product analytics, saved insights, dashboards, feature flags, experiments, errors, event schema, surveys, and queryable product usage context. If the user's request could plausibly be answered from PostHog, use the PostHog MCP tools before saying the context is unavailable.`
-			: ""
-	}${
-		notionConnection
-			? `\n\nThe selected app source for this chat is Notion (${notionConnection.displayName}). Treat it as the preferred source for workspace pages, specs, meeting notes, project docs, and databases. If the user's request could plausibly be answered from Notion, use the Notion tools before saying the context is unavailable. When the user provides a Notion URL or an exact Notion page or database reference, fetch it directly.`
-			: ""
+		selectedAppSourceInstructions ? `\n\n${selectedAppSourceInstructions}` : ""
 	}${
 		localFolderContext
 			? "\n\nLocal folder priority: if the user's request is about a local path, shared folder, local file, local audio, local video, local transcript, or local recording, use the local folder tools first and do not use connected app tools unless the user explicitly asks for connected app data."

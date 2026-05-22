@@ -1,4 +1,8 @@
 import type { ToolSet } from "ai";
+import type {
+	AppSourceInstructionConnection,
+	AppSourceProvider,
+} from "./app-source-providers.mjs";
 
 export type AutomationSchedulePeriod =
 	| "hourly"
@@ -9,15 +13,7 @@ export type AutomationSchedulePeriod =
 export type AutomationAppSource = {
 	id: string;
 	label: string;
-	provider:
-		| "google-calendar"
-		| "google-drive"
-		| "jira-mcp"
-		| "notion"
-		| "posthog"
-		| "yandex-calendar"
-		| "yandex-tracker"
-		| "zoom";
+	provider: AppSourceProvider;
 };
 
 export declare const automationAppSourceProviders: readonly AutomationAppSource["provider"][];
@@ -68,13 +64,7 @@ export declare function createAutomationTool(args: {
 }): ToolSet[string];
 
 export declare function buildChatAutomationContext(args: {
-	appConnections: Array<{
-		id?: string;
-		sourceId?: string;
-		displayName?: string;
-		title?: string;
-		provider?: string;
-	}>;
+	appConnections: AppSourceInstructionConnection[];
 	chatId: string | null | undefined;
 	createAutomation:
 		| ((automation: AutomationToolInput) => Promise<AutomationToolResult>)
@@ -90,11 +80,5 @@ export declare function buildChatAutomationContext(args: {
 };
 
 export declare function normalizeAutomationAppSources(
-	connections: Array<{
-		id?: string;
-		sourceId?: string;
-		displayName?: string;
-		title?: string;
-		provider?: string;
-	}>,
+	connections: AppSourceInstructionConnection[],
 ): AutomationAppSource[];
