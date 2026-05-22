@@ -15,11 +15,7 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import {
-	buildAutomationCreationInstruction,
-	buildAutomationToolSet,
-	normalizeAutomationAppSources,
-} from "../../../packages/ai/src/automation-tools.mjs";
+import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
 import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
@@ -668,18 +664,22 @@ export const handleChatRequest = async (
 	const imageGenerationEnabled = Boolean(
 		convexClient && shouldEnableImageGeneration(message),
 	);
-	const automationCreationEnabled = Boolean(
-		convexClient && resolvedWorkspaceId,
-	);
-	const automationAppSources = normalizeAutomationAppSources(
-		selectedAppConnections,
-	);
-	const automationCreationInstruction = automationCreationEnabled
-		? buildAutomationCreationInstruction({
-				now: Date.now(),
-				timezone: resolvedTimezone,
-			})
-		: "";
+	const automationContext = buildChatAutomationContext({
+		appConnections: selectedAppConnections,
+		chatId: id,
+		createAutomation:
+			convexClient && resolvedWorkspaceId
+				? async (automation) =>
+						await convexClient.mutation(api.automations.create, {
+							workspaceId: resolvedWorkspaceId,
+							...automation,
+						})
+				: null,
+		defaultModel: resolvedModel.model,
+		defaultReasoningEffort: resolvedReasoningEffort,
+		defaultTimezone: resolvedTimezone,
+		webSearchEnabled,
+	});
 	const systemPrompt = `${buildChatSystemPrompt({
 		notesContext,
 		attachedNoteContext,
@@ -687,7 +687,7 @@ export const handleChatRequest = async (
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
 	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
-		automationCreationInstruction ? `\n\n${automationCreationInstruction}` : ""
+		automationContext.instruction ? `\n\n${automationContext.instruction}` : ""
 	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
 		trackerConnection
 			? `\n\nThe selected app source for this chat is Yandex Tracker (${trackerConnection.displayName}). Treat it as the preferred source for project history, integrations, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Tracker, search Tracker first before saying the context is unavailable.`
@@ -742,26 +742,7 @@ export const handleChatRequest = async (
 		});
 	}
 
-	if (convexClient && resolvedWorkspaceId) {
-		Object.assign(
-			enabledTools,
-			buildAutomationToolSet({
-				appSources: automationAppSources,
-				chatId: id,
-				createAutomation: async (automation) =>
-					await convexClient.mutation(api.automations.create, {
-						workspaceId: resolvedWorkspaceId,
-						...automation,
-					}),
-				defaultModel: resolvedModel.model,
-				defaultReasoningEffort: resolvedReasoningEffort,
-				defaultTimezone: resolvedTimezone,
-				enabled: automationCreationEnabled,
-				webSearchEnabled,
-			}),
-		);
-	}
-
+	Object.assign(enabledTools, automationContext.tools);
 	Object.assign(enabledTools, appTools);
 	if (localFolderRoots.length > 0) {
 		Object.assign(enabledTools, buildLocalFolderTools(localFolderRoots));

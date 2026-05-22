@@ -20,6 +20,8 @@ export type AutomationAppSource = {
 		| "zoom";
 };
 
+export declare const automationAppSourceProviders: readonly AutomationAppSource["provider"][];
+
 export type AutomationToolInput = {
 	title: string;
 	prompt: string;
@@ -65,18 +67,27 @@ export declare function createAutomationTool(args: {
 	webSearchEnabled: boolean;
 }): ToolSet[string];
 
-export declare function buildAutomationToolSet(args: {
-	appSources: AutomationAppSource[];
+export declare function buildChatAutomationContext(args: {
+	appConnections: Array<{
+		id?: string;
+		sourceId?: string;
+		displayName?: string;
+		title?: string;
+		provider?: string;
+	}>;
 	chatId: string | null | undefined;
-	createAutomation: (
-		automation: AutomationToolInput,
-	) => Promise<AutomationToolResult>;
+	createAutomation:
+		| ((automation: AutomationToolInput) => Promise<AutomationToolResult>)
+		| null
+		| undefined;
 	defaultModel: string;
 	defaultReasoningEffort: "low" | "medium" | "high" | "xhigh";
 	defaultTimezone: string;
-	enabled: boolean;
 	webSearchEnabled: boolean;
-}): ToolSet;
+}): {
+	instruction: string;
+	tools: ToolSet;
+};
 
 export declare function normalizeAutomationAppSources(
 	connections: Array<{

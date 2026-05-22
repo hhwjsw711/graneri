@@ -20,11 +20,7 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api.js";
-import {
-	buildAutomationCreationInstruction,
-	buildAutomationToolSet,
-	normalizeAutomationAppSources,
-} from "../../../packages/ai/src/automation-tools.mjs";
+import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
 import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
@@ -695,11 +691,6 @@ const handleChatRequest = async ({
 		return;
 	}
 
-	const selectedModel = resolveChatModel(model);
-	const resolvedReasoningEffort = normalizeReasoningEffort(reasoningEffort);
-	const providerOptions = getChatModelProviderOptions(selectedModel.model, {
-		reasoningEffort: resolvedReasoningEffort,
-	});
 	const resolvedWorkspaceId = workspaceId ?? null;
 	const resolvedTimezone = timezone?.trim() || "UTC";
 	const convexClient =
@@ -715,6 +706,13 @@ const handleChatRequest = async ({
 					})
 					.catch(() => null)
 			: null;
+	const selectedModel = resolveChatModel(model ?? storedChat?.model);
+	const resolvedReasoningEffort = normalizeReasoningEffort(
+		reasoningEffort ?? storedChat?.reasoningEffort,
+	);
+	const providerOptions = getChatModelProviderOptions(selectedModel.model, {
+		reasoningEffort: resolvedReasoningEffort,
+	});
 	const resolvedNoteId = noteContext?.noteId ?? storedChat?.noteId ?? null;
 	const chatMessages = await validateUIMessages({
 		messages:
@@ -845,18 +843,22 @@ const handleChatRequest = async ({
 	const imageGenerationEnabled = Boolean(
 		convexClient && message && shouldEnableImageGeneration(message),
 	);
-	const automationCreationEnabled = Boolean(
-		convexClient && resolvedWorkspaceId,
-	);
-	const automationAppSources = normalizeAutomationAppSources(
-		selectedAppConnections,
-	);
-	const automationCreationInstruction = automationCreationEnabled
-		? buildAutomationCreationInstruction({
-				now: Date.now(),
-				timezone: resolvedTimezone,
-			})
-		: "";
+	const automationContext = buildChatAutomationContext({
+		appConnections: selectedAppConnections,
+		chatId: id,
+		createAutomation:
+			convexClient && resolvedWorkspaceId
+				? async (automation) =>
+						await convexClient.mutation(api.automations.create, {
+							workspaceId: resolvedWorkspaceId,
+							...automation,
+						})
+				: null,
+		defaultModel: selectedModel.model,
+		defaultReasoningEffort: resolvedReasoningEffort,
+		defaultTimezone: resolvedTimezone,
+		webSearchEnabled,
+	});
 	const systemPrompt = `${buildChatSystemPrompt({
 		notesContext,
 		attachedNoteContext,
@@ -864,7 +866,7 @@ const handleChatRequest = async ({
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
 	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
-		automationCreationInstruction ? `\n\n${automationCreationInstruction}` : ""
+		automationContext.instruction ? `\n\n${automationContext.instruction}` : ""
 	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
 		trackerConnection
 			? `\n\nThe selected app source for this chat is Yandex Tracker (${trackerConnection.displayName}). Treat it as the preferred source for project history, integrations, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Tracker, search Tracker first before saying the context is unavailable.`
@@ -920,22 +922,7 @@ const handleChatRequest = async ({
 					}),
 				}
 			: {}),
-		...(convexClient && resolvedWorkspaceId
-			? buildAutomationToolSet({
-					appSources: automationAppSources,
-					chatId: id,
-					createAutomation: async (automation) =>
-						await convexClient.mutation(api.automations.create, {
-							workspaceId: resolvedWorkspaceId,
-							...automation,
-						}),
-					defaultModel: selectedModel.model,
-					defaultReasoningEffort: resolvedReasoningEffort,
-					defaultTimezone: resolvedTimezone,
-					enabled: automationCreationEnabled,
-					webSearchEnabled,
-				})
-			: {}),
+		...automationContext.tools,
 		...appTools,
 		...(localFolderRoots.length > 0
 			? buildLocalFolderTools(localFolderRoots)

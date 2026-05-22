@@ -165,10 +165,6 @@ const AUTOMATION_TAB: SummaryTab = {
 	title: "Automation",
 };
 
-const getInitialSummaryTabs = (
-	automation: AutomationListItem | null | undefined,
-) => (automation ? [SUMMARY_TAB, AUTOMATION_TAB] : [SUMMARY_TAB]);
-
 const readDesktopChatSummaryPanelPinnedState = () => {
 	if (typeof window === "undefined") {
 		return false;
@@ -275,7 +271,6 @@ export function ChatSummarySheet({
 	messages,
 	automation,
 	chatTitle,
-	initialTab,
 	desktopSafeTop = false,
 	workspaceSources,
 	openSourceRequest,
@@ -287,7 +282,6 @@ export function ChatSummarySheet({
 	messages: UIMessage[];
 	automation?: AutomationListItem | null;
 	chatTitle: string;
-	initialTab?: "automation" | "summary";
 	desktopSafeTop?: boolean;
 	workspaceSources: SummaryWorkspaceSource[];
 	openSourceRequest?: ChatSummaryOpenSourceRequest | null;
@@ -337,12 +331,10 @@ export function ChatSummarySheet({
 
 	const panel = (
 		<ChatSummaryPanel
-			key={`${automation?.id ?? "no-automation"}:${initialTab ?? "summary"}`}
 			isMobile={isMobile}
 			isPinned={isPinned}
 			automation={automation}
 			chatTitle={chatTitle}
-			initialTab={initialTab}
 			desktopSafeTop={desktopSafeTop}
 			artifacts={artifacts}
 			sources={sources}
@@ -408,7 +400,6 @@ function ChatSummaryPanel({
 	isPinned,
 	automation,
 	chatTitle,
-	initialTab,
 	desktopSafeTop,
 	artifacts,
 	sources,
@@ -423,7 +414,6 @@ function ChatSummaryPanel({
 	isPinned: boolean;
 	automation?: AutomationListItem | null;
 	chatTitle: string;
-	initialTab?: "automation" | "summary";
 	desktopSafeTop: boolean;
 	artifacts: SummaryArtifact[];
 	sources: SummarySource[];
@@ -434,18 +424,23 @@ function ChatSummaryPanel({
 	onOpenSummary: () => void;
 	onTogglePinned: () => void;
 }) {
-	const [tabs, setTabs] = React.useState<SummaryTab[]>(() =>
-		getInitialSummaryTabs(automation),
+	const [fileTabs, setFileTabs] = React.useState<
+		Extract<SummaryTab, { kind: "file" }>[]
+	>([]);
+	const tabs = React.useMemo(
+		() => [SUMMARY_TAB, ...(automation ? [AUTOMATION_TAB] : []), ...fileTabs],
+		[automation, fileTabs],
 	);
-	const [activeTabId, setActiveTabId] = React.useState(() =>
-		initialTab === "automation" && automation
-			? AUTOMATION_TAB.id
-			: SUMMARY_TAB.id,
-	);
+	const [activeTabId, setActiveTabId] = React.useState(SUMMARY_TAB.id);
 	const [fileSearchOpen, setFileSearchOpen] = React.useState(false);
 	const autoAddedSourceIdsRef = React.useRef(new Set<string>());
 	const handledOpenSourceRequestIdRef = React.useRef<number | null>(null);
-	const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? SUMMARY_TAB;
+	const effectiveActiveTabId =
+		activeTabId === AUTOMATION_TAB.id && !automation
+			? SUMMARY_TAB.id
+			: activeTabId;
+	const activeTab =
+		tabs.find((tab) => tab.id === effectiveActiveTabId) ?? SUMMARY_TAB;
 	const fileSearchItems = React.useMemo<SearchCommandItem[]>(
 		() =>
 			workspaceSources.map((source) => ({
@@ -458,12 +453,17 @@ function ChatSummaryPanel({
 			})),
 		[workspaceSources],
 	);
-	const addTab = React.useCallback((tab: SummaryTab) => {
-		setTabs((current) =>
-			current.some((item) => item.id === tab.id) ? current : [...current, tab],
-		);
-		setActiveTabId(tab.id);
-	}, []);
+	const addTab = React.useCallback(
+		(tab: Extract<SummaryTab, { kind: "file" }>) => {
+			setFileTabs((current) =>
+				current.some((item) => item.id === tab.id)
+					? current
+					: [...current, tab],
+			);
+			setActiveTabId(tab.id);
+		},
+		[],
+	);
 	const openWorkspaceSource = React.useCallback(
 		(sourceId: string) => {
 			const source = workspaceSources.find((item) => item.id === sourceId);
@@ -490,8 +490,10 @@ function ChatSummaryPanel({
 		setFileSearchOpen(true);
 	}, []);
 	const openAutomationTab = React.useCallback(() => {
-		addTab(AUTOMATION_TAB);
-	}, [addTab]);
+		if (automation) {
+			setActiveTabId(AUTOMATION_TAB.id);
+		}
+	}, [automation]);
 	const handleOpenSummaryShortcut = React.useEffectEvent(() => {
 		onOpenSummary();
 		openAutomationTab();
@@ -531,7 +533,7 @@ function ChatSummaryPanel({
 	}, []);
 	const closeTab = React.useCallback(
 		(tabId: string) => {
-			const tabToClose = tabs.find((tab) => tab.id === tabId);
+			const tabToClose = fileTabs.find((tab) => tab.id === tabId);
 			if (
 				tabToClose?.kind === "file" &&
 				autoAddedSourceIdsRef.current.has(tabToClose.sourceId)
@@ -540,17 +542,13 @@ function ChatSummaryPanel({
 				onRemoveAutoAddedSource?.(tabToClose.sourceId);
 			}
 
-			setTabs((current) => {
-				const nextTabs = current.filter((tab) => tab.id !== tabId);
+			if (activeTabId === tabId) {
+				setActiveTabId(SUMMARY_TAB.id);
+			}
 
-				if (activeTabId === tabId) {
-					setActiveTabId(SUMMARY_TAB.id);
-				}
-
-				return nextTabs.length > 0 ? nextTabs : [SUMMARY_TAB];
-			});
+			setFileTabs((current) => current.filter((tab) => tab.id !== tabId));
 		},
-		[activeTabId, onRemoveAutoAddedSource, tabs],
+		[activeTabId, fileTabs, onRemoveAutoAddedSource],
 	);
 	React.useEffect(() => {
 		if (!openSourceRequest) {
@@ -562,6 +560,7 @@ function ChatSummaryPanel({
 		}
 
 		handledOpenSourceRequestIdRef.current = openSourceRequest.requestId;
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		openWorkspaceSource(openSourceRequest.sourceId);
 	}, [openSourceRequest, openWorkspaceSource]);
 	return (
@@ -574,7 +573,7 @@ function ChatSummaryPanel({
 			>
 				<SummaryTabRail
 					tabs={tabs}
-					activeTabId={activeTabId}
+					activeTabId={effectiveActiveTabId}
 					className={cn(
 						desktopSafeTop && DESKTOP_MAIN_HEADER_CONTENT_CLASS,
 						isMobile && desktopSafeTop && "mt-1",
@@ -589,11 +588,7 @@ function ChatSummaryPanel({
 						isMobile && desktopSafeTop && "mt-1",
 					)}
 				>
-					<SummaryAddPopover
-						showAutomation={!tabs.some((tab) => tab.kind === "automation")}
-						onOpenFileSearch={openFileSearch}
-						onAddAutomation={openAutomationTab}
-					/>
+					<SummaryAddPopover onOpenFileSearch={openFileSearch} />
 					{isMobile ? null : (
 						<DockedPanelPinButton
 							isPinned={isPinned}
@@ -670,7 +665,7 @@ function SummaryTabRail({
 							>
 								{tab.title}
 							</button>
-							{tab.kind !== "summary" ? (
+							{tab.kind === "file" ? (
 								<button
 									type="button"
 									aria-label={`Close ${tab.title}`}
@@ -691,13 +686,9 @@ function SummaryTabRail({
 }
 
 function SummaryAddPopover({
-	showAutomation,
 	onOpenFileSearch,
-	onAddAutomation,
 }: {
-	showAutomation: boolean;
 	onOpenFileSearch: () => void;
-	onAddAutomation: () => void;
 }) {
 	const [open, setOpen] = React.useState(false);
 	const handleOpenChange = React.useCallback((nextOpen: boolean) => {
@@ -737,20 +728,6 @@ function SummaryAddPopover({
 								Open note
 								<SummaryAddShortcut keyLabel="P" />
 							</CommandItem>
-							{showAutomation ? (
-								<CommandItem
-									value="automation"
-									className="group/summary-add-item cursor-pointer"
-									onSelect={() => {
-										onAddAutomation();
-										handleOpenChange(false);
-									}}
-								>
-									<Clock3 className="size-4" />
-									Automation
-									<SummaryAddShortcut keyLabel="T" />
-								</CommandItem>
-							) : null}
 						</CommandGroup>
 					</CommandList>
 				</Command>

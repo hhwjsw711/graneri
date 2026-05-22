@@ -9,19 +9,21 @@ const automationSchedulePeriodSchema = z.enum([
 	"weekly",
 ]);
 
+export const automationAppSourceProviders = [
+	"google-calendar",
+	"google-drive",
+	"jira-mcp",
+	"notion",
+	"posthog",
+	"yandex-calendar",
+	"yandex-tracker",
+	"zoom",
+];
+
 const automationAppSourceSchema = z.object({
 	id: z.string().min(1),
 	label: z.string().min(1),
-	provider: z.enum([
-		"google-calendar",
-		"google-drive",
-		"jira-mcp",
-		"notion",
-		"posthog",
-		"yandex-calendar",
-		"yandex-tracker",
-		"zoom",
-	]),
+	provider: z.enum(automationAppSourceProviders),
 });
 
 const getAvailableAppSourceDescription = (appSources) => {
@@ -140,29 +142,42 @@ export const createAutomationTool = ({
 		},
 	}).toAITool();
 
-export const buildAutomationToolSet = ({
-	appSources,
+export const buildChatAutomationContext = ({
+	appConnections,
 	chatId,
 	createAutomation,
 	defaultModel,
 	defaultReasoningEffort,
 	defaultTimezone,
-	enabled,
 	webSearchEnabled,
-}) =>
-	enabled && chatId
-		? {
-				create_automation: createAutomationTool({
-					appSources,
-					chatId,
-					createAutomation,
-					defaultModel,
-					defaultReasoningEffort,
-					defaultTimezone,
-					webSearchEnabled,
-				}),
-			}
-		: {};
+}) => {
+	if (!chatId || !createAutomation) {
+		return {
+			instruction: "",
+			tools: {},
+		};
+	}
+
+	const appSources = normalizeAutomationAppSources(appConnections);
+
+	return {
+		instruction: buildAutomationCreationInstruction({
+			now: Date.now(),
+			timezone: defaultTimezone,
+		}),
+		tools: {
+			create_automation: createAutomationTool({
+				appSources,
+				chatId,
+				createAutomation,
+				defaultModel,
+				defaultReasoningEffort,
+				defaultTimezone,
+				webSearchEnabled,
+			}),
+		},
+	};
+};
 
 export const normalizeAutomationAppSources = (connections) =>
 	connections
