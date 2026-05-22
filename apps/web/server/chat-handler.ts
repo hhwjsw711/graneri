@@ -16,6 +16,11 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import {
+	buildAutomationCreationInstruction,
+	buildAutomationToolSet,
+	normalizeAutomationAppSources,
+} from "../../../packages/ai/src/automation-tools.mjs";
+import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
@@ -55,6 +60,7 @@ type ChatRequestBody = {
 	appsEnabled?: boolean;
 	mentions?: string[];
 	selectedSourceIds?: string[];
+	timezone?: string;
 	localFolders?: Array<{ id?: string; name?: string; path?: string }>;
 	convexToken?: string | null;
 	recipeSlug?: string | null;
@@ -462,6 +468,7 @@ export const handleChatRequest = async (
 		appsEnabled = true,
 		mentions,
 		selectedSourceIds,
+		timezone,
 		localFolders = [],
 		convexToken,
 		recipeSlug,
@@ -470,6 +477,7 @@ export const handleChatRequest = async (
 
 	const resolvedWorkspaceId =
 		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
+	const resolvedTimezone = timezone?.trim() || "UTC";
 
 	if (!message) {
 		sendJson(response, 400, {
@@ -660,6 +668,18 @@ export const handleChatRequest = async (
 	const imageGenerationEnabled = Boolean(
 		convexClient && shouldEnableImageGeneration(message),
 	);
+	const automationCreationEnabled = Boolean(
+		convexClient && resolvedWorkspaceId,
+	);
+	const automationAppSources = normalizeAutomationAppSources(
+		selectedAppConnections,
+	);
+	const automationCreationInstruction = automationCreationEnabled
+		? buildAutomationCreationInstruction({
+				now: Date.now(),
+				timezone: resolvedTimezone,
+			})
+		: "";
 	const systemPrompt = `${buildChatSystemPrompt({
 		notesContext,
 		attachedNoteContext,
@@ -667,8 +687,8 @@ export const handleChatRequest = async (
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
 	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
-		localFolderContext ? `\n\n${localFolderContext}` : ""
-	}${
+		automationCreationInstruction ? `\n\n${automationCreationInstruction}` : ""
+	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
 		trackerConnection
 			? `\n\nThe selected app source for this chat is Yandex Tracker (${trackerConnection.displayName}). Treat it as the preferred source for project history, integrations, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Tracker, search Tracker first before saying the context is unavailable.`
 			: ""
@@ -720,6 +740,26 @@ export const handleChatRequest = async (
 				client: convexClient,
 			}),
 		});
+	}
+
+	if (convexClient && resolvedWorkspaceId) {
+		Object.assign(
+			enabledTools,
+			buildAutomationToolSet({
+				appSources: automationAppSources,
+				chatId: id,
+				createAutomation: async (automation) =>
+					await convexClient.mutation(api.automations.create, {
+						workspaceId: resolvedWorkspaceId,
+						...automation,
+					}),
+				defaultModel: resolvedModel.model,
+				defaultReasoningEffort: resolvedReasoningEffort,
+				defaultTimezone: resolvedTimezone,
+				enabled: automationCreationEnabled,
+				webSearchEnabled,
+			}),
+		);
 	}
 
 	Object.assign(enabledTools, appTools);

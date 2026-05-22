@@ -75,7 +75,6 @@ import { ChatHistoryList } from "./chat-history-list";
 type ChatPageProps = {
 	chatId: string;
 	initialMessages: UIMessage[];
-	isInitialMessagesLoading?: boolean;
 	onChatPersisted?: (chatId: string) => void;
 	chats: Array<Doc<"chats">>;
 	isChatsLoading: boolean;
@@ -569,6 +568,7 @@ const useChatPageController = ({
 						appsEnabled,
 						mentions: mentionIds,
 						selectedSourceIds: requestSelectedSourceIds,
+						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 						workspaceId: activeWorkspaceId,
 						convexToken,
 					},
@@ -658,6 +658,7 @@ const useChatPageController = ({
 			appsEnabled,
 			mentions: mentionIds,
 			selectedSourceIds: requestSelectedSourceIds,
+			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 			workspaceId: activeWorkspaceId,
 			convexToken,
 		};

@@ -33,7 +33,7 @@ const createWorkspace = async () => {
 	};
 };
 
-test("creating an automation stores a chat confirmation message", async () => {
+test("creating an automation leaves existing chat messages unchanged", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 
 	await asOwner.mutation(api.chats.saveMessage, {
@@ -75,30 +75,14 @@ test("creating an automation stores a chat confirmation message", async () => {
 		chatId: automation.chatId,
 	});
 
-	expect(messages).toHaveLength(3);
-	expect(messages[1]).toMatchObject({
+	expect(messages).toHaveLength(1);
+	expect(messages[0]).toMatchObject({
 		role: "user",
-		text: "Check Gmail for high-value items.",
-	});
-	expect(messages[2]).toMatchObject({
-		role: "assistant",
-		text: expect.stringContaining(
-			"Created the automation: `Gmail high-value triage`.",
-		),
-	});
-	expect(messages[2].text).toContain(
-		"It will run hourly and report back in this chat.",
-	);
-	expect(messages[2].text).not.toContain("for Workspace");
-	expect(messages[2].metadataJson).toBeDefined();
-	expect(JSON.parse(messages[2].metadataJson ?? "{}")).toMatchObject({
-		source: "automation",
-		event: "created",
-		automationId: automation.id,
+		text: "Create an automation",
 	});
 });
 
-test("creating a tool-only automation can target the workspace", async () => {
+test("creating a workspace automation does not seed a chat transcript", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 	const prompt = "Check my DAUs @PostHog on a schedule.";
 
@@ -135,30 +119,59 @@ test("creating a tool-only automation can target the workspace", async () => {
 		chatId: automation.chatId,
 	});
 
-	expect(messages).toHaveLength(2);
-	expect(messages[0]).toMatchObject({
-		role: "user",
-		text: prompt,
-	});
-	expect(JSON.parse(messages[0].metadataJson ?? "{}")).toMatchObject({
-		mentionPositions: [
-			{
-				id: "app:posthog",
-				label: "PostHog",
-				from: prompt.indexOf("@PostHog"),
-				to: prompt.indexOf("@PostHog") + "@PostHog".length,
-				type: "tool",
-				provider: "posthog",
-			},
-		],
-	});
-	expect(messages[1].text).toContain(
-		"It will run daily at 12:00 AM and report back in this chat.",
-	);
-	expect(messages[1].text).not.toContain("for Workspace");
+	expect(messages).toHaveLength(0);
 });
 
-test("creating a note automation stores note mention metadata", async () => {
+test("creating a chat automation keeps the existing chat transcript unchanged", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+
+	await asOwner.mutation(api.chats.saveMessage, {
+		workspaceId,
+		chatId: "chat-ai-created",
+		title: "Create automation",
+		preview: "everyday at 9am greet me",
+		message: {
+			id: "msg-user",
+			role: "user",
+			partsJson: JSON.stringify([
+				{ type: "text", text: "everyday at 9am greet me" },
+			]),
+			text: "everyday at 9am greet me",
+			createdAt: 1_500,
+		},
+	});
+
+	const automation = await asOwner.mutation(api.automations.create, {
+		workspaceId,
+		title: "Daily greeting",
+		prompt: "Greet me.",
+		model: "gpt-5.4",
+		reasoningEffort: "medium",
+		webSearchEnabled: false,
+		appsEnabled: true,
+		appSources: [],
+		schedulePeriod: "daily",
+		scheduledAt: 2_000,
+		timezone: "UTC",
+		target: {
+			kind: "workspace",
+		},
+		chatId: "chat-ai-created",
+	});
+
+	const messages = await asOwner.query(api.chats.getMessages, {
+		workspaceId,
+		chatId: automation.chatId,
+	});
+
+	expect(messages).toHaveLength(1);
+	expect(messages[0]).toMatchObject({
+		role: "user",
+		text: "everyday at 9am greet me",
+	});
+});
+
+test("creating a note automation does not seed a chat transcript", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 	const noteId = await asOwner.mutation(api.notes.create, {
 		workspaceId,
@@ -200,22 +213,7 @@ test("creating a note automation stores note mention metadata", async () => {
 		chatId: automation.chatId,
 	});
 
-	expect(messages).toHaveLength(2);
-	expect(messages[0]).toMatchObject({
-		role: "user",
-		text: prompt,
-	});
-	expect(JSON.parse(messages[0].metadataJson ?? "{}")).toMatchObject({
-		mentionPositions: [
-			{
-				id: noteId,
-				label: "DAU Notes",
-				from: prompt.indexOf("@DAU Notes"),
-				to: prompt.indexOf("@DAU Notes") + "@DAU Notes".length,
-				type: "note",
-			},
-		],
-	});
+	expect(messages).toHaveLength(0);
 });
 
 test("moving a chat to trash pauses its automation and restoring resumes it", async () => {

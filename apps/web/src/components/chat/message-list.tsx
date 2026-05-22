@@ -18,11 +18,9 @@ import {
 	SourcesTrigger,
 } from "@/components/ai-elements/sources";
 import { ToolGroup } from "@/components/ai-elements/tools/tool-group";
+import { toToolPartLike } from "@/components/ai-elements/tools/tool-part-like";
 import { getToolMeta } from "@/components/ai-elements/tools/tool-registry";
-import {
-	ToolRenderer,
-	toToolPartLike,
-} from "@/components/ai-elements/tools/tool-renderer";
+import { ToolRenderer } from "@/components/ai-elements/tools/tool-renderer";
 import { AppSourceIcon } from "@/components/app-source-icon";
 import { CollapsibleMessageContent } from "@/components/chat/collapsible-message-content";
 import {
@@ -392,6 +390,13 @@ const getToolGroupInfo = (part: UIMessage["parts"][number]) => {
 		return {
 			key: "local-folder",
 			label: "Local folder",
+		};
+	}
+
+	if (groupKey === "automation") {
+		return {
+			key: "automation",
+			label: "Automation",
 		};
 	}
 

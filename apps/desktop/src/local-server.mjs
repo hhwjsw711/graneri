@@ -21,6 +21,11 @@ import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api.js";
 import {
+	buildAutomationCreationInstruction,
+	buildAutomationToolSet,
+	normalizeAutomationAppSources,
+} from "../../../packages/ai/src/automation-tools.mjs";
+import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
@@ -673,6 +678,7 @@ const handleChatRequest = async ({
 		appsEnabled = true,
 		mentions,
 		selectedSourceIds,
+		timezone,
 		localFolders = [],
 		convexToken,
 		recipeSlug,
@@ -688,6 +694,7 @@ const handleChatRequest = async ({
 
 	const selectedModel = resolveChatModel(model);
 	const resolvedWorkspaceId = workspaceId ?? null;
+	const resolvedTimezone = timezone?.trim() || "UTC";
 	const convexClient =
 		convexToken && id && resolvedWorkspaceId
 			? new ConvexHttpClient(getConvexUrl(), { auth: convexToken })
@@ -830,6 +837,18 @@ const handleChatRequest = async ({
 	const imageGenerationEnabled = Boolean(
 		convexClient && message && shouldEnableImageGeneration(message),
 	);
+	const automationCreationEnabled = Boolean(
+		convexClient && resolvedWorkspaceId,
+	);
+	const automationAppSources = normalizeAutomationAppSources(
+		selectedAppConnections,
+	);
+	const automationCreationInstruction = automationCreationEnabled
+		? buildAutomationCreationInstruction({
+				now: Date.now(),
+				timezone: resolvedTimezone,
+			})
+		: "";
 	const systemPrompt = `${buildChatSystemPrompt({
 		notesContext,
 		attachedNoteContext,
@@ -837,8 +856,8 @@ const handleChatRequest = async ({
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
 	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
-		localFolderContext ? `\n\n${localFolderContext}` : ""
-	}${
+		automationCreationInstruction ? `\n\n${automationCreationInstruction}` : ""
+	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
 		trackerConnection
 			? `\n\nThe selected app source for this chat is Yandex Tracker (${trackerConnection.displayName}). Treat it as the preferred source for project history, integrations, tickets, tasks, comments, assignees, and status. If the user's request could be answered from Tracker, search Tracker first before saying the context is unavailable.`
 			: ""
@@ -892,6 +911,22 @@ const handleChatRequest = async ({
 						}),
 					}),
 				}
+			: {}),
+		...(convexClient && resolvedWorkspaceId
+			? buildAutomationToolSet({
+					appSources: automationAppSources,
+					chatId: id,
+					createAutomation: async (automation) =>
+						await convexClient.mutation(api.automations.create, {
+							workspaceId: resolvedWorkspaceId,
+							...automation,
+						}),
+					defaultModel: selectedModel.model,
+					defaultReasoningEffort: "low",
+					defaultTimezone: resolvedTimezone,
+					enabled: automationCreationEnabled,
+					webSearchEnabled,
+				})
 			: {}),
 		...appTools,
 		...(localFolderRoots.length > 0

@@ -15,6 +15,7 @@ import type React from "react";
 import { toolUiMetadata } from "../../../../../../packages/ai/src/tool-ui-metadata.mjs";
 
 export type ToolMeta = {
+	errorTitle?: (part: ToolPartLike) => string;
 	groupKey?: string;
 	groupLabel?: string;
 	icon: React.ComponentType<{ className?: string }>;
@@ -79,12 +80,14 @@ const toolIconRegistry = {
 
 const makeToolMeta = ({
 	complete,
+	error,
 	groupKey,
 	icon: iconKey,
 	running,
 	subtitleKeys,
 }: {
 	complete: string;
+	error?: string;
 	groupKey?: string;
 	icon: keyof typeof toolIconRegistry;
 	running: string;
@@ -92,6 +95,7 @@ const makeToolMeta = ({
 }): ToolMeta => ({
 	groupKey,
 	icon: toolIconRegistry[iconKey],
+	errorTitle: error ? () => error : undefined,
 	title: (part) => (isPending(part) ? running : complete),
 	subtitle: subtitleKeys
 		? (part) => clamp(getFirstString(part.input, subtitleKeys))
@@ -136,6 +140,7 @@ function getMetadataToolMeta(part: ToolPartLike): ToolMeta | null {
 
 	const running = getString(ui.running);
 	const complete = getString(ui.complete);
+	const error = getString(ui.error);
 	const iconKey = getString(ui.icon);
 
 	if (!running || !complete || !(iconKey in toolIconRegistry)) {
@@ -151,6 +156,7 @@ function getMetadataToolMeta(part: ToolPartLike): ToolMeta | null {
 		groupKey,
 		groupLabel,
 		icon,
+		errorTitle: error ? () => error : undefined,
 		title: (currentPart) => (isPending(currentPart) ? running : complete),
 		subtitle: (currentPart) => {
 			const value = getFirstString(currentPart.input, subtitleKeys);

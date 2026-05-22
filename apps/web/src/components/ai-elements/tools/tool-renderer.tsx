@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 import { memo, useEffect, useMemo, useState } from "react";
 import { GenericTool } from "@/components/ai-elements/tools/generic-tool";
+import { toToolPartLike } from "@/components/ai-elements/tools/tool-part-like";
 import {
 	getToolMeta,
 	type ToolPartLike,
@@ -11,54 +12,10 @@ import {
 	getToolDurationMs,
 	getToolStartedAt,
 } from "@/components/ai-elements/utils/tool-display";
-import { normalizeToolPart } from "@/components/ai-elements/utils/tool-part-normalizer";
 
 export type ToolRendererProps = {
 	chatStatus?: string;
 	part: UIMessage["parts"][number];
-};
-
-export const toToolPartLike = (
-	part: UIMessage["parts"][number],
-): ToolPartLike => {
-	const normalized = normalizeToolPart(part) as {
-		input?: unknown;
-		output?: unknown;
-		result?: unknown;
-		state?: string;
-		toolMetadata?: unknown;
-		toolCallId?: string;
-		toolName?: string;
-		type: string;
-	};
-
-	return {
-		...normalized,
-		input:
-			normalized.input &&
-			typeof normalized.input === "object" &&
-			!Array.isArray(normalized.input)
-				? (normalized.input as Record<string, unknown>)
-				: undefined,
-		output:
-			normalized.output &&
-			typeof normalized.output === "object" &&
-			!Array.isArray(normalized.output)
-				? (normalized.output as Record<string, unknown>)
-				: undefined,
-		result:
-			normalized.result &&
-			typeof normalized.result === "object" &&
-			!Array.isArray(normalized.result)
-				? (normalized.result as Record<string, unknown>)
-				: undefined,
-		toolMetadata:
-			normalized.toolMetadata &&
-			typeof normalized.toolMetadata === "object" &&
-			!Array.isArray(normalized.toolMetadata)
-				? (normalized.toolMetadata as Record<string, unknown>)
-				: undefined,
-	};
 };
 
 export const ToolRenderer = memo(function ToolRenderer({
@@ -103,11 +60,13 @@ function KnownToolRenderer({
 	const { isPending, isError } = getToolStatus(toolPart, chatStatus);
 	const durationLabel = useToolDurationLabel(toolPart, isPending);
 	const title = meta.title(toolPart);
+	const errorTitle = isError ? meta.errorTitle?.(toolPart) : undefined;
 
 	return (
 		<GenericTool
 			icon={meta.icon}
 			title={title || toolPart.type.replace(/^tool-/, "")}
+			errorTitle={errorTitle}
 			subtitle={meta.subtitle?.(toolPart)}
 			isPending={isPending}
 			isError={isError}

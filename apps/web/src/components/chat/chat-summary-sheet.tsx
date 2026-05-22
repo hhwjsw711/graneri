@@ -159,6 +159,16 @@ const SUMMARY_TAB: SummaryTab = {
 	title: "Summary",
 };
 
+const AUTOMATION_TAB: SummaryTab = {
+	id: "automation",
+	kind: "automation",
+	title: "Automation",
+};
+
+const getInitialSummaryTabs = (
+	automation: AutomationListItem | null | undefined,
+) => (automation ? [SUMMARY_TAB, AUTOMATION_TAB] : [SUMMARY_TAB]);
+
 const readDesktopChatSummaryPanelPinnedState = () => {
 	if (typeof window === "undefined") {
 		return false;
@@ -265,6 +275,7 @@ export function ChatSummarySheet({
 	messages,
 	automation,
 	chatTitle,
+	initialTab,
 	desktopSafeTop = false,
 	workspaceSources,
 	openSourceRequest,
@@ -276,6 +287,7 @@ export function ChatSummarySheet({
 	messages: UIMessage[];
 	automation?: AutomationListItem | null;
 	chatTitle: string;
+	initialTab?: "automation" | "summary";
 	desktopSafeTop?: boolean;
 	workspaceSources: SummaryWorkspaceSource[];
 	openSourceRequest?: ChatSummaryOpenSourceRequest | null;
@@ -325,10 +337,12 @@ export function ChatSummarySheet({
 
 	const panel = (
 		<ChatSummaryPanel
+			key={`${automation?.id ?? "no-automation"}:${initialTab ?? "summary"}`}
 			isMobile={isMobile}
 			isPinned={isPinned}
 			automation={automation}
 			chatTitle={chatTitle}
+			initialTab={initialTab}
 			desktopSafeTop={desktopSafeTop}
 			artifacts={artifacts}
 			sources={sources}
@@ -394,6 +408,7 @@ function ChatSummaryPanel({
 	isPinned,
 	automation,
 	chatTitle,
+	initialTab,
 	desktopSafeTop,
 	artifacts,
 	sources,
@@ -408,6 +423,7 @@ function ChatSummaryPanel({
 	isPinned: boolean;
 	automation?: AutomationListItem | null;
 	chatTitle: string;
+	initialTab?: "automation" | "summary";
 	desktopSafeTop: boolean;
 	artifacts: SummaryArtifact[];
 	sources: SummarySource[];
@@ -418,8 +434,14 @@ function ChatSummaryPanel({
 	onOpenSummary: () => void;
 	onTogglePinned: () => void;
 }) {
-	const [tabs, setTabs] = React.useState<SummaryTab[]>([SUMMARY_TAB]);
-	const [activeTabId, setActiveTabId] = React.useState(SUMMARY_TAB.id);
+	const [tabs, setTabs] = React.useState<SummaryTab[]>(() =>
+		getInitialSummaryTabs(automation),
+	);
+	const [activeTabId, setActiveTabId] = React.useState(() =>
+		initialTab === "automation" && automation
+			? AUTOMATION_TAB.id
+			: SUMMARY_TAB.id,
+	);
 	const [fileSearchOpen, setFileSearchOpen] = React.useState(false);
 	const autoAddedSourceIdsRef = React.useRef(new Set<string>());
 	const handledOpenSourceRequestIdRef = React.useRef<number | null>(null);
@@ -468,11 +490,7 @@ function ChatSummaryPanel({
 		setFileSearchOpen(true);
 	}, []);
 	const openAutomationTab = React.useCallback(() => {
-		addTab({
-			id: "automation",
-			kind: "automation",
-			title: "Automation",
-		});
+		addTab(AUTOMATION_TAB);
 	}, [addTab]);
 	const handleOpenSummaryShortcut = React.useEffectEvent(() => {
 		onOpenSummary();
@@ -534,24 +552,6 @@ function ChatSummaryPanel({
 		},
 		[activeTabId, onRemoveAutoAddedSource, tabs],
 	);
-	React.useEffect(() => {
-		if (!automation) {
-			return;
-		}
-
-		setTabs((current) =>
-			current.some((tab) => tab.kind === "automation")
-				? current
-				: [
-						...current,
-						{
-							id: "automation",
-							kind: "automation",
-							title: "Automation",
-						},
-					],
-		);
-	}, [automation]);
 	React.useEffect(() => {
 		if (!openSourceRequest) {
 			return;

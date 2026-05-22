@@ -9,6 +9,7 @@ import {
 export type GenericToolProps = {
 	icon?: React.ComponentType<{ className?: string }>;
 	durationLabel?: string;
+	errorTitle?: string;
 	isError?: boolean;
 	isPending: boolean;
 	part?: {
@@ -23,6 +24,7 @@ export type GenericToolProps = {
 
 export const GenericTool = memo(function GenericTool({
 	durationLabel,
+	errorTitle,
 	icon,
 	isError,
 	isPending,
@@ -46,7 +48,7 @@ export const GenericTool = memo(function GenericTool({
 				) : undefined
 			}
 			shimmerLabel={title}
-			completeLabel={isError ? `${title} failed` : title}
+			completeLabel={isError ? (errorTitle ?? `${title} failed`) : title}
 			isAnimating={isPending}
 			detail={subtitle}
 			expandable={hasDetails}

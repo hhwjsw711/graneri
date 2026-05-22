@@ -1,8 +1,8 @@
 import type { UIMessage } from "ai";
 import { memo, useEffect, useMemo, useState } from "react";
 import { ToolDetails } from "@/components/ai-elements/tools/tool-details";
+import { toToolPartLike } from "@/components/ai-elements/tools/tool-part-like";
 import { getToolMeta } from "@/components/ai-elements/tools/tool-registry";
-import { toToolPartLike } from "@/components/ai-elements/tools/tool-renderer";
 import { ToolRowBase } from "@/components/ai-elements/tools/tool-row-base";
 import { getToolStatus } from "@/components/ai-elements/utils/format-tool";
 import {

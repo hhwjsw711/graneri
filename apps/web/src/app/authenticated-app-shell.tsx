@@ -471,10 +471,7 @@ const useAppShellState = ({
 			? { workspaceId: resolvedActiveWorkspaceId }
 			: "skip",
 	);
-	const {
-		messages: selectedChatMessages,
-		isLoading: isInitialChatMessagesLoading,
-	} = useChatMessagesSnapshot({
+	const { messages: selectedChatMessages } = useChatMessagesSnapshot({
 		chatId: currentView === "chat" ? currentChatId : null,
 		workspaceId: resolvedActiveWorkspaceId,
 		enabled: currentView === "chat",
@@ -989,6 +986,27 @@ const useAppShellState = ({
 		[toggleAutomationPaused],
 	);
 
+	const handleDisableEditingAutomation = React.useCallback(async () => {
+		if (!editingAutomationId || editingAutomation?.isPaused) {
+			return;
+		}
+
+		try {
+			await toggleAutomationPaused({ automationId: editingAutomationId });
+			toast.success("Automation paused");
+			setAutomationDialogOpen(false);
+			setEditingAutomationId(null);
+			setAutomationChatId(null);
+		} catch (error) {
+			console.error("Failed to disable automation", error);
+			toast.error("Failed to disable automation");
+		}
+	}, [
+		editingAutomation?.isPaused,
+		editingAutomationId,
+		toggleAutomationPaused,
+	]);
+
 	const handleDeleteAutomation = React.useCallback(
 		async (automationId: Id<"automations">) => {
 			try {
@@ -1457,7 +1475,7 @@ const useAppShellState = ({
 	);
 	const currentChat =
 		chats?.find((chat) => getChatId(chat) === currentChatId) ?? null;
-	const currentChatTitle = currentChat?.title || "Chat";
+	const currentChatTitle = currentChat?.title || "New chat";
 	const automationChatTitle = automationChatId
 		? (chats?.find((chat) => getChatId(chat) === automationChatId)?.title ?? "")
 		: "";
@@ -1535,6 +1553,7 @@ const useAppShellState = ({
 		handleCreateAutomationOpen,
 		handleCreateChatAutomationOpen,
 		handleEditAutomationOpen,
+		handleDisableEditingAutomation,
 		handleOpenAutomation,
 		handleInboxOpenChange,
 		handleNewChat,
@@ -1554,7 +1573,6 @@ const useAppShellState = ({
 		handleWorkspaceCreate,
 		inboxOpen,
 		initialChatMessages,
-		isInitialChatMessagesLoading,
 		automationDialogOpen,
 		automations,
 		automationChatTitle,
@@ -2493,7 +2511,6 @@ const AppShellContent = React.memo(function AppShellContent({
 	onOpenCalendarSettings,
 	chatComposerId,
 	initialChatMessages,
-	isInitialChatMessagesLoading,
 	chats,
 	currentChatId,
 	onChatPersisted,
@@ -2546,7 +2563,6 @@ const AppShellContent = React.memo(function AppShellContent({
 	onOpenCalendarSettings: () => void;
 	chatComposerId: string;
 	initialChatMessages: UIMessage[];
-	isInitialChatMessagesLoading: boolean;
 	chats: Array<Doc<"chats">> | undefined;
 	currentChatId: string | null;
 	onChatPersisted?: (chatId: string) => void;
@@ -2694,7 +2710,6 @@ const AppShellContent = React.memo(function AppShellContent({
 			key={chatComposerId}
 			chatId={chatComposerId}
 			initialMessages={initialChatMessages}
-			isInitialMessagesLoading={isInitialChatMessagesLoading}
 			onChatPersisted={onChatPersisted}
 			chats={chats ?? []}
 			isChatsLoading={chats === undefined}
@@ -2847,9 +2862,6 @@ export function AuthenticatedAppShell({
 						onOpenCalendarSettings={controller.handleOpenCalendarSettings}
 						chatComposerId={controller.chatComposerId}
 						initialChatMessages={controller.initialChatMessages}
-						isInitialChatMessagesLoading={
-							controller.isInitialChatMessagesLoading
-						}
 						chats={controller.chats}
 						currentChatId={controller.currentChatId}
 						onChatPersisted={controller.handleChatPersisted}
@@ -2885,6 +2897,12 @@ export function AuthenticatedAppShell({
 					open={controller.automationDialogOpen}
 					onOpenChange={controller.handleAutomationDialogOpenChange}
 					onCreateAutomation={controller.handleAutomationSave}
+					onDisableAutomation={
+						controller.editingAutomation &&
+						!controller.editingAutomation.isPaused
+							? controller.handleDisableEditingAutomation
+							: undefined
+					}
 					onOpenConnectionsSettings={handleOpenConnectionsSettings}
 					initialAutomation={controller.editingAutomation}
 					initialTitle={controller.automationChatTitle}

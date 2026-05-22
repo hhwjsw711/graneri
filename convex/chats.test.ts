@@ -62,6 +62,55 @@ test("chat titles preserve organization and person name capitalization", async (
 	expect(session?.preview).toBe("Why did OpenAI acquire Cirrus Labs?");
 });
 
+test("new chats use one placeholder title before generated title arrives", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+
+	await asOwner.mutation(api.chats.saveMessage, {
+		workspaceId,
+		chatId: "chat-title-lifecycle",
+		preview: "Summarize yesterday's meeting",
+		message: {
+			id: "msg-title-lifecycle-1",
+			role: "user",
+			partsJson: JSON.stringify([
+				{ type: "text", text: "Summarize yesterday's meeting" },
+			]),
+			text: "Summarize yesterday's meeting",
+			createdAt: 2_000,
+		},
+	});
+
+	let session = await asOwner.query(api.chats.getSession, {
+		workspaceId,
+		chatId: "chat-title-lifecycle",
+	});
+
+	expect(session?.title).toBe("New chat");
+
+	await asOwner.mutation(api.chats.saveMessage, {
+		workspaceId,
+		chatId: "chat-title-lifecycle",
+		title: "Meeting summary",
+		preview: "Here is the summary.",
+		message: {
+			id: "msg-title-lifecycle-2",
+			role: "assistant",
+			partsJson: JSON.stringify([
+				{ type: "text", text: "Here is the summary." },
+			]),
+			text: "Here is the summary.",
+			createdAt: 3_000,
+		},
+	});
+
+	session = await asOwner.query(api.chats.getSession, {
+		workspaceId,
+		chatId: "chat-title-lifecycle",
+	});
+
+	expect(session?.title).toBe("Meeting summary");
+});
+
 test("explicit chat renames persist after saving", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 

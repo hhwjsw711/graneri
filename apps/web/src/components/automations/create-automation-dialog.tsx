@@ -47,7 +47,14 @@ import {
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 import { useQuery } from "convex/react";
-import { Clock, FileText, Globe, Plus, Settings2 } from "lucide-react";
+import {
+	Clock,
+	FileText,
+	Globe,
+	LoaderCircle,
+	Plus,
+	Settings2,
+} from "lucide-react";
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { AppSourceIcon } from "@/components/app-source-icon";
@@ -96,6 +103,7 @@ type CreateAutomationDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onCreateAutomation: (automation: AutomationDraft) => void | Promise<void>;
+	onDisableAutomation?: () => void | Promise<void>;
 	onOpenConnectionsSettings: () => void;
 	initialAutomation?: AutomationDraft | null;
 	initialTitle?: string;
@@ -458,6 +466,7 @@ function useCreateAutomationDialogElement({
 	open,
 	onOpenChange,
 	onCreateAutomation,
+	onDisableAutomation,
 	onOpenConnectionsSettings,
 	initialAutomation = null,
 	initialTitle = "",
@@ -482,6 +491,7 @@ function useCreateAutomationDialogElement({
 		null,
 		() => createAutomationDialogState(initialAutomation, initialTitle),
 	);
+	const [isDisabling, setIsDisabling] = React.useState(false);
 	const {
 		schedulePickerOpen,
 		modelPickerOpen,
@@ -705,6 +715,19 @@ function useCreateAutomationDialogElement({
 		appsEnabled,
 	]);
 
+	const handleDisable = React.useCallback(async () => {
+		if (!onDisableAutomation) {
+			return;
+		}
+
+		setIsDisabling(true);
+		try {
+			await onDisableAutomation();
+		} finally {
+			setIsDisabling(false);
+		}
+	}, [onDisableAutomation]);
+
 	const scheduleLabel = getAutomationSchedulePeriodLabel({
 		schedulePeriod,
 		scheduledAt: scheduledAt.getTime(),
@@ -807,21 +830,43 @@ function useCreateAutomationDialogElement({
 						</InputGroup>
 					</Field>
 				</FieldGroup>
-				<div className="flex justify-end gap-2 pt-6 pb-2">
-					<Button
-						type="button"
-						variant="ghost"
-						onClick={() => onOpenChange(false)}
-					>
-						Cancel
-					</Button>
-					<Button
-						type="button"
-						disabled={!canCreateAutomation}
-						onClick={() => void handleCreate()}
-					>
-						{initialAutomation ? "Save" : "Create"}
-					</Button>
+				<div className="flex items-center justify-between gap-2 pt-6 pb-2">
+					{initialAutomation && onDisableAutomation ? (
+						<Button
+							type="button"
+							variant="destructive"
+							onClick={() => void handleDisable()}
+							disabled={isDisabling}
+						>
+							{isDisabling ? (
+								<>
+									<LoaderCircle className="animate-spin" />
+									Disabling
+								</>
+							) : (
+								"Disable"
+							)}
+						</Button>
+					) : (
+						<span />
+					)}
+					<div className="flex justify-end gap-2">
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => onOpenChange(false)}
+							disabled={isDisabling}
+						>
+							Cancel
+						</Button>
+						<Button
+							type="button"
+							disabled={!canCreateAutomation || isDisabling}
+							onClick={() => void handleCreate()}
+						>
+							{initialAutomation ? "Save" : "Create"}
+						</Button>
+					</div>
 				</div>
 			</DialogContent>
 		</Dialog>

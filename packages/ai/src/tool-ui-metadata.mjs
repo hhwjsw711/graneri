@@ -1,4 +1,12 @@
 export const toolUiMetadata = {
+	create_automation: {
+		groupKey: "automation",
+		icon: "calendar",
+		running: "Creating automation",
+		complete: "Created automation",
+		error: "Create automation failed",
+		subtitleKeys: ["title", "schedulePeriod"],
+	},
 	generate_image: {
 		groupKey: "image",
 		icon: "file-image",
