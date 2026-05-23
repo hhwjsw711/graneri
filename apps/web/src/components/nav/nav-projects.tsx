@@ -94,6 +94,7 @@ const SIDEBAR_HEADER_ACTION_ROW_CLASS_NAME =
 	"aspect-auto w-auto gap-0.5 rounded-xl p-0 hover:bg-transparent [&_button]:flex [&_button]:size-5 [&_button]:cursor-pointer [&_button]:items-center [&_button]:justify-center [&_button]:rounded-md [&_button]:p-0 [&_button]:text-inherit [&_button]:outline-hidden [&_button]:transition-colors [&_button:hover]:bg-sidebar-accent [&_button:hover]:text-sidebar-accent-foreground [&_button[data-state=open]]:bg-sidebar-accent [&_button[data-state=open]]:text-sidebar-accent-foreground [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-sidebar-ring [&_button>svg]:size-4 [&_button>svg]:shrink-0";
 const SIDEBAR_FILTER_MENU_CONTENT_CLASS_NAME =
 	"w-56 overflow-hidden rounded-lg p-1";
+const SidebarRecordingSpinner = Icons.sidebarRecordingSpinner;
 
 type ProjectWithNotes = {
 	project: Doc<"projects">;
@@ -309,6 +310,7 @@ export function NavProjects({
 	currentNoteId,
 	currentNoteTitle,
 	recordingNoteId = null,
+	revealActiveNoteProject = true,
 	workspaceId,
 	onPrefetchNote,
 	onNoteSelect,
@@ -320,6 +322,7 @@ export function NavProjects({
 	currentNoteId: Id<"notes"> | null;
 	currentNoteTitle?: string;
 	recordingNoteId?: Id<"notes"> | null;
+	revealActiveNoteProject?: boolean;
 	workspaceId: Id<"workspaces"> | null;
 	onPrefetchNote: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
@@ -373,7 +376,7 @@ export function NavProjects({
 	}, [visibleProjectIds]);
 
 	React.useEffect(() => {
-		if (!currentNoteId) {
+		if (!currentNoteId || !revealActiveNoteProject) {
 			return;
 		}
 
@@ -390,7 +393,7 @@ export function NavProjects({
 			value: true,
 			preserveCollapsedProjects: true,
 		});
-	}, [currentNoteId, visibleProjectEntries]);
+	}, [currentNoteId, revealActiveNoteProject, visibleProjectEntries]);
 
 	const handleCreateProject = React.useCallback(() => {
 		if (!workspaceId) {
@@ -1376,6 +1379,28 @@ function ProjectNoteItem({
 	const title =
 		isActive && currentNoteTitle?.trim() ? currentNoteTitle : note.title;
 	const displayTitle = getNoteDisplayTitle(title);
+	const renameAnchor = React.useMemo(
+		() => (
+			<SidebarMenuButton
+				isActive={isActive}
+				onFocus={() => onPrefetchNote(note._id)}
+				onMouseEnter={() => onPrefetchNote(note._id)}
+				onPointerDown={() => onPrefetchNote(note._id)}
+				onClick={() => onNoteSelect(note._id)}
+			>
+				{isRecording ? <SidebarRecordingSpinner /> : <FileText />}
+				<span>{displayTitle}</span>
+			</SidebarMenuButton>
+		),
+		[
+			displayTitle,
+			isActive,
+			isRecording,
+			note._id,
+			onNoteSelect,
+			onPrefetchNote,
+		],
+	);
 
 	return (
 		<SidebarMenuItem className="group/project-note-item list-none">
@@ -1384,18 +1409,7 @@ function ProjectNoteItem({
 				onMoveToTrash={onNoteTrashed}
 				align="start"
 				side="right"
-				renameAnchor={
-					<SidebarMenuButton
-						isActive={isActive}
-						onFocus={() => onPrefetchNote(note._id)}
-						onMouseEnter={() => onPrefetchNote(note._id)}
-						onPointerDown={() => onPrefetchNote(note._id)}
-						onClick={() => onNoteSelect(note._id)}
-					>
-						{isRecording ? <Icons.sidebarRecordingSpinner /> : <FileText />}
-						<span>{displayTitle}</span>
-					</SidebarMenuButton>
-				}
+				renameAnchor={renameAnchor}
 				renamePopoverAlign="start"
 				renamePopoverSide="bottom"
 				renamePopoverSideOffset={6}
