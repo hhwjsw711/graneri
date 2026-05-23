@@ -64,6 +64,22 @@ const chatMessageFields = {
 
 const chatMessageValidator = v.object(chatMessageFields);
 
+const chatActiveStreamValidator = v.object({
+	_id: v.id("chatActiveStreams"),
+	_creationTime: v.number(),
+	chatId: v.id("chats"),
+	ownerTokenIdentifier: v.string(),
+	messageId: v.string(),
+	text: v.string(),
+	status: v.union(
+		v.literal("streaming"),
+		v.literal("done"),
+		v.literal("error"),
+	),
+	createdAt: v.number(),
+	updatedAt: v.number(),
+});
+
 const storedUiMessageSnapshotFields = {
 	id: v.string(),
 	role: chatRoleValidator,
@@ -233,6 +249,15 @@ const getStoredChatMessages = async (
 		.order("desc")
 		.take(MAX_RETURNED_CHAT_MESSAGES);
 
+const getActiveStreamByChatId = async (
+	ctx: QueryCtx | MutationCtx,
+	chatId: Doc<"chats">["_id"],
+) =>
+	await ctx.db
+		.query("chatActiveStreams")
+		.withIndex("by_chatId", (q) => q.eq("chatId", chatId))
+		.unique();
+
 const toStoredUiMessageSnapshot = (message: Doc<"chatMessages">) => ({
 	id: message.messageId,
 	role: message.role,
@@ -240,6 +265,53 @@ const toStoredUiMessageSnapshot = (message: Doc<"chatMessages">) => ({
 	metadataJson: message.metadataJson,
 	createdAt: message.createdAt,
 });
+
+const toActiveStreamMessageSnapshot = (
+	stream: Doc<"chatActiveStreams">,
+): StoredUiMessageSnapshot => ({
+	id: stream.messageId,
+	role: "assistant",
+	partsJson: JSON.stringify([{ type: "text", text: stream.text }]),
+	createdAt: stream.createdAt,
+});
+
+type StoredUiMessageSnapshot = {
+	id: string;
+	role: "system" | "user" | "assistant";
+	partsJson: string;
+	metadataJson?: string;
+	createdAt: number;
+};
+
+type StoredUiMessage = StoredUiMessageSnapshot & {
+	text: string;
+};
+
+const shouldAppendActiveStreamMessage = (
+	stream: Doc<"chatActiveStreams"> | null,
+	messages: Array<{ id: string }>,
+) =>
+	Boolean(
+		stream &&
+			stream.status === "streaming" &&
+			stream.text.length > 0 &&
+			!messages.some((message) => message.id === stream.messageId),
+	);
+
+const withActiveStreamSnapshot = async <T extends StoredUiMessageSnapshot>(
+	ctx: QueryCtx | MutationCtx,
+	chatId: Doc<"chats">["_id"],
+	messages: T[],
+	toActiveMessage: (stream: Doc<"chatActiveStreams">) => T,
+) => {
+	const stream = await getActiveStreamByChatId(ctx, chatId);
+
+	if (!stream || !shouldAppendActiveStreamMessage(stream, messages)) {
+		return messages;
+	}
+
+	return [...messages, toActiveMessage(stream)];
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null;
@@ -740,12 +812,21 @@ export const getMessages = query({
 		}
 
 		const messages = await getStoredChatMessages(ctx, chat._id);
-
-		return messages.reverse().map((message) => ({
+		const storedMessages = messages.reverse().map((message) => ({
 			...toStoredUiMessageSnapshot(message),
 			text: message.text,
 			createdAt: message.createdAt,
 		}));
+
+		return await withActiveStreamSnapshot(
+			ctx,
+			chat._id,
+			storedMessages,
+			(stream): StoredUiMessage => ({
+				...toActiveStreamMessageSnapshot(stream),
+				text: stream.text,
+			}),
+		);
 	},
 });
 
@@ -770,7 +851,12 @@ export const getMessagesSnapshot = query({
 
 		const messages = await getStoredChatMessages(ctx, chat._id);
 
-		return messages.reverse().map(toStoredUiMessageSnapshot);
+		return await withActiveStreamSnapshot(
+			ctx,
+			chat._id,
+			messages.reverse().map(toStoredUiMessageSnapshot),
+			toActiveStreamMessageSnapshot,
+		);
 	},
 });
 
@@ -794,12 +880,21 @@ export const getMessagesForOwner = internalQuery({
 		}
 
 		const messages = await getStoredChatMessages(ctx, chat._id);
-
-		return messages.reverse().map((message) => ({
+		const storedMessages = messages.reverse().map((message) => ({
 			...toStoredUiMessageSnapshot(message),
 			text: message.text,
 			createdAt: message.createdAt,
 		}));
+
+		return await withActiveStreamSnapshot(
+			ctx,
+			chat._id,
+			storedMessages,
+			(stream): StoredUiMessage => ({
+				...toActiveStreamMessageSnapshot(stream),
+				text: stream.text,
+			}),
+		);
 	},
 });
 
@@ -975,6 +1070,154 @@ export const saveMessage = mutation({
 			reasoningEffort: args.reasoningEffort,
 			message: args.message,
 		});
+	},
+});
+
+export const startActiveStream = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		chatId: v.string(),
+		messageId: v.string(),
+	},
+	returns: chatActiveStreamValidator,
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		const chat = await getOwnedActiveChatById(
+			ctx,
+			ownerTokenIdentifier,
+			args.workspaceId,
+			args.chatId,
+		);
+
+		if (!chat) {
+			throw new ConvexError({
+				code: "CHAT_NOT_FOUND",
+				message: "Chat not found.",
+			});
+		}
+
+		const now = Date.now();
+		const existingStream = await getActiveStreamByChatId(ctx, chat._id);
+
+		if (existingStream) {
+			await ctx.db.patch(existingStream._id, {
+				messageId: args.messageId,
+				text: "",
+				status: "streaming",
+				createdAt: now,
+				updatedAt: now,
+			});
+
+			const updatedStream = await ctx.db.get(existingStream._id);
+			if (!updatedStream) {
+				throw new ConvexError({
+					code: "STREAM_SAVE_FAILED",
+					message: "Failed to start chat stream.",
+				});
+			}
+
+			return updatedStream;
+		}
+
+		const streamId = await ctx.db.insert("chatActiveStreams", {
+			chatId: chat._id,
+			ownerTokenIdentifier,
+			messageId: args.messageId,
+			text: "",
+			status: "streaming",
+			createdAt: now,
+			updatedAt: now,
+		});
+		const stream = await ctx.db.get(streamId);
+
+		if (!stream) {
+			throw new ConvexError({
+				code: "STREAM_SAVE_FAILED",
+				message: "Failed to start chat stream.",
+			});
+		}
+
+		return stream;
+	},
+});
+
+export const appendActiveStreamText = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		chatId: v.string(),
+		messageId: v.string(),
+		delta: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		if (!args.delta) {
+			return null;
+		}
+
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		const chat = await getOwnedActiveChatById(
+			ctx,
+			ownerTokenIdentifier,
+			args.workspaceId,
+			args.chatId,
+		);
+
+		if (!chat) {
+			return null;
+		}
+
+		const stream = await getActiveStreamByChatId(ctx, chat._id);
+
+		if (
+			!stream ||
+			stream.status !== "streaming" ||
+			stream.messageId !== args.messageId
+		) {
+			return null;
+		}
+
+		await ctx.db.patch(stream._id, {
+			text: `${stream.text}${args.delta}`,
+			updatedAt: Date.now(),
+		});
+
+		return null;
+	},
+});
+
+export const finishActiveStream = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		chatId: v.string(),
+		messageId: v.string(),
+		status: v.union(v.literal("done"), v.literal("error")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		const chat = await getOwnedActiveChatById(
+			ctx,
+			ownerTokenIdentifier,
+			args.workspaceId,
+			args.chatId,
+		);
+
+		if (!chat) {
+			return null;
+		}
+
+		const stream = await getActiveStreamByChatId(ctx, chat._id);
+
+		if (!stream || stream.messageId !== args.messageId) {
+			return null;
+		}
+
+		await ctx.db.patch(stream._id, {
+			status: args.status,
+			updatedAt: Date.now(),
+		});
+
+		return null;
 	},
 });
 

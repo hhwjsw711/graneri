@@ -479,6 +479,24 @@ export default defineSchema({
 	})
 		.index("by_chatId_and_createdAt", ["chatId", "createdAt"])
 		.index("by_chatId_and_messageId", ["chatId", "messageId"]),
+	chatActiveStreams: defineTable({
+		chatId: v.id("chats"),
+		ownerTokenIdentifier: v.string(),
+		messageId: v.string(),
+		text: v.string(),
+		status: v.union(
+			v.literal("streaming"),
+			v.literal("done"),
+			v.literal("error"),
+		),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_chatId", ["chatId"])
+		.index("by_ownerTokenIdentifier_and_chatId", [
+			"ownerTokenIdentifier",
+			"chatId",
+		]),
 	automations: defineTable({
 		ownerTokenIdentifier: v.string(),
 		workspaceId: v.id("workspaces"),

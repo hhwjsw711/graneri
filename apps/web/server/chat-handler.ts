@@ -2,14 +2,16 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { openai } from "@ai-sdk/openai";
 import {
 	consumeStream,
+	createAgentUIStream,
 	createIdGenerator,
 	generateText,
 	type InferUITools,
-	pipeAgentUIStreamToResponse,
+	pipeUIMessageStreamToResponse,
 	stepCountIs,
 	ToolLoopAgent,
 	type ToolSet,
 	type UIMessage,
+	type UIMessageChunk,
 	validateUIMessages,
 } from "ai";
 import { ConvexHttpClient } from "convex/browser";
@@ -78,6 +80,7 @@ const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,
 });
+const ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
 
 const shouldEnableImageGeneration = (message: UIMessage) =>
 	/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
@@ -85,6 +88,106 @@ const shouldEnableImageGeneration = (message: UIMessage) =>
 	);
 
 const canUseLocalFolderTools = () => process.env.OPENGRAN_ENV_MODE === "local";
+
+class ActiveChatStreamPersister {
+	#buffer = "";
+	#chatId: string;
+	#convexClient: ConvexHttpClient;
+	#flushPromise: Promise<void> | null = null;
+	#flushTimer: ReturnType<typeof setTimeout> | null = null;
+	#messageId: string;
+	#workspaceId: Id<"workspaces">;
+
+	constructor(
+		convexClient: ConvexHttpClient,
+		workspaceId: Id<"workspaces">,
+		chatId: string,
+		messageId: string,
+	) {
+		this.#chatId = chatId;
+		this.#convexClient = convexClient;
+		this.#messageId = messageId;
+		this.#workspaceId = workspaceId;
+	}
+
+	get messageId() {
+		return this.#messageId;
+	}
+
+	async start() {
+		await this.#convexClient.mutation(api.chats.startActiveStream, {
+			workspaceId: this.#workspaceId,
+			chatId: this.#chatId,
+			messageId: this.#messageId,
+		});
+	}
+
+	append(delta: string) {
+		if (!delta) {
+			return;
+		}
+
+		this.#buffer += delta;
+
+		if (this.#flushTimer) {
+			return;
+		}
+
+		this.#flushTimer = setTimeout(() => {
+			this.#flushTimer = null;
+			void this.flush();
+		}, ACTIVE_STREAM_FLUSH_INTERVAL_MS);
+	}
+
+	async flush() {
+		if (this.#flushTimer) {
+			clearTimeout(this.#flushTimer);
+			this.#flushTimer = null;
+		}
+
+		while (this.#buffer) {
+			const delta = this.#buffer;
+			this.#buffer = "";
+			const previousFlush = this.#flushPromise ?? Promise.resolve();
+			const flushPromise = previousFlush
+				.then(() =>
+					this.#convexClient.mutation(api.chats.appendActiveStreamText, {
+						workspaceId: this.#workspaceId,
+						chatId: this.#chatId,
+						messageId: this.#messageId,
+						delta,
+					}),
+				)
+				.then(() => undefined)
+				.catch((error) => {
+					console.error("Failed to persist active chat stream", error);
+				});
+
+			this.#flushPromise = flushPromise;
+			await flushPromise;
+
+			if (this.#flushPromise === flushPromise) {
+				this.#flushPromise = null;
+			}
+		}
+
+		await this.#flushPromise;
+	}
+
+	async finish(status: "done" | "error") {
+		await this.flush();
+		await this.#convexClient
+			.mutation(api.chats.finishActiveStream, {
+				workspaceId: this.#workspaceId,
+				chatId: this.#chatId,
+				messageId: this.#messageId,
+				status,
+			})
+			.catch((error) => {
+				console.error("Failed to finish active chat stream", error);
+			});
+	}
+}
 
 const getConvexUrl = () => {
 	const value = process.env.CONVEX_URL ?? process.env.VITE_CONVEX_URL;
@@ -735,6 +838,24 @@ export const handleChatRequest = async (
 		}
 	}
 
+	const activeStreamPersister =
+		convexClient && id && resolvedWorkspaceId
+			? new ActiveChatStreamPersister(
+					convexClient,
+					resolvedWorkspaceId,
+					id,
+					`stream-${crypto.randomUUID()}`,
+				)
+			: null;
+
+	if (activeStreamPersister) {
+		try {
+			await activeStreamPersister.start();
+		} catch (error) {
+			console.error("Failed to start active chat stream", error);
+		}
+	}
+
 	const agent = new ToolLoopAgent({
 		model: openai(resolvedModel.model),
 		providerOptions,
@@ -743,13 +864,11 @@ export const handleChatRequest = async (
 		stopWhen: hasEnabledTools ? stepCountIs(5) : undefined,
 	});
 
-	await pipeAgentUIStreamToResponse({
-		response,
+	const stream = await createAgentUIStream({
 		agent,
 		uiMessages: chatMessages,
 		originalMessages: chatMessages,
 		generateMessageId,
-		consumeSseStream: consumeStream,
 		sendReasoning: true,
 		sendSources: true,
 		onFinish: async ({ responseMessage }) => {
@@ -775,10 +894,31 @@ export const handleChatRequest = async (
 					reasoningEffort: resolvedReasoningEffort,
 					message: toStoredMessage(responseMessage),
 				});
+				await activeStreamPersister?.finish("done");
 			} catch (error) {
 				console.error("Failed to persist assistant chat message", error);
+				await activeStreamPersister?.finish("error");
 			}
 		},
 		onError: () => "Something went wrong.",
+	});
+	const persistedStream = activeStreamPersister
+		? stream.pipeThrough(
+				new TransformStream<UIMessageChunk, UIMessageChunk>({
+					transform(chunk, controller) {
+						if (chunk.type === "text-delta") {
+							activeStreamPersister.append(chunk.delta);
+						}
+
+						controller.enqueue(chunk);
+					},
+				}),
+			)
+		: stream;
+
+	pipeUIMessageStreamToResponse({
+		response,
+		stream: persistedStream,
+		consumeSseStream: consumeStream,
 	});
 };
