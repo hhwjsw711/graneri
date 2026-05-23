@@ -55,7 +55,7 @@ export function NoteTableOfContents({
 		<div className="group/toc relative flex w-9 justify-end">
 			<div
 				aria-hidden="true"
-				className="flex min-h-28 w-9 flex-col items-end gap-3 pr-1 pb-3"
+				className="flex min-h-28 w-9 flex-col items-end gap-3 pr-1 pb-3 transition-opacity duration-150 group-hover/toc:opacity-0"
 			>
 				{visibleAnchors.map((anchor) => {
 					const anchorIndex = anchors.findIndex(
@@ -81,7 +81,7 @@ export function NoteTableOfContents({
 				})}
 			</div>
 
-			<div className="pointer-events-none absolute top-0 right-7 z-20 pr-3 opacity-0 transition-all duration-150 group-hover/toc:pointer-events-auto group-hover/toc:opacity-100">
+			<div className="pointer-events-none absolute -top-3 right-0 z-20 opacity-0 transition-all duration-150 group-hover/toc:pointer-events-auto group-hover/toc:opacity-100">
 				<Card
 					size="sm"
 					className="w-[243px] max-w-[calc(100vw-6rem)] rounded-2xl border-0 bg-popover/95 py-0 text-popover-foreground ring-0 shadow-xl backdrop-blur supports-[backdrop-filter]:bg-popover/90"
