@@ -310,7 +310,7 @@ export function NavProjects({
 	currentNoteId,
 	currentNoteTitle,
 	recordingNoteId = null,
-	revealActiveNoteProject = true,
+	autoRevealActiveNoteProject = true,
 	workspaceId,
 	onPrefetchNote,
 	onNoteSelect,
@@ -322,7 +322,7 @@ export function NavProjects({
 	currentNoteId: Id<"notes"> | null;
 	currentNoteTitle?: string;
 	recordingNoteId?: Id<"notes"> | null;
-	revealActiveNoteProject?: boolean;
+	autoRevealActiveNoteProject?: boolean;
 	workspaceId: Id<"workspaces"> | null;
 	onPrefetchNote: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
@@ -376,7 +376,7 @@ export function NavProjects({
 	}, [visibleProjectIds]);
 
 	React.useEffect(() => {
-		if (!currentNoteId || !revealActiveNoteProject) {
+		if (!currentNoteId || !autoRevealActiveNoteProject) {
 			return;
 		}
 
@@ -393,7 +393,7 @@ export function NavProjects({
 			value: true,
 			preserveCollapsedProjects: true,
 		});
-	}, [currentNoteId, revealActiveNoteProject, visibleProjectEntries]);
+	}, [autoRevealActiveNoteProject, currentNoteId, visibleProjectEntries]);
 
 	const handleCreateProject = React.useCallback(() => {
 		if (!workspaceId) {

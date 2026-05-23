@@ -740,6 +740,58 @@ const AppSidebarHeaderSection = React.memo(function AppSidebarHeaderSection({
 	);
 });
 
+function useSidebarNoteSelection({
+	currentNoteId,
+	currentView,
+	onNoteSelect,
+}: {
+	currentNoteId: Id<"notes"> | null;
+	currentView: AppSidebarView;
+	onNoteSelect: (noteId: Id<"notes">) => void;
+}) {
+	const activeNoteId = currentView === "note" ? currentNoteId : null;
+	const [lastNoteSelection, setLastNoteSelection] = React.useState<{
+		noteId: Id<"notes">;
+		source: NoteNavigationSource;
+	} | null>(null);
+	const activeNoteNavigationSource =
+		lastNoteSelection?.noteId === activeNoteId
+			? lastNoteSelection.source
+			: null;
+	const selectNoteFromSource = React.useCallback(
+		(noteId: Id<"notes">, source: NoteNavigationSource) => {
+			setLastNoteSelection({ noteId, source });
+			onNoteSelect(noteId);
+		},
+		[onNoteSelect],
+	);
+	const handleStarredNoteSelect = React.useCallback(
+		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "starred"),
+		[selectNoteFromSource],
+	);
+	const handleSharedNoteSelect = React.useCallback(
+		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "shared"),
+		[selectNoteFromSource],
+	);
+	const handleNotesNoteSelect = React.useCallback(
+		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "notes"),
+		[selectNoteFromSource],
+	);
+	const handleProjectNoteSelect = React.useCallback(
+		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "projects"),
+		[selectNoteFromSource],
+	);
+
+	return {
+		activeNoteId,
+		autoRevealActiveNoteProject: activeNoteNavigationSource !== "starred",
+		handleNotesNoteSelect,
+		handleProjectNoteSelect,
+		handleSharedNoteSelect,
+		handleStarredNoteSelect,
+	};
+}
+
 const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	activeWorkspaceId,
 	chats,
@@ -785,36 +837,18 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 		() => new Set((automations ?? []).map((automation) => automation.chatId)),
 		[automations],
 	);
-	const activeNoteId = currentView === "note" ? currentNoteId : null;
-	const [noteNavigationSource, setNoteNavigationSource] =
-		React.useState<NoteNavigationSource | null>(null);
-	const sourceNoteIdRef = React.useRef<Id<"notes"> | null>(null);
-	const activeNoteNavigationSource =
-		sourceNoteIdRef.current === activeNoteId ? noteNavigationSource : null;
-	const selectNoteFromSource = React.useCallback(
-		(noteId: Id<"notes">, navigationSource: NoteNavigationSource) => {
-			sourceNoteIdRef.current = noteId;
-			setNoteNavigationSource(navigationSource);
-			onNoteSelect(noteId);
-		},
-		[onNoteSelect],
-	);
-	const handleStarredNoteSelect = React.useCallback(
-		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "starred"),
-		[selectNoteFromSource],
-	);
-	const handleSharedNoteSelect = React.useCallback(
-		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "shared"),
-		[selectNoteFromSource],
-	);
-	const handleNotesNoteSelect = React.useCallback(
-		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "notes"),
-		[selectNoteFromSource],
-	);
-	const handleProjectNoteSelect = React.useCallback(
-		(noteId: Id<"notes">) => selectNoteFromSource(noteId, "projects"),
-		[selectNoteFromSource],
-	);
+	const {
+		activeNoteId,
+		autoRevealActiveNoteProject,
+		handleNotesNoteSelect,
+		handleProjectNoteSelect,
+		handleSharedNoteSelect,
+		handleStarredNoteSelect,
+	} = useSidebarNoteSelection({
+		currentNoteId,
+		currentView,
+		onNoteSelect,
+	});
 
 	return (
 		<SidebarContent>
@@ -871,7 +905,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 				currentNoteId={activeNoteId}
 				currentNoteTitle={currentNoteTitle}
 				recordingNoteId={recordingNoteId}
-				revealActiveNoteProject={activeNoteNavigationSource !== "starred"}
+				autoRevealActiveNoteProject={autoRevealActiveNoteProject}
 				onPrefetchNote={onNotePrefetch}
 				onNoteSelect={handleProjectNoteSelect}
 				onNoteTitleChange={onNoteTitleChange}
