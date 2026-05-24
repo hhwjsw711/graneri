@@ -128,6 +128,7 @@ import {
 	prefetchChatMessagesSnapshot,
 	useChatMessagesSnapshot,
 } from "@/hooks/use-chat-messages-snapshot";
+import { applyDesktopAppearancePreferenceAttributes } from "@/lib/appearance-preferences";
 import { type AuthSession, authClient } from "@/lib/auth-client";
 import { getChatId } from "@/lib/chat";
 import { clearCachedConvexToken } from "@/lib/convex-token";
@@ -325,6 +326,9 @@ const useAppShellState = ({
 		api.userPreferences.get,
 		session?.user && isConvexAuthenticated ? {} : "skip",
 	);
+	React.useEffect(() => {
+		applyDesktopAppearancePreferenceAttributes(userPreferences);
+	}, [userPreferences]);
 	const creatingNoteRef = React.useRef(false);
 	const inboxOpenRef = React.useRef(inboxOpen);
 	const lastNonSettingsLocationRef = React.useRef(

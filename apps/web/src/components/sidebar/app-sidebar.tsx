@@ -551,7 +551,7 @@ export function AppSidebar({
 
 	return (
 		<>
-			<Sidebar {...props}>
+			<Sidebar data-app-sidebar="true" {...props}>
 				<AppSidebarHeaderSection
 					activeWorkspaceId={activeWorkspaceId}
 					currentView={currentView}

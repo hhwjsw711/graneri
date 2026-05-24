@@ -205,6 +205,35 @@
 	html {
 		@apply font-sans;
 	}
+	html[data-font-smoothing="true"] {
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+	html[data-font-smoothing="false"] {
+		-webkit-font-smoothing: auto;
+		-moz-osx-font-smoothing: auto;
+	}
+	html[data-translucent-sidebar="true"] body {
+		background-color: transparent;
+	}
+	html[data-reduce-motion="on"] *,
+	html[data-reduce-motion="on"] *::before,
+	html[data-reduce-motion="on"] *::after {
+		scroll-behavior: auto;
+		transition-duration: 0.001ms;
+		animation-duration: 0.001ms;
+		animation-iteration-count: 1;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		html[data-reduce-motion="system"] *,
+		html[data-reduce-motion="system"] *::before,
+		html[data-reduce-motion="system"] *::after {
+			scroll-behavior: auto;
+			transition-duration: 0.001ms;
+			animation-duration: 0.001ms;
+			animation-iteration-count: 1;
+		}
+	}
 }
 
 @layer utilities {
@@ -214,5 +243,14 @@
 	:root[data-panel-resizing="true"] [data-slot="sidebar-inset"],
 	:root[data-panel-resizing="true"] .group\/docked-sheet {
 		transition: none;
+	}
+
+	html[data-translucent-sidebar="true"]
+		[data-app-sidebar="true"][data-slot="sidebar-container"]
+		> [data-slot="sidebar-inner"],
+	html[data-translucent-sidebar="true"]
+		[data-app-sidebar="true"][data-mobile="true"][data-slot="sidebar"] {
+		background-color: color-mix(in oklab, var(--sidebar) 38%, transparent);
+		backdrop-filter: blur(28px) saturate(1.45);
 	}
 }

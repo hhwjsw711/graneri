@@ -6,9 +6,22 @@ const userPreferencesValidator = v.object({
 	transcriptionLanguage: v.union(v.string(), v.null()),
 	jobTitle: v.union(v.string(), v.null()),
 	companyName: v.union(v.string(), v.null()),
+	fontSmoothing: v.boolean(),
+	reduceMotion: v.union(v.literal("system"), v.literal("on"), v.literal("off")),
+	translucentSidebar: v.boolean(),
 	avatarStorageId: v.union(v.id("_storage"), v.null()),
 	avatarUrl: v.union(v.string(), v.null()),
 });
+
+const reduceMotionValidator = v.union(
+	v.literal("system"),
+	v.literal("on"),
+	v.literal("off"),
+);
+
+const DEFAULT_FONT_SMOOTHING = true;
+const DEFAULT_REDUCE_MOTION = "system";
+const DEFAULT_TRANSLUCENT_SIDEBAR = false;
 
 const userAiProfileContextValidator = v.object({
 	name: v.union(v.string(), v.null()),
@@ -57,6 +70,13 @@ const toUserPreferencesResponse = async (
 	transcriptionLanguage: preferences?.transcriptionLanguage ?? null,
 	jobTitle: preferences?.jobTitle ?? null,
 	companyName: preferences?.companyName ?? null,
+	fontSmoothing: preferences
+		? preferences.fontSmoothing
+		: DEFAULT_FONT_SMOOTHING,
+	reduceMotion: preferences ? preferences.reduceMotion : DEFAULT_REDUCE_MOTION,
+	translucentSidebar: preferences
+		? preferences.translucentSidebar
+		: DEFAULT_TRANSLUCENT_SIDEBAR,
 	avatarStorageId: preferences?.avatarStorageId ?? null,
 	avatarUrl: preferences?.avatarStorageId
 		? await ctx.storage.getUrl(preferences.avatarStorageId)
@@ -100,6 +120,9 @@ export const update = mutation({
 		transcriptionLanguage: v.optional(v.union(v.string(), v.null())),
 		jobTitle: v.optional(v.union(v.string(), v.null())),
 		companyName: v.optional(v.union(v.string(), v.null())),
+		fontSmoothing: v.optional(v.boolean()),
+		reduceMotion: v.optional(reduceMotionValidator),
+		translucentSidebar: v.optional(v.boolean()),
 		avatarStorageId: v.optional(v.union(v.id("_storage"), v.null())),
 	},
 	returns: userPreferencesValidator,
@@ -123,6 +146,24 @@ export const update = mutation({
 				args.companyName !== undefined
 					? args.companyName
 					: (existing?.companyName ?? null),
+			fontSmoothing:
+				args.fontSmoothing !== undefined
+					? args.fontSmoothing
+					: existing
+						? existing.fontSmoothing
+						: DEFAULT_FONT_SMOOTHING,
+			reduceMotion:
+				args.reduceMotion !== undefined
+					? args.reduceMotion
+					: existing
+						? existing.reduceMotion
+						: DEFAULT_REDUCE_MOTION,
+			translucentSidebar:
+				args.translucentSidebar !== undefined
+					? args.translucentSidebar
+					: existing
+						? existing.translucentSidebar
+						: DEFAULT_TRANSLUCENT_SIDEBAR,
 			avatarStorageId:
 				args.avatarStorageId !== undefined
 					? args.avatarStorageId
@@ -135,6 +176,9 @@ export const update = mutation({
 					existing.transcriptionLanguage &&
 				nextPreferences.jobTitle === existing.jobTitle &&
 				nextPreferences.companyName === existing.companyName &&
+				nextPreferences.fontSmoothing === existing.fontSmoothing &&
+				nextPreferences.reduceMotion === existing.reduceMotion &&
+				nextPreferences.translucentSidebar === existing.translucentSidebar &&
 				(nextPreferences.avatarStorageId ?? undefined) ===
 					existing.avatarStorageId
 			) {
@@ -152,6 +196,9 @@ export const update = mutation({
 				transcriptionLanguage: nextPreferences.transcriptionLanguage,
 				jobTitle: nextPreferences.jobTitle,
 				companyName: nextPreferences.companyName,
+				fontSmoothing: nextPreferences.fontSmoothing,
+				reduceMotion: nextPreferences.reduceMotion,
+				translucentSidebar: nextPreferences.translucentSidebar,
 				avatarStorageId: nextPreferences.avatarStorageId ?? undefined,
 				updatedAt: now,
 			});
@@ -161,6 +208,9 @@ export const update = mutation({
 				transcriptionLanguage: nextPreferences.transcriptionLanguage,
 				jobTitle: nextPreferences.jobTitle,
 				companyName: nextPreferences.companyName,
+				fontSmoothing: nextPreferences.fontSmoothing,
+				reduceMotion: nextPreferences.reduceMotion,
+				translucentSidebar: nextPreferences.translucentSidebar,
 				avatarStorageId: nextPreferences.avatarStorageId ?? undefined,
 				updatedAt: now,
 			});
@@ -171,6 +221,9 @@ export const update = mutation({
 			transcriptionLanguage: nextPreferences.transcriptionLanguage,
 			jobTitle: nextPreferences.jobTitle,
 			companyName: nextPreferences.companyName,
+			fontSmoothing: nextPreferences.fontSmoothing,
+			reduceMotion: nextPreferences.reduceMotion,
+			translucentSidebar: nextPreferences.translucentSidebar,
 			avatarStorageId: nextPreferences.avatarStorageId ?? undefined,
 			createdAt: now,
 			updatedAt: now,

@@ -76,6 +76,13 @@ export default defineSchema({
 		transcriptionLanguage: v.union(v.string(), v.null()),
 		jobTitle: v.union(v.string(), v.null()),
 		companyName: v.union(v.string(), v.null()),
+		fontSmoothing: v.boolean(),
+		reduceMotion: v.union(
+			v.literal("system"),
+			v.literal("on"),
+			v.literal("off"),
+		),
+		translucentSidebar: v.boolean(),
 		avatarStorageId: v.optional(v.id("_storage")),
 		createdAt: v.number(),
 		updatedAt: v.number(),
@@ -514,13 +521,15 @@ export default defineSchema({
 		),
 		webSearchEnabled: v.optional(v.boolean()),
 		appsEnabled: v.optional(v.boolean()),
-		appSources: v.optional(v.array(
-			v.object({
-				id: v.string(),
-				label: v.string(),
-				provider: automationAppSourceProviderValidator,
-			}),
-		)),
+		appSources: v.optional(
+			v.array(
+				v.object({
+					id: v.string(),
+					label: v.string(),
+					provider: automationAppSourceProviderValidator,
+				}),
+			),
+		),
 		schedulePeriod: automationSchedulePeriodValidator,
 		scheduledAt: v.number(),
 		timezone: v.string(),

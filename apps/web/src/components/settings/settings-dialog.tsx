@@ -61,11 +61,8 @@ import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import {
 	Select,
 	SelectContent,
-	SelectGroup,
 	SelectItem,
-	SelectLabel,
 	SelectTrigger,
-	SelectValue,
 } from "@workspace/ui/components/select";
 import {
 	Sidebar,
@@ -78,7 +75,6 @@ import {
 	SidebarProvider,
 } from "@workspace/ui/components/sidebar";
 import { Switch } from "@workspace/ui/components/switch";
-import { useTheme } from "@workspace/ui/components/theme-provider";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
 	Bell,
@@ -108,6 +104,8 @@ import {
 import { toast } from "sonner";
 import { AppSourceIcon } from "@/components/app-source-icon";
 import { writeTextToClipboard } from "@/components/note/share-note";
+import { AppearanceSettings } from "@/components/settings/appearance-settings";
+import { SettingsSwitchRow } from "@/components/settings/settings-switch-row";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { useLinkedAccounts } from "@/hooks/use-linked-accounts";
 import { authClient } from "@/lib/auth-client";
@@ -122,12 +120,9 @@ import {
 } from "@/lib/google-integrations";
 import { loadRuntimeConfig } from "@/lib/runtime-config";
 import {
-	getTranscriptionLanguageSelectValue,
-	OTHER_TRANSCRIPTION_LANGUAGE_OPTIONS,
-	PRIMARY_TRANSCRIPTION_LANGUAGE_OPTIONS,
-	parseTranscriptionLanguageSelectValue,
-	TRANSCRIPTION_LANGUAGE_OPTIONS,
-} from "@/lib/transcription-languages";
+	mergeUserPreferencesForOptimisticUpdate,
+	type UserPreferencesState,
+} from "@/lib/user-preferences";
 import type { WorkspaceRecord } from "@/lib/workspaces";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -254,14 +249,6 @@ type WorkspaceFormState = {
 	name: string;
 	iconStorageId: Id<"_storage"> | null;
 	iconPreviewUrl: string | null;
-};
-
-type UserPreferencesState = {
-	transcriptionLanguage: string | null;
-	jobTitle: string | null;
-	companyName: string | null;
-	avatarStorageId: Id<"_storage"> | null;
-	avatarUrl: string | null;
 };
 
 type ProfileFormState = {
@@ -992,170 +979,6 @@ export function SettingsDialog({
 	);
 }
 
-const mergeUserPreferencesForOptimisticUpdate = (
-	currentPreferences: UserPreferencesState | null | undefined,
-	args: Partial<UserPreferencesState>,
-): UserPreferencesState => ({
-	transcriptionLanguage:
-		args.transcriptionLanguage !== undefined
-			? args.transcriptionLanguage
-			: (currentPreferences?.transcriptionLanguage ?? null),
-	jobTitle:
-		args.jobTitle !== undefined
-			? args.jobTitle
-			: (currentPreferences?.jobTitle ?? null),
-	companyName:
-		args.companyName !== undefined
-			? args.companyName
-			: (currentPreferences?.companyName ?? null),
-	avatarStorageId:
-		args.avatarStorageId !== undefined
-			? args.avatarStorageId
-			: (currentPreferences?.avatarStorageId ?? null),
-	avatarUrl:
-		args.avatarUrl !== undefined
-			? args.avatarUrl
-			: (currentPreferences?.avatarUrl ?? null),
-});
-
-function AppearanceSettings() {
-	const { theme, setTheme } = useTheme();
-	const userPreferences = useQuery(api.userPreferences.get, {});
-	const updateUserPreferences = useMutation(
-		api.userPreferences.update,
-	).withOptimisticUpdate((localStore, args) => {
-		const currentPreferences = localStore.getQuery(api.userPreferences.get, {});
-		localStore.setQuery(
-			api.userPreferences.get,
-			{},
-			mergeUserPreferencesForOptimisticUpdate(currentPreferences, args),
-		);
-	});
-	const [isSavingLanguagePreference, setIsSavingLanguagePreference] =
-		useState(false);
-
-	const themeOptions = [
-		{
-			value: "light",
-			label: "Light",
-		},
-		{
-			value: "dark",
-			label: "Dark",
-		},
-	] as const;
-	const selectedTheme =
-		theme === "dark" ||
-		(theme === "system" && document.documentElement.classList.contains("dark"))
-			? "dark"
-			: "light";
-	const transcriptionLanguageValue = getTranscriptionLanguageSelectValue(
-		userPreferences?.transcriptionLanguage,
-	);
-
-	const handleTranscriptionLanguageChange = async (value: string) => {
-		setIsSavingLanguagePreference(true);
-
-		try {
-			await updateUserPreferences({
-				transcriptionLanguage: parseTranscriptionLanguageSelectValue(value),
-			});
-		} catch (error) {
-			console.error("Failed to update transcription language", error);
-			toast.error("Failed to update transcription language");
-		} finally {
-			setIsSavingLanguagePreference(false);
-		}
-	};
-
-	return (
-		<div className="py-4">
-			<FieldGroup className="gap-6">
-				<Field
-					orientation="responsive"
-					className="@md/field-group:items-center @md/field-group:has-[>[data-slot=field-content]]:items-center"
-				>
-					<FieldContent className="@md/field-group:justify-center">
-						<Label>Theme</Label>
-					</FieldContent>
-					<Select
-						value={selectedTheme}
-						onValueChange={(value) => setTheme(value as "light" | "dark")}
-					>
-						<SelectTrigger
-							size="sm"
-							className="w-full cursor-pointer justify-between @md/field-group:w-48"
-							aria-label="Select theme"
-						>
-							<span>{selectedTheme === "dark" ? "Dark" : "Light"}</span>
-						</SelectTrigger>
-						<SelectContent align="end">
-							{themeOptions.map(({ value, label }) => (
-								<SelectItem key={value} value={value}>
-									<span>{label}</span>
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</Field>
-				<Field
-					orientation="responsive"
-					className="@md/field-group:items-start @md/field-group:has-[>[data-slot=field-content]]:items-start"
-				>
-					<FieldContent>
-						<Label>Transcription language</Label>
-					</FieldContent>
-					<Select
-						value={transcriptionLanguageValue}
-						onValueChange={(value) => {
-							void handleTranscriptionLanguageChange(value);
-						}}
-					>
-						<SelectTrigger
-							size="sm"
-							className="w-full cursor-pointer justify-between @md/field-group:w-56"
-							aria-label="Select transcription language"
-							disabled={isSavingLanguagePreference}
-						>
-							<SelectValue>
-								{TRANSCRIPTION_LANGUAGE_OPTIONS.find(
-									(option) => option.value === transcriptionLanguageValue,
-								)?.label ?? "Auto-detect"}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent
-							align="end"
-							className="max-h-80"
-							showScrollButtons={false}
-						>
-							<SelectGroup>
-								<SelectLabel>Suggested</SelectLabel>
-								{PRIMARY_TRANSCRIPTION_LANGUAGE_OPTIONS.map(
-									({ value, label }) => (
-										<SelectItem key={value} value={value}>
-											<span>{label}</span>
-										</SelectItem>
-									),
-								)}
-							</SelectGroup>
-							<SelectGroup>
-								<SelectLabel>More languages</SelectLabel>
-								{OTHER_TRANSCRIPTION_LANGUAGE_OPTIONS.map(
-									({ value, label }) => (
-										<SelectItem key={value} value={value}>
-											<span>{label}</span>
-										</SelectItem>
-									),
-								)}
-							</SelectGroup>
-						</SelectContent>
-					</Select>
-				</Field>
-			</FieldGroup>
-		</div>
-	);
-}
-
 function NotificationsSettings() {
 	const activeWorkspaceId = useActiveWorkspaceId();
 	const notificationPreferences = useQuery(
@@ -1341,34 +1164,6 @@ function PreferencesSettings() {
 					}}
 				/>
 			</FieldGroup>
-		</div>
-	);
-}
-
-function SettingsSwitchRow({
-	id,
-	label,
-	checked,
-	disabled,
-	onCheckedChange,
-}: {
-	id: string;
-	label: string;
-	checked: boolean;
-	disabled: boolean;
-	onCheckedChange: (checked: boolean) => void;
-}) {
-	return (
-		<div className="flex items-center justify-between gap-4">
-			<Label htmlFor={id} className="text-sm font-medium text-foreground">
-				{label}
-			</Label>
-			<Switch
-				id={id}
-				checked={checked}
-				disabled={disabled}
-				onCheckedChange={onCheckedChange}
-			/>
 		</div>
 	);
 }

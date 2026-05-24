@@ -131,6 +131,10 @@ const defaultLastNavigation = {
 	search: "",
 };
 const getMainWindowBackgroundColor = () => {
+	if (process.platform === "darwin") {
+		return "#00000000";
+	}
+
 	const shouldUseDarkColors =
 		nativeTheme.themeSource === "dark" ||
 		(nativeTheme.themeSource === "system" &&
@@ -4742,6 +4746,8 @@ const createMainWindow = async (targetUrl) => {
 		autoHideMenuBar: true,
 		titleBarStyle: isMac ? "hiddenInset" : "default",
 		trafficLightPosition: isMac ? { x: 16, y: 14 } : undefined,
+		vibrancy: isMac ? "sidebar" : undefined,
+		visualEffectState: isMac ? "active" : undefined,
 		webPreferences: {
 			preload: join(runtimeDir, "preload.cjs"),
 			contextIsolation: true,
