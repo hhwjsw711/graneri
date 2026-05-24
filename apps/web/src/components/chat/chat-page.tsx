@@ -41,6 +41,7 @@ import { COMPOSER_DOCK_WRAPPER_CLASS } from "@/components/layout/composer-dock";
 import { PageTitle } from "@/components/layout/page-title";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { useAppSources } from "@/hooks/use-app-sources";
+import { useComposerDraft } from "@/hooks/use-composer-draft";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import {
 	getStoredChatModel as getStoredLocalChatModel,
@@ -60,6 +61,7 @@ import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
+import { getChatComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
 import {
@@ -208,6 +210,10 @@ type Highlight = object;
 const CHAT_SEARCH_MATCH_HIGHLIGHT = "chat-search-match";
 const CHAT_SEARCH_ACTIVE_MATCH_HIGHLIGHT = "chat-search-active-match";
 
+type ChatComposerDraftMetadata = {
+	mentions: ChatComposerMention[];
+};
+
 const createTextMatchRanges = ({
 	element,
 	query,
@@ -264,11 +270,20 @@ const useChatPageController = ({
 	| "activeStreamingChatIds"
 >) => {
 	const activeWorkspaceId = useActiveWorkspaceId();
+	const draftStorageScope = activeWorkspaceId
+		? getChatComposerDraftScope({ chatId, workspaceId: activeWorkspaceId })
+		: null;
 	const currentChat = React.useMemo(
 		() => chats.find((chat) => getChatId(chat) === chatId) ?? null,
 		[chats, chatId],
 	);
-	const [draft, setDraft] = React.useState("");
+	const {
+		clear: clearDraft,
+		metadata: draftMetadata,
+		setMetadata: setDraftMetadata,
+		setText: setDraft,
+		text: draft,
+	} = useComposerDraft<ChatComposerDraftMetadata>(draftStorageScope);
 	const [attachedFiles, setAttachedFiles] = React.useState<ChatAttachment[]>(
 		[],
 	);
@@ -280,7 +295,11 @@ const useChatPageController = ({
 	const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>(
 		getStoredReasoningEffort,
 	);
-	const [mentions, setMentions] = React.useState<ChatComposerMention[]>([]);
+	const mentions = React.useMemo(
+		() =>
+			Array.isArray(draftMetadata?.mentions) ? draftMetadata.mentions : [],
+		[draftMetadata],
+	);
 	const [modelPopoverOpen, setModelPopoverOpen] = React.useState(false);
 	const [sourcesOpen, setSourcesOpen] = React.useState(false);
 	const [summaryOpen, setSummaryOpen] = React.useState(false);
@@ -300,6 +319,14 @@ const useChatPageController = ({
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
 	const appSources = useAppSources(activeWorkspaceId);
+	const handleMentionsChange = React.useCallback(
+		(nextMentions: ChatComposerMention[]) => {
+			setDraftMetadata(
+				nextMentions.length > 0 ? { mentions: nextMentions } : null,
+			);
+		},
+		[setDraftMetadata],
+	);
 	React.useEffect(() => {
 		let isCurrent = true;
 		const storedFolders = loadStoredSharedLocalFolders(localFolderStorageScope);
@@ -577,8 +604,7 @@ const useChatPageController = ({
 				setIsPreparingRequest(false);
 			});
 			setEditingMessageId(null);
-			setDraft("");
-			setMentions([]);
+			clearDraft();
 			setAttachedFiles([]);
 		} catch (error) {
 			console.error("Failed to prepare chat request", error);
@@ -594,6 +620,7 @@ const useChatPageController = ({
 		localFolderStorageScope,
 		mentions,
 		onChatPersisted,
+		clearDraft,
 		selectedReasoningEffort,
 		selectedModel.model,
 		sendMessage,
@@ -643,18 +670,19 @@ const useChatPageController = ({
 
 			setEditingMessageId(messageId);
 			setDraft(text);
-			setMentions(messageMentions);
+			setDraftMetadata(
+				messageMentions.length > 0 ? { mentions: messageMentions } : null,
+			);
 			setAttachedFiles([]);
 		},
-		[handleStop, isLoading],
+		[handleStop, isLoading, setDraft, setDraftMetadata],
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
 		setEditingMessageId(null);
-		setDraft("");
-		setMentions([]);
+		clearDraft();
 		setAttachedFiles([]);
-	}, []);
+	}, [clearDraft]);
 
 	const buildRequestBody = React.useCallback(async () => {
 		const convexToken = await getCachedConvexToken();
@@ -691,7 +719,7 @@ const useChatPageController = ({
 				getMessagesBefore(currentMessages, messageId),
 			);
 			setEditingMessageId(null);
-			setDraft("");
+			clearDraft();
 
 			if (!activeWorkspaceId) {
 				return;
@@ -712,6 +740,7 @@ const useChatPageController = ({
 			handleStop,
 			isLoading,
 			setMessages,
+			clearDraft,
 			truncateFromMessage,
 		],
 	);
@@ -727,7 +756,7 @@ const useChatPageController = ({
 			try {
 				const requestBody = await buildRequestBody();
 				setEditingMessageId(null);
-				setDraft("");
+				clearDraft();
 				void Promise.resolve(
 					regenerate({
 						messageId: assistantMessageId,
@@ -741,7 +770,7 @@ const useChatPageController = ({
 				setIsPreparingRequest(false);
 			}
 		},
-		[buildRequestBody, handleStop, isLoading, regenerate],
+		[buildRequestBody, clearDraft, handleStop, isLoading, regenerate],
 	);
 	const handleOpenMention = React.useCallback((sourceId: string) => {
 		setSummaryOpen(true);
@@ -771,7 +800,7 @@ const useChatPageController = ({
 		selectedModel: isModelResolving ? null : selectedModel,
 		reasoningEffort: selectedReasoningEffort,
 		setDraft,
-		setMentions,
+		setMentions: handleMentionsChange,
 		setModelPopoverOpen,
 		setReasoningEffort: handleReasoningEffortChange,
 		setSelectedModel: handleSelectedModelChange,

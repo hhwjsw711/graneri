@@ -109,6 +109,7 @@ import {
 	prefetchChatMessagesSnapshot,
 	useChatMessagesSnapshot,
 } from "@/hooks/use-chat-messages-snapshot";
+import { useComposerDraft } from "@/hooks/use-composer-draft";
 import { useNoteTranscriptSession } from "@/hooks/use-note-transcript-session";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import { useTranscriptionSession } from "@/hooks/use-transcription-session";
@@ -124,6 +125,7 @@ import {
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
+import { getNoteComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { DESKTOP_MAIN_HEADER_CONTENT_CLASS } from "@/lib/desktop-chrome";
 import {
@@ -424,6 +426,10 @@ type ComposerKeyboardEvent = Pick<
 
 const createDraftChatId = (): string => crypto.randomUUID();
 
+type NoteComposerDraftMetadata = {
+	selectedRecipeSlug: RecipeSlug;
+};
+
 const resolveStateUpdate = <T,>(
 	value: React.SetStateAction<T>,
 	currentValue: T,
@@ -453,8 +459,16 @@ const useNoteComposerController = ({
 		setRightSidebarWidthOverride,
 	} = useSidebarRight();
 	const { rightInsetPanelWidth } = useDockedPanelWidths();
-	const [message, setMessage] = React.useState("");
-	const [, setIsExpanded] = React.useState(false);
+	const noteId = (noteContext.noteId as Id<"notes"> | null) ?? null;
+	const noteStorageScopeKey = getNoteStorageScopeKey(noteId);
+	const draftStorageScope = noteId ? getNoteComposerDraftScope(noteId) : null;
+	const {
+		clear: clearDraft,
+		metadata: draftMetadata,
+		setMetadata: setDraftMetadata,
+		setText: setMessage,
+		text: message,
+	} = useComposerDraft<NoteComposerDraftMetadata>(draftStorageScope);
 	const [panelModeState, setPanelModeState] = React.useState<
 		"chat" | "transcript" | null
 	>(null);
@@ -469,8 +483,6 @@ const useNoteComposerController = ({
 	>([]);
 	const localFolderStorageScope = `note-chat:${currentChatId}`;
 	const [, startTranscriptPanelTransition] = React.useTransition();
-	const noteId = (noteContext.noteId as Id<"notes"> | null) ?? null;
-	const noteStorageScopeKey = getNoteStorageScopeKey(noteId);
 	const inlinePopoverHeightStorageKey = isMobile
 		? getNoteScopedStorageKey({
 				prefix: INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
@@ -534,8 +546,7 @@ const useNoteComposerController = ({
 	const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>(
 		getStoredReasoningEffort,
 	);
-	const [selectedRecipeSlug, setSelectedRecipeSlug] =
-		React.useState<RecipeSlug | null>(null);
+	const selectedRecipeSlug = draftMetadata?.selectedRecipeSlug ?? null;
 	const [editingMessageId, setEditingMessageId] = React.useState<string | null>(
 		null,
 	);
@@ -543,6 +554,14 @@ const useNoteComposerController = ({
 		[],
 	);
 	useRevokeAttachmentObjectUrls(attachedFiles);
+	const setSelectedRecipeSlug = React.useCallback(
+		(value: React.SetStateAction<RecipeSlug | null>) => {
+			const nextValue =
+				typeof value === "function" ? value(selectedRecipeSlug) : value;
+			setDraftMetadata(nextValue ? { selectedRecipeSlug: nextValue } : null);
+		},
+		[selectedRecipeSlug, setDraftMetadata],
+	);
 	const rootRef = React.useRef<HTMLDivElement>(null);
 	const inlinePanelRef = React.useRef<HTMLDivElement>(null);
 	const composerEditorRef = React.useRef<HTMLDivElement>(null);
@@ -1318,11 +1337,8 @@ const useNoteComposerController = ({
 		setCurrentChatId(createDraftChatId());
 		setMessages([]);
 		setEditingMessageId(null);
-		setMessage("");
 		setAttachedFiles([]);
-		setIsExpanded(false);
 		setPanelMode(null);
-		setSelectedRecipeSlug(null);
 		setRecipePopoverOpen(false);
 		resetTextareaHeight();
 		closeRightSidebar();
@@ -1350,7 +1366,7 @@ const useNoteComposerController = ({
 		) {
 			setSelectedRecipeSlug(null);
 		}
-	}, [recipes, selectedRecipeSlug]);
+	}, [recipes, selectedRecipeSlug, setSelectedRecipeSlug]);
 
 	React.useEffect(
 		() => () => {
@@ -1573,10 +1589,8 @@ const useNoteComposerController = ({
 				setIsPreparingRequest(false);
 			});
 			setEditingMessageId(null);
-			setMessage("");
+			clearDraft();
 			setAttachedFiles([]);
-			setSelectedRecipeSlug(null);
-			setIsExpanded(false);
 			resetTextareaHeight();
 		} catch (error) {
 			console.error("Failed to prepare note chat request", error);
@@ -1585,6 +1599,7 @@ const useNoteComposerController = ({
 	}, [
 		isChatLoading,
 		attachedFiles,
+		clearDraft,
 		localFolderStorageScope,
 		message,
 		openRightSidebar,
@@ -1606,7 +1621,6 @@ const useNoteComposerController = ({
 
 	const handleComposerValueChange = (nextValue: string) => {
 		setMessage(nextValue);
-		setIsExpanded(nextValue.length > 100 || nextValue.includes("\n"));
 	};
 
 	const handleComposerKeyDown = (event: ComposerKeyboardEvent) => {
@@ -1639,21 +1653,19 @@ const useNoteComposerController = ({
 			setEditingMessageId(messageId);
 			setMessage(text);
 			setAttachedFiles([]);
-			setIsExpanded(text.length > 100 || text.includes("\n"));
 			resizeTextarea();
 			focusComposerInput();
 		},
-		[focusComposerInput, handleStop, isChatLoading, resizeTextarea],
+		[focusComposerInput, handleStop, isChatLoading, resizeTextarea, setMessage],
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
 		setEditingMessageId(null);
-		setMessage("");
+		clearDraft();
 		setAttachedFiles([]);
-		setIsExpanded(false);
 		resetTextareaHeight();
 		focusComposerInput();
-	}, [focusComposerInput, resetTextareaHeight]);
+	}, [clearDraft, focusComposerInput, resetTextareaHeight]);
 
 	const buildRequestBody = React.useCallback(async () => {
 		const currentNoteContext = readNoteContext();
@@ -1689,9 +1701,8 @@ const useNoteComposerController = ({
 				getMessagesBefore(currentMessages, messageId),
 			);
 			setEditingMessageId(null);
-			setMessage("");
+			clearDraft();
 			setAttachedFiles([]);
-			setIsExpanded(false);
 			resetTextareaHeight();
 
 			if (!activeWorkspaceId) {
@@ -1713,6 +1724,7 @@ const useNoteComposerController = ({
 			isChatLoading,
 			resetTextareaHeight,
 			setMessages,
+			clearDraft,
 			handleStop,
 			truncateFromMessage,
 		],
@@ -1735,8 +1747,7 @@ const useNoteComposerController = ({
 				const requestBody = await buildRequestBody();
 
 				setEditingMessageId(null);
-				setMessage("");
-				setIsExpanded(false);
+				clearDraft();
 				resetTextareaHeight();
 				void Promise.resolve(
 					regenerate({
@@ -1753,6 +1764,7 @@ const useNoteComposerController = ({
 		},
 		[
 			buildRequestBody,
+			clearDraft,
 			handleStop,
 			isChatLoading,
 			openRightSidebar,
@@ -2722,6 +2734,9 @@ function ChatInlinePopoverFooter({
 	const [selectedRecipeIndex, setSelectedRecipeIndex] = React.useState(0);
 	const composerPlaceholderRef = React.useRef(composerPlaceholder);
 	const previousComposerPlaceholderRef = React.useRef(composerPlaceholder);
+	const selectedRecipeSlugRef = React.useRef<RecipeSlug | null>(
+		selectedRecipe?.slug ?? null,
+	);
 	composerPlaceholderRef.current = composerPlaceholder;
 	const filteredRecipes = React.useMemo(() => {
 		const normalizedQuery = activeMentionQuery.trim().toLowerCase();
@@ -2740,6 +2755,7 @@ function ChatInlinePopoverFooter({
 	}
 	previousRecipePopoverOpenRef.current = recipePopoverOpen;
 	recipePopoverOpenRef.current = recipePopoverOpen;
+	selectedRecipeSlugRef.current = selectedRecipe?.slug ?? null;
 	selectedRecipeIndexRef.current = selectedRecipeIndex;
 
 	const selectRecipeIndex = React.useCallback((index: number) => {
@@ -2915,7 +2931,11 @@ function ChatInlinePopoverFooter({
 			suppressRecipePickerUntilUserActionRef.current = false;
 			const nextValue = editor.getText({ blockSeparator: "\n" });
 			handleComposerValueChange(nextValue);
-			onRecipeSelect(getRecipeSlugFromComposerContent(editor.getJSON()));
+			const nextRecipeSlug = getRecipeSlugFromComposerContent(editor.getJSON());
+			if (selectedRecipeSlugRef.current !== nextRecipeSlug) {
+				selectedRecipeSlugRef.current = nextRecipeSlug;
+				onRecipeSelect(nextRecipeSlug);
+			}
 		},
 	});
 	React.useEffect(() => {

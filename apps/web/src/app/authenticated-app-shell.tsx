@@ -258,16 +258,10 @@ const useAppShellState = ({
 			return getAppLocationState(new URL(window.location.href)).chatId;
 		},
 	);
-	const [chatComposerId, setChatComposerId] = React.useState(() => {
-		if (typeof window === "undefined") {
-			return crypto.randomUUID();
-		}
-
-		return (
-			getAppLocationState(new URL(window.location.href)).chatId ??
-			crypto.randomUUID()
-		);
-	});
+	const [draftChatComposerId, setDraftChatComposerId] = React.useState(() =>
+		crypto.randomUUID(),
+	);
+	const chatComposerId = currentChatId ?? draftChatComposerId;
 	const [currentNoteId, setCurrentNoteId] = React.useState<Id<"notes"> | null>(
 		null,
 	);
@@ -371,11 +365,6 @@ const useAppShellState = ({
 			setInboxOpen(input.inboxOpen);
 			setCurrentView(input.view);
 			setCurrentChatId(input.chatId);
-			setChatComposerId(
-				input.view === "chat"
-					? (input.chatId ?? crypto.randomUUID())
-					: crypto.randomUUID(),
-			);
 			setCurrentNoteId(null);
 			setCurrentRouteNoteId(input.view === "note" ? input.noteIdString : null);
 			setShouldAutoStartNoteCapture(input.shouldAutoStartNoteCapture);
@@ -811,16 +800,33 @@ const useAppShellState = ({
 		inboxOpenRef.current = inboxOpen;
 	}, [inboxOpen]);
 
+	const openChatLanding = React.useCallback(
+		({ resetDraft }: { resetDraft: boolean }) => {
+			React.startTransition(() => {
+				setInboxOpen(shouldKeepPinnedInboxOpen());
+				setCurrentView("chat");
+				setSettingsOpen(false);
+				setCurrentChatId(null);
+				setAutomationDialogOpen(false);
+				setEditingAutomationId(null);
+				setCurrentNoteEditorActions(null);
+				setCurrentNoteCommentsOpener(null);
+				if (resetDraft) {
+					setDraftChatComposerId(crypto.randomUUID());
+				}
+				window.history.pushState(null, "", "/chat");
+			});
+		},
+		[shouldKeepPinnedInboxOpen],
+	);
+
 	const openFreshChat = React.useCallback(() => {
-		React.startTransition(() => {
-			setInboxOpen(shouldKeepPinnedInboxOpen());
-			setCurrentView("chat");
-			setSettingsOpen(false);
-			setCurrentChatId(null);
-			setChatComposerId(crypto.randomUUID());
-			window.history.pushState(null, "", "/chat");
-		});
-	}, [shouldKeepPinnedInboxOpen]);
+		openChatLanding({ resetDraft: true });
+	}, [openChatLanding]);
+
+	const openDraftChat = React.useCallback(() => {
+		openChatLanding({ resetDraft: false });
+	}, [openChatLanding]);
 
 	const openStoredChat = React.useCallback(
 		(chatId: string) => {
@@ -829,7 +835,6 @@ const useAppShellState = ({
 				setCurrentView("chat");
 				setSettingsOpen(false);
 				setCurrentChatId(chatId);
-				setChatComposerId(chatId);
 				window.history.pushState(
 					null,
 					"",
@@ -1045,7 +1050,7 @@ const useAppShellState = ({
 			}
 
 			if (view === "chat") {
-				openFreshChat();
+				openDraftChat();
 				return;
 			}
 
@@ -1072,7 +1077,7 @@ const useAppShellState = ({
 							: "/home",
 			);
 		},
-		[openFreshChat, resolvedCurrentNoteId, shouldKeepPinnedInboxOpen],
+		[openDraftChat, resolvedCurrentNoteId, shouldKeepPinnedInboxOpen],
 	);
 
 	const handleInboxOpenChange = React.useCallback((open: boolean) => {
@@ -1466,6 +1471,7 @@ const useAppShellState = ({
 			}
 
 			setCurrentChatId(chatId);
+			setDraftChatComposerId(crypto.randomUUID());
 			window.history.replaceState(
 				null,
 				"",
@@ -1482,7 +1488,7 @@ const useAppShellState = ({
 
 			const nextChatId = crypto.randomUUID();
 			setCurrentChatId(null);
-			setChatComposerId(nextChatId);
+			setDraftChatComposerId(nextChatId);
 			window.history.replaceState(null, "", "/chat");
 		},
 		[currentChatId],

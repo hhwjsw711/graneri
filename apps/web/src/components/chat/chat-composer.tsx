@@ -142,6 +142,23 @@ const getMentionsFromComposerContent = (
 	return mentions;
 };
 
+const areChatComposerMentionsEqual = (
+	left: ChatComposerMention[],
+	right: ChatComposerMention[],
+) =>
+	left.length === right.length &&
+	left.every((mention, index) => {
+		const otherMention = right[index];
+		return (
+			mention.id === otherMention?.id &&
+			mention.label === otherMention.label &&
+			mention.from === otherMention.from &&
+			mention.to === otherMention.to &&
+			mention.type === otherMention.type &&
+			mention.provider === otherMention.provider
+		);
+	});
+
 const getDraftDocument = (
 	draft: string,
 	mentions: ChatComposerMention[] = [],
@@ -445,6 +462,7 @@ function ChatComposerTextEditor({
 	const allAppSourcesRef = React.useRef(appSources);
 	const visibleMentionDocumentsRef = React.useRef(mentionableDocuments);
 	const visibleMentionItemsRef = React.useRef<MentionPickerItem[]>([]);
+	const mentionsRef = React.useRef(mentions);
 	const selectedMentionIndexRef = React.useRef(0);
 	const [mentionPopoverOpen, setMentionPopoverOpen] = React.useState(false);
 	const [documentSearchTerm, setDocumentSearchTerm] = React.useState("");
@@ -482,6 +500,7 @@ function ChatComposerTextEditor({
 	allAppSourcesRef.current = appSources;
 	visibleMentionDocumentsRef.current = visibleMentionDocuments;
 	visibleMentionItemsRef.current = visibleMentionItems;
+	mentionsRef.current = mentions;
 	selectedMentionIndexRef.current = selectedMentionIndex;
 
 	const selectMentionIndex = React.useCallback((index: number) => {
@@ -735,7 +754,11 @@ function ChatComposerTextEditor({
 		},
 		onUpdate: ({ editor }) => {
 			onDraftChange(editor.getText({ blockSeparator: "\n" }));
-			onMentionsChange(getMentionsFromComposerContent(editor.getJSON()));
+			const nextMentions = getMentionsFromComposerContent(editor.getJSON());
+			if (!areChatComposerMentionsEqual(mentionsRef.current, nextMentions)) {
+				mentionsRef.current = nextMentions;
+				onMentionsChange(nextMentions);
+			}
 		},
 	});
 
