@@ -20,10 +20,12 @@ import * as React from "react";
 import { toast } from "sonner";
 import {
 	type ChatAttachment,
-	getReadyFileParts,
-	hasUploadingAttachments,
 	useRevokeAttachmentObjectUrls,
 } from "@/components/ai-elements/file-attachment-controls";
+import {
+	getReadyFileParts,
+	hasUploadingAttachments,
+} from "@/components/ai-elements/file-attachment-utils";
 import type { AutomationListItem } from "@/components/automations/automation-types";
 import {
 	type ChatSummaryOpenSourceRequest,
@@ -54,6 +56,7 @@ import {
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 import { getChatId } from "@/lib/chat";
+import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
@@ -326,9 +329,17 @@ const useChatPageController = ({
 		api.chats.getMessages,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
 	);
+	const activeStreamStatus = useQuery(
+		api.chats.getActiveStreamStatus,
+		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
+	);
 	const runningAutomationRun = useQuery(
 		api.automations.getRunningRunForChat,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
+	);
+	const activeStreamChatIds = useQuery(
+		api.chats.listActiveStreamChatIds,
+		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
 	const transport = React.useMemo(() => {
 		const chatApiUrl = getChatApiUrl();
@@ -427,8 +438,10 @@ const useChatPageController = ({
 
 	const isLocalChatLoading =
 		status === "submitted" || status === "streaming" || isPreparingRequest;
+	const isPersistedChatStreaming = activeStreamStatus === "streaming";
 	const isAutomationRunning = Boolean(runningAutomationRun);
-	const isLoading = isLocalChatLoading || isAutomationRunning;
+	const isLoading =
+		isLocalChatLoading || isPersistedChatStreaming || isAutomationRunning;
 	const hasMessages = messages.length > 0 || isAutomationRunning;
 	const isNotesLoading = notes === undefined;
 	const selectedModel =
@@ -618,6 +631,21 @@ const useChatPageController = ({
 		setWebSearchEnabled(enabled);
 	}, []);
 
+	const handleStop = React.useCallback(() => {
+		stop();
+
+		if (!isPersistedChatStreaming || !activeWorkspaceId) {
+			return;
+		}
+
+		void stopActiveChatStream({
+			chatId,
+			workspaceId: activeWorkspaceId,
+		}).catch((error) => {
+			console.error("Failed to stop active chat stream", error);
+		});
+	}, [activeWorkspaceId, chatId, isPersistedChatStreaming, stop]);
+
 	const handleEditMessage = React.useCallback(
 		(
 			messageId: string,
@@ -625,7 +653,7 @@ const useChatPageController = ({
 			messageMentions: ChatComposerMention[],
 		) => {
 			if (isLoading) {
-				stop();
+				handleStop();
 			}
 
 			setEditingMessageId(messageId);
@@ -633,7 +661,7 @@ const useChatPageController = ({
 			setMentions(messageMentions);
 			setAttachedFiles([]);
 		},
-		[isLoading, stop],
+		[handleStop, isLoading],
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
@@ -676,7 +704,7 @@ const useChatPageController = ({
 	const handleDeleteMessage = React.useCallback(
 		(messageId: string) => {
 			if (isLoading) {
-				stop();
+				handleStop();
 			}
 
 			setMessages((currentMessages) =>
@@ -701,9 +729,9 @@ const useChatPageController = ({
 		[
 			activeWorkspaceId,
 			chatId,
+			handleStop,
 			isLoading,
 			setMessages,
-			stop,
 			truncateFromMessage,
 		],
 	);
@@ -711,7 +739,7 @@ const useChatPageController = ({
 	const handleRegenerateMessage = React.useCallback(
 		async (assistantMessageId: string) => {
 			if (isLoading) {
-				stop();
+				handleStop();
 			}
 
 			setIsPreparingRequest(true);
@@ -733,7 +761,7 @@ const useChatPageController = ({
 				setIsPreparingRequest(false);
 			}
 		},
-		[buildRequestBody, isLoading, regenerate, stop],
+		[buildRequestBody, handleStop, isLoading, regenerate],
 	);
 	const handleOpenMention = React.useCallback((sourceId: string) => {
 		setSummaryOpen(true);
@@ -754,8 +782,10 @@ const useChatPageController = ({
 		setAttachedFiles,
 		handleDraftKeyDown,
 		handleSubmit,
+		handleStop,
 		handleWebSearchEnabledChange,
 		hasMessages,
+		activeStreamChatIds: activeStreamChatIds ?? [],
 		isLoading,
 		isNotesLoading,
 		messages,
@@ -772,7 +802,6 @@ const useChatPageController = ({
 		setSourcesOpen,
 		setSummaryOpen,
 		summaryOpenSourceRequest,
-		stop,
 		sourcesOpen,
 		summaryOpen,
 		webSearchEnabled,
@@ -886,6 +915,20 @@ export function ChatPage({
 		() => new Set((automations ?? []).map((automation) => automation.chatId)),
 		[automations],
 	);
+	const activeStreamingChatIds = React.useMemo(() => {
+		const ids = new Set(controller.activeStreamChatIds);
+
+		if (controller.isLoading && controller.hasMessages) {
+			ids.add(chatId);
+		}
+
+		return ids;
+	}, [
+		chatId,
+		controller.activeStreamChatIds,
+		controller.hasMessages,
+		controller.isLoading,
+	]);
 	const currentAutomation = React.useMemo(
 		() =>
 			(automations ?? []).find((automation) => automation.chatId === chatId) ??
@@ -1097,12 +1140,14 @@ export function ChatPage({
 	const chatSurfaceMinHeightClass = isDesktopMac
 		? "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-5rem)]"
 		: "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4rem)]";
+	const shouldShowScrollToLatest =
+		controller.hasMessages && !isChatViewportAtBottom;
 	const composer = (
 		<ChatComposer
 			useCompactLayout={shouldShowActiveChatSurface}
 			draft={controller.draft}
 			topAccessory={
-				controller.hasMessages && !isChatViewportAtBottom ? (
+				shouldShowScrollToLatest ? (
 					<Button
 						type="button"
 						variant="secondary"
@@ -1119,7 +1164,7 @@ export function ChatPage({
 			onDraftKeyDown={controller.handleDraftKeyDown}
 			mentions={controller.mentions}
 			onSubmit={controller.handleSubmit}
-			onStop={controller.stop}
+			onStop={controller.handleStop}
 			attachedFiles={controller.attachedFiles}
 			onAttachedFilesChange={controller.setAttachedFiles}
 			isLoading={controller.isLoading}
@@ -1226,6 +1271,7 @@ export function ChatPage({
 											onPrefetchChat={onPrefetchChat}
 											onMoveToTrash={onChatRemoved}
 											automationChatIds={automationChatIds}
+											activeStreamingChatIds={activeStreamingChatIds}
 											onAddAutomation={onAddAutomation}
 										/>
 									</div>

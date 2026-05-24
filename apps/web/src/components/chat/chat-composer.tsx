@@ -37,9 +37,9 @@ import {
 	type ChatAttachment,
 	FileAttachmentButton,
 	FileAttachmentChips,
-	hasUploadingAttachments,
 	useFileAttachmentDropzone,
 } from "@/components/ai-elements/file-attachment-controls";
+import { hasUploadingAttachments } from "@/components/ai-elements/file-attachment-utils";
 import { AppSourceIcon } from "@/components/app-source-icon";
 import {
 	type ChatModel,

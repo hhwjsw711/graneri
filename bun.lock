@@ -93,7 +93,6 @@
         "@tiptap/pm": "3.21.0",
         "@tiptap/react": "3.21.0",
         "@tiptap/starter-kit": "3.21.0",
-        "@tiptap/suggestion": "3.21.0",
         "@workspace/platform": "workspace:*",
         "@workspace/ui": "workspace:*",
         "ai": "6.0.182",

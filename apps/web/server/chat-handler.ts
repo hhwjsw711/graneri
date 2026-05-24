@@ -81,6 +81,7 @@ const generateMessageId = createIdGenerator({
 	size: 16,
 });
 const ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
+const activeChatStreamControllers = new Map<string, AbortController>();
 
 const shouldEnableImageGeneration = (message: UIMessage) =>
 	/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
@@ -188,6 +189,11 @@ class ActiveChatStreamPersister {
 			});
 	}
 }
+
+const getActiveChatStreamKey = (
+	workspaceId: Id<"workspaces">,
+	chatId: string,
+) => `${workspaceId}:${chatId}`;
 
 const getConvexUrl = () => {
 	const value = process.env.CONVEX_URL ?? process.env.VITE_CONVEX_URL;
@@ -450,6 +456,27 @@ const toStoredMessage = (message: UIMessage) => ({
 	createdAt: Date.now(),
 });
 
+const parseStoredMessagePartsForModelInput = (
+	partsJson: string,
+): UIMessage["parts"] => {
+	try {
+		const parts = JSON.parse(partsJson) as UIMessage["parts"];
+		if (!Array.isArray(parts)) {
+			return [];
+		}
+
+		return parts.flatMap((part) =>
+			part.type === "text" &&
+			typeof part.text === "string" &&
+			part.text.length > 0
+				? [{ type: "text" as const, text: part.text }]
+				: [],
+		);
+	} catch {
+		return [];
+	}
+};
+
 const fromStoredMessages = (
 	messages: Array<{
 		id: string;
@@ -458,14 +485,24 @@ const fromStoredMessages = (
 		metadataJson?: string;
 	}>,
 ): UIMessage[] =>
-	messages.map((message) => ({
-		id: message.id,
-		role: message.role,
-		metadata: message.metadataJson
-			? (JSON.parse(message.metadataJson) as UIMessage["metadata"])
-			: undefined,
-		parts: JSON.parse(message.partsJson) as UIMessage["parts"],
-	}));
+	messages.flatMap((message) => {
+		const parts = parseStoredMessagePartsForModelInput(message.partsJson);
+
+		if (parts.length === 0) {
+			return [];
+		}
+
+		return [
+			{
+				id: message.id,
+				role: message.role,
+				metadata: message.metadataJson
+					? (JSON.parse(message.metadataJson) as UIMessage["metadata"])
+					: undefined,
+				parts,
+			},
+		];
+	});
 
 const readJsonBody = async (request: IncomingMessage) => {
 	const chunks: Uint8Array[] = [];
@@ -486,7 +523,7 @@ const readJsonBody = async (request: IncomingMessage) => {
 const sendJson = (
 	response: ServerResponse,
 	statusCode: number,
-	payload: Record<string, string>,
+	payload: Record<string, unknown>,
 ) => {
 	response.statusCode = statusCode;
 	response.setHeader("Content-Type", "application/json");
@@ -847,9 +884,23 @@ export const handleChatRequest = async (
 					`stream-${crypto.randomUUID()}`,
 				)
 			: null;
+	const activeStreamAbortController = activeStreamPersister
+		? new AbortController()
+		: null;
+	const activeStreamKey =
+		activeStreamPersister && id && resolvedWorkspaceId
+			? getActiveChatStreamKey(resolvedWorkspaceId, id)
+			: null;
 
 	if (activeStreamPersister) {
 		try {
+			if (activeStreamKey && activeStreamAbortController) {
+				activeChatStreamControllers.get(activeStreamKey)?.abort("superseded");
+				activeChatStreamControllers.set(
+					activeStreamKey,
+					activeStreamAbortController,
+				);
+			}
 			await activeStreamPersister.start();
 		} catch (error) {
 			console.error("Failed to start active chat stream", error);
@@ -867,6 +918,7 @@ export const handleChatRequest = async (
 	const stream = await createAgentUIStream({
 		agent,
 		uiMessages: chatMessages,
+		abortSignal: activeStreamAbortController?.signal,
 		originalMessages: chatMessages,
 		generateMessageId,
 		sendReasoning: true,
@@ -898,6 +950,15 @@ export const handleChatRequest = async (
 			} catch (error) {
 				console.error("Failed to persist assistant chat message", error);
 				await activeStreamPersister?.finish("error");
+			} finally {
+				if (
+					activeStreamKey &&
+					activeStreamAbortController &&
+					activeChatStreamControllers.get(activeStreamKey) ===
+						activeStreamAbortController
+				) {
+					activeChatStreamControllers.delete(activeStreamKey);
+				}
 			}
 		},
 		onError: () => "Something went wrong.",
@@ -921,4 +982,39 @@ export const handleChatRequest = async (
 		stream: persistedStream,
 		consumeSseStream: consumeStream,
 	});
+};
+
+export const handleChatStopRequest = async (
+	request: IncomingMessage,
+	response: ServerResponse,
+) => {
+	const { id, workspaceId, convexToken } = await readJsonBody(request);
+	const resolvedWorkspaceId =
+		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
+
+	if (!id || !resolvedWorkspaceId || !convexToken) {
+		sendJson(response, 400, {
+			error: "id, workspaceId, and convexToken are required.",
+		});
+		return;
+	}
+
+	const streamKey = getActiveChatStreamKey(resolvedWorkspaceId, id);
+	activeChatStreamControllers.get(streamKey)?.abort("stopped");
+	activeChatStreamControllers.delete(streamKey);
+
+	const convexClient = new ConvexHttpClient(getConvexUrl(), {
+		auth: convexToken,
+	});
+
+	await convexClient
+		.mutation(api.chats.stopActiveStream, {
+			workspaceId: resolvedWorkspaceId,
+			chatId: id,
+		})
+		.catch((error) => {
+			console.error("Failed to stop active chat stream", error);
+		});
+
+	sendJson(response, 200, { ok: true });
 };

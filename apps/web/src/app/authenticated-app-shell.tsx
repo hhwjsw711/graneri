@@ -453,6 +453,16 @@ const useAppShellState = ({
 			? { workspaceId: resolvedActiveWorkspaceId }
 			: "skip",
 	);
+	const activeStreamChatIds = useQuery(
+		api.chats.listActiveStreamChatIds,
+		resolvedActiveWorkspaceId
+			? { workspaceId: resolvedActiveWorkspaceId }
+			: "skip",
+	);
+	const activeStreamingChatIds = React.useMemo(
+		() => new Set(activeStreamChatIds ?? []),
+		[activeStreamChatIds],
+	);
 	const automations = useQuery(
 		api.automations.list,
 		resolvedActiveWorkspaceId
@@ -1510,6 +1520,7 @@ const useAppShellState = ({
 							? getSidebarViewTitle("shared")
 							: getSidebarViewTitle("home"),
 		chats,
+		activeStreamingChatIds,
 		chatComposerId,
 		currentChat,
 		currentChatId,
@@ -2786,6 +2797,7 @@ export function AuthenticatedAppShell({
 					inboxOpen={controller.inboxOpen}
 					user={controller.user}
 					chats={controller.chats}
+					activeStreamingChatIds={controller.activeStreamingChatIds}
 					automations={controller.automations}
 					notes={controller.notes}
 					sharedNotes={controller.sharedNotes}

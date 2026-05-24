@@ -5,7 +5,13 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
-import { Clock, FileText, MessageCircle, MoreHorizontal } from "lucide-react";
+import {
+	Clock,
+	FileText,
+	LoaderCircle,
+	MessageCircle,
+	MoreHorizontal,
+} from "lucide-react";
 import * as React from "react";
 import { ChatActionsMenu } from "@/components/chat/chat-actions-menu";
 import { ProjectSidebarItem } from "@/components/nav/nav-projects";
@@ -41,8 +47,11 @@ const getChatDisplayTitle = (title?: string) => {
 	return trimmed?.length ? trimmed : "New chat";
 };
 
+const SidebarRecordingSpinner = Icons.sidebarRecordingSpinner;
+
 export function NavStarred({
 	chats,
+	activeStreamingChatIds,
 	automationChatIds,
 	notes,
 	projects,
@@ -60,6 +69,7 @@ export function NavStarred({
 	onNoteTrashed,
 }: {
 	chats: Array<Doc<"chats">> | undefined;
+	activeStreamingChatIds?: ReadonlySet<string>;
 	automationChatIds?: ReadonlySet<string>;
 	notes: Array<Doc<"notes">> | undefined;
 	projects: Array<Doc<"projects">> | undefined;
@@ -154,6 +164,7 @@ export function NavStarred({
 								: chat.title;
 						const displayTitle = getChatDisplayTitle(title);
 						const hasAutomation = automationChatIds?.has(chatId) ?? false;
+						const isStreaming = activeStreamingChatIds?.has(chatId) ?? false;
 
 						return (
 							<SidebarMenuItem key={`chat:${chat._id}`}>
@@ -176,7 +187,14 @@ export function NavStarred({
 									isActive={isActive}
 									onClick={() => onChatSelect(chatId)}
 								>
-									<MessageCircle />
+									{isStreaming ? (
+										<LoaderCircle
+											className="animate-spin"
+											aria-label="Chat is generating"
+										/>
+									) : (
+										<MessageCircle />
+									)}
 									<span className="min-w-0 flex-1 truncate">
 										{displayTitle}
 									</span>
@@ -280,6 +298,26 @@ function StarredNoteItem({
 	const title =
 		isActive && currentNoteTitle?.trim() ? currentNoteTitle : note.title;
 	const displayTitle = getNoteDisplayTitle(title);
+	const renameAnchor = React.useMemo(
+		() => (
+			<StarredNoteButton
+				note={note}
+				currentNoteId={currentNoteId}
+				currentNoteTitle={currentNoteTitle}
+				recordingNoteId={recordingNoteId}
+				onNotePrefetch={onNotePrefetch}
+				onNoteSelect={onNoteSelect}
+			/>
+		),
+		[
+			note,
+			currentNoteId,
+			currentNoteTitle,
+			recordingNoteId,
+			onNotePrefetch,
+			onNoteSelect,
+		],
+	);
 
 	return (
 		<SidebarMenuItem>
@@ -288,16 +326,7 @@ function StarredNoteItem({
 				onMoveToTrash={onNoteTrashed}
 				align="start"
 				side="right"
-				renameAnchor={
-					<StarredNoteButton
-						note={note}
-						currentNoteId={currentNoteId}
-						currentNoteTitle={currentNoteTitle}
-						recordingNoteId={recordingNoteId}
-						onNotePrefetch={onNotePrefetch}
-						onNoteSelect={onNoteSelect}
-					/>
-				}
+				renameAnchor={renameAnchor}
 				renamePopoverAlign="start"
 				renamePopoverSide="bottom"
 				renamePopoverSideOffset={6}
@@ -347,7 +376,7 @@ function StarredNoteButton({
 			onPointerDown={() => onNotePrefetch(note._id)}
 			onClick={() => onNoteSelect(note._id)}
 		>
-			{isRecording ? <Icons.sidebarRecordingSpinner /> : <FileText />}
+			{isRecording ? <SidebarRecordingSpinner /> : <FileText />}
 			<span>{displayTitle}</span>
 		</SidebarMenuButton>
 	);

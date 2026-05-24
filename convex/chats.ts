@@ -860,6 +860,69 @@ export const getMessagesSnapshot = query({
 	},
 });
 
+export const getActiveStreamStatus = query({
+	args: {
+		workspaceId: v.id("workspaces"),
+		chatId: v.string(),
+	},
+	returns: v.union(v.literal("streaming"), v.null()),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		const chat = await getOwnedActiveChatById(
+			ctx,
+			ownerTokenIdentifier,
+			args.workspaceId,
+			args.chatId,
+		);
+
+		if (!chat) {
+			return null;
+		}
+
+		const stream = await getActiveStreamByChatId(ctx, chat._id);
+
+		return stream?.status === "streaming" ? "streaming" : null;
+	},
+});
+
+export const listActiveStreamChatIds = query({
+	args: {
+		workspaceId: v.id("workspaces"),
+	},
+	returns: v.array(v.string()),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
+
+		const streams = await ctx.db
+			.query("chatActiveStreams")
+			.withIndex("by_ownerTokenIdentifier_and_chatId", (q) =>
+				q.eq("ownerTokenIdentifier", ownerTokenIdentifier),
+			)
+			.collect();
+		const activeChatIds: string[] = [];
+
+		for (const stream of streams) {
+			if (stream.status !== "streaming") {
+				continue;
+			}
+
+			const chat = await ctx.db.get(stream.chatId);
+
+			if (
+				chat &&
+				chat.ownerTokenIdentifier === ownerTokenIdentifier &&
+				chat.workspaceId === args.workspaceId &&
+				!chat.isArchived
+			) {
+				activeChatIds.push(chat.chatId);
+			}
+		}
+
+		return activeChatIds;
+	},
+});
+
 export const getMessagesForOwner = internalQuery({
 	args: {
 		ownerTokenIdentifier: v.string(),
@@ -1214,6 +1277,40 @@ export const finishActiveStream = mutation({
 
 		await ctx.db.patch(stream._id, {
 			status: args.status,
+			updatedAt: Date.now(),
+		});
+
+		return null;
+	},
+});
+
+export const stopActiveStream = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		chatId: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		const chat = await getOwnedActiveChatById(
+			ctx,
+			ownerTokenIdentifier,
+			args.workspaceId,
+			args.chatId,
+		);
+
+		if (!chat) {
+			return null;
+		}
+
+		const stream = await getActiveStreamByChatId(ctx, chat._id);
+
+		if (!stream || stream.status !== "streaming") {
+			return null;
+		}
+
+		await ctx.db.patch(stream._id, {
+			status: "done",
 			updatedAt: Date.now(),
 		});
 

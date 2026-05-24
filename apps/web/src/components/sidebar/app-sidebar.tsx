@@ -66,6 +66,7 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
 	inboxOpen: boolean;
 	user: AppSidebarUser;
 	chats: Array<Doc<"chats">> | undefined;
+	activeStreamingChatIds?: ReadonlySet<string>;
 	automations: AutomationListItem[] | undefined;
 	notes: Array<Doc<"notes">> | undefined;
 	sharedNotes: Array<Doc<"notes">> | undefined;
@@ -513,6 +514,7 @@ export function AppSidebar({
 	inboxOpen,
 	user,
 	chats,
+	activeStreamingChatIds,
 	automations,
 	notes,
 	sharedNotes,
@@ -584,6 +586,7 @@ export function AppSidebar({
 				<AppSidebarContentSection
 					activeWorkspaceId={activeWorkspaceId}
 					chats={chats}
+					activeStreamingChatIds={activeStreamingChatIds}
 					automations={automations}
 					currentChatId={currentChatId}
 					currentChatTitle={currentChatTitle}
@@ -795,6 +798,7 @@ function useSidebarNoteSelection({
 const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	activeWorkspaceId,
 	chats,
+	activeStreamingChatIds,
 	automations,
 	currentChatId,
 	currentChatTitle,
@@ -815,6 +819,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 }: {
 	activeWorkspaceId: Id<"workspaces"> | null;
 	chats: Array<Doc<"chats">> | undefined;
+	activeStreamingChatIds?: ReadonlySet<string>;
 	automations: AutomationListItem[] | undefined;
 	currentChatId: string | null;
 	currentChatTitle?: string;
@@ -854,6 +859,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 		<SidebarContent>
 			<NavStarred
 				chats={chats}
+				activeStreamingChatIds={activeStreamingChatIds}
 				automationChatIds={automationChatIds}
 				notes={notes}
 				projects={projects}

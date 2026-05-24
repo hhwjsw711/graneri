@@ -7,7 +7,12 @@ import {
 } from "@workspace/ui/components/empty";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
-import { Clock, MessageCircle, MoreHorizontal } from "lucide-react";
+import {
+	Clock,
+	LoaderCircle,
+	MessageCircle,
+	MoreHorizontal,
+} from "lucide-react";
 import * as React from "react";
 import { getChatId } from "@/lib/chat";
 import { formatRelativeTimestamp } from "@/lib/chat-timestamp";
@@ -26,6 +31,7 @@ type ChatHistoryListProps = {
 	onPrefetchChat: (chatId: string) => void;
 	onMoveToTrash: (chatId: string) => void;
 	automationChatIds?: ReadonlySet<string>;
+	activeStreamingChatIds?: ReadonlySet<string>;
 	onAddAutomation?: (chatId: string) => void;
 };
 
@@ -40,6 +46,7 @@ export function ChatHistoryList({
 	onPrefetchChat,
 	onMoveToTrash,
 	automationChatIds,
+	activeStreamingChatIds,
 	onAddAutomation,
 }: ChatHistoryListProps) {
 	const starredChats = React.useMemo(
@@ -82,6 +89,9 @@ export function ChatHistoryList({
 										hasAutomation={
 											automationChatIds?.has(getChatId(chat)) ?? false
 										}
+										isStreaming={
+											activeStreamingChatIds?.has(getChatId(chat)) ?? false
+										}
 										onAddAutomation={onAddAutomation}
 									/>
 								))}
@@ -110,6 +120,9 @@ export function ChatHistoryList({
 												onMoveToTrash={onMoveToTrash}
 												hasAutomation={
 													automationChatIds?.has(getChatId(chat)) ?? false
+												}
+												isStreaming={
+													activeStreamingChatIds?.has(getChatId(chat)) ?? false
 												}
 												onAddAutomation={onAddAutomation}
 											/>
@@ -144,6 +157,7 @@ function ChatHistoryItem({
 	onPrefetchChat,
 	onMoveToTrash,
 	hasAutomation,
+	isStreaming,
 	onAddAutomation,
 }: {
 	chat: Doc<"chats">;
@@ -152,6 +166,7 @@ function ChatHistoryItem({
 	onPrefetchChat: (chatId: string) => void;
 	onMoveToTrash: (chatId: string) => void;
 	hasAutomation: boolean;
+	isStreaming: boolean;
 	onAddAutomation?: (chatId: string) => void;
 }) {
 	const storedChatId = getChatId(chat);
@@ -177,7 +192,14 @@ function ChatHistoryItem({
 				className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg p-1 text-left"
 			>
 				<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-					<MessageCircle className="size-4" />
+					{isStreaming ? (
+						<LoaderCircle
+							className="size-4 animate-spin"
+							aria-label="Chat is generating"
+						/>
+					) : (
+						<MessageCircle className="size-4" />
+					)}
 				</div>
 				<div className="min-w-0 flex-1">
 					<div className="truncate text-sm font-medium">

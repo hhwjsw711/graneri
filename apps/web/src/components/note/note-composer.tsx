@@ -78,11 +78,13 @@ import {
 	type ChatAttachment,
 	FileAttachmentButton,
 	FileAttachmentChips,
-	getReadyFileParts,
-	hasUploadingAttachments,
 	useFileAttachmentDropzone,
 	useRevokeAttachmentObjectUrls,
 } from "@/components/ai-elements/file-attachment-controls";
+import {
+	getReadyFileParts,
+	hasUploadingAttachments,
+} from "@/components/ai-elements/file-attachment-utils";
 import { CHAT_ACTIONS_VISIBILITY_CLASS } from "@/components/chat/message-layout";
 import { ChatMessageListContent } from "@/components/chat/message-list";
 import {
@@ -119,6 +121,7 @@ import {
 	getStoredReasoningEffort,
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
+import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
@@ -645,6 +648,12 @@ const useNoteComposerController = ({
 		chatId: hasStoredCurrentChat ? currentChatId : null,
 		workspaceId: activeWorkspaceId,
 	});
+	const activeStreamStatus = useQuery(
+		api.chats.getActiveStreamStatus,
+		activeWorkspaceId && hasStoredCurrentChat
+			? { workspaceId: activeWorkspaceId, chatId: currentChatId }
+			: "skip",
+	);
 	const currentChatSession = useQuery(
 		api.chats.getSession,
 		activeWorkspaceId && hasStoredCurrentChat
@@ -1173,10 +1182,12 @@ const useNoteComposerController = ({
 		},
 		[setRightSidebarWidthMobileOverride],
 	);
+	const isPersistedChatStreaming = activeStreamStatus === "streaming";
 	const isChatLoading =
 		chatStatus === "submitted" ||
 		chatStatus === "streaming" ||
-		isPreparingRequest;
+		isPreparingRequest ||
+		isPersistedChatStreaming;
 	const hasMessage = message.trim().length > 0;
 	const canGenerateNotes =
 		transcriptSession.isTranscriptSessionReady &&
@@ -1279,6 +1290,20 @@ const useNoteComposerController = ({
 		setModelPopoverOpen(false);
 		setRecipePopoverOpen(false);
 	}, [recipePopoverOpen]);
+	const handleStop = React.useCallback(() => {
+		stop();
+
+		if (!isPersistedChatStreaming || !activeWorkspaceId) {
+			return;
+		}
+
+		void stopActiveChatStream({
+			chatId: currentChatId,
+			workspaceId: activeWorkspaceId,
+		}).catch((error) => {
+			console.error("Failed to stop active note chat stream", error);
+		});
+	}, [activeWorkspaceId, currentChatId, isPersistedChatStreaming, stop]);
 	const toggleTranscriptPanel = React.useCallback(() => {
 		closeComposerPopovers();
 		closeRightSidebar();
@@ -1312,11 +1337,11 @@ const useNoteComposerController = ({
 		previousSpeechListeningRef.current = false;
 
 		if (isChatLoading) {
-			stop();
+			handleStop();
 		}
 
 		resetComposerForNoteChange();
-	}, [isChatLoading, noteId, resetComposerForNoteChange, stop]);
+	}, [handleStop, isChatLoading, noteId, resetComposerForNoteChange]);
 
 	React.useEffect(() => {
 		if (
@@ -1448,7 +1473,7 @@ const useNoteComposerController = ({
 
 	const openDraftChat = React.useCallback(() => {
 		if (isChatLoading) {
-			stop();
+			handleStop();
 		}
 
 		closeComposerPopovers();
@@ -1465,12 +1490,12 @@ const useNoteComposerController = ({
 		openRightSidebar(presentationMode);
 	}, [
 		closeComposerPopovers,
+		handleStop,
 		isChatLoading,
 		openRightSidebar,
 		presentationMode,
 		setMessages,
 		setPanelMode,
-		stop,
 	]);
 
 	const handleSend = React.useCallback(async () => {
@@ -1608,7 +1633,7 @@ const useNoteComposerController = ({
 	const handleEditMessage = React.useCallback(
 		(messageId: string, text: string) => {
 			if (isChatLoading) {
-				stop();
+				handleStop();
 			}
 
 			setEditingMessageId(messageId);
@@ -1618,7 +1643,7 @@ const useNoteComposerController = ({
 			resizeTextarea();
 			focusComposerInput();
 		},
-		[focusComposerInput, isChatLoading, resizeTextarea, stop],
+		[focusComposerInput, handleStop, isChatLoading, resizeTextarea],
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
@@ -1657,7 +1682,7 @@ const useNoteComposerController = ({
 	const handleDeleteMessage = React.useCallback(
 		(messageId: string) => {
 			if (isChatLoading) {
-				stop();
+				handleStop();
 			}
 
 			setMessages((currentMessages) =>
@@ -1688,7 +1713,7 @@ const useNoteComposerController = ({
 			isChatLoading,
 			resetTextareaHeight,
 			setMessages,
-			stop,
+			handleStop,
 			truncateFromMessage,
 		],
 	);
@@ -1696,7 +1721,7 @@ const useNoteComposerController = ({
 	const handleRegenerateMessage = React.useCallback(
 		async (assistantMessageId: string) => {
 			if (isChatLoading) {
-				stop();
+				handleStop();
 			}
 
 			setIsPreparingRequest(true);
@@ -1728,13 +1753,13 @@ const useNoteComposerController = ({
 		},
 		[
 			buildRequestBody,
+			handleStop,
 			isChatLoading,
 			openRightSidebar,
 			presentationMode,
 			regenerate,
 			resetTextareaHeight,
 			setPanelMode,
-			stop,
 		],
 	);
 
@@ -1744,7 +1769,7 @@ const useNoteComposerController = ({
 		}
 
 		if (isChatLoading) {
-			stop();
+			handleStop();
 		}
 
 		closeComposerPopovers();
@@ -1782,7 +1807,7 @@ const useNoteComposerController = ({
 
 	const openInlineChatFromComposer = React.useCallback(() => {
 		if (isChatLoading) {
-			stop();
+			handleStop();
 		}
 
 		closeComposerPopovers();
@@ -1801,11 +1826,11 @@ const useNoteComposerController = ({
 		closeComposerPopovers,
 		closeRightSidebar,
 		handlePrefetchNoteChat,
+		handleStop,
 		isChatLoading,
 		latestNoteChat,
 		setPanelMode,
 		setPresentationMode,
-		stop,
 	]);
 
 	const handleComposerPointerDown = React.useCallback(() => {
@@ -1927,7 +1952,7 @@ const useNoteComposerController = ({
 		reasoningEffort: selectedReasoningEffort,
 		selectedModel,
 		suppressRecipePickerUntilUserActionRef,
-		stop,
+		handleStop,
 		shouldShowInlinePanel,
 		toggleTranscriptPanel,
 		handleTranscriptionLanguageChange,
@@ -3496,7 +3521,7 @@ function ChatComposerForm({
 				handleComposerPointerDown={controller.handleComposerPointerDown}
 				handleComposerKeyDown={controller.handleComposerKeyDown}
 				handleComposerValueChange={controller.handleComposerValueChange}
-				onStop={controller.stop}
+				onStop={controller.handleStop}
 				status={{
 					activateInlineOnFocus,
 					isRecipeLoading: controller.isRecipeLoading,

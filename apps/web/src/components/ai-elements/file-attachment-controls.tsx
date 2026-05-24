@@ -18,37 +18,9 @@ import { useMutation } from "convex/react";
 import { FileText, Paperclip, X } from "lucide-react";
 import * as React from "react";
 import { api } from "../../../../../convex/_generated/api";
-import type { Id } from "../../../../../convex/_generated/dataModel";
+import type { ChatAttachment, UploadResult } from "./file-attachment-utils";
 
-type UploadResult = {
-	storageId?: Id<"_storage">;
-};
-
-export type ChatAttachment = FileUIPart & {
-	id: string;
-	localUrl?: string;
-	uploadStatus: "uploading" | "ready";
-};
-
-export const getReadyFileParts = (
-	attachments: ChatAttachment[],
-): FileUIPart[] =>
-	attachments.flatMap((attachment) =>
-		attachment.uploadStatus === "ready"
-			? [
-					{
-						type: "file" as const,
-						mediaType: attachment.mediaType,
-						filename: attachment.filename,
-						url: attachment.url,
-						providerMetadata: attachment.providerMetadata,
-					},
-				]
-			: [],
-	);
-
-export const hasUploadingAttachments = (attachments: ChatAttachment[]) =>
-	attachments.some((attachment) => attachment.uploadStatus === "uploading");
+export type { ChatAttachment } from "./file-attachment-utils";
 
 export function useRevokeAttachmentObjectUrls(attachments: ChatAttachment[]) {
 	const localUrlByIdRef = React.useRef(new Map<string, string>());
