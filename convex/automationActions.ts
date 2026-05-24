@@ -56,26 +56,22 @@ const getAutomationAppTools = async (
 		return {};
 	}
 
-	const connections =
-		run.appSources.length > 0
-			? await ctx.runAction(
-					internal.appConnectionActions
-						.getSelectedForChatInternalWithFreshTokens,
-					{
-						ownerTokenIdentifier: run.ownerTokenIdentifier,
-						workspaceId: run.workspaceId,
-						sourceIds: run.appSources
-							.map((source) => source.id)
-							.filter((sourceId) => sourceId.startsWith("app:")),
-					},
-				)
-			: await ctx.runAction(
-					internal.appConnectionActions.getAllForChatInternalWithFreshTokens,
-					{
-						ownerTokenIdentifier: run.ownerTokenIdentifier,
-						workspaceId: run.workspaceId,
-					},
-				);
+	const sourceIds = run.appSources
+		.map((source) => source.id)
+		.filter((sourceId) => sourceId.startsWith("app:"));
+
+	if (sourceIds.length === 0) {
+		return {};
+	}
+
+	const connections = await ctx.runAction(
+		internal.appConnectionActions.getSelectedForChatInternalWithFreshTokens,
+		{
+			ownerTokenIdentifier: run.ownerTokenIdentifier,
+			workspaceId: run.workspaceId,
+			sourceIds,
+		},
+	);
 
 	return await buildWorkspaceToolSet(connections as WorkspaceToolConnection[]);
 };

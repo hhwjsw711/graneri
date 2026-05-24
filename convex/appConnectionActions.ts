@@ -1109,48 +1109,6 @@ export const connectZoom = action({
 	},
 });
 
-export const getAllForChatWithFreshTokens = action({
-	args: {
-		workspaceId: v.id("workspaces"),
-	},
-	returns: v.array(chatToolConnectionValidator),
-	handler: async (ctx, args): Promise<ChatToolConnection[]> => {
-		const identity = await requireIdentity(ctx);
-		await Promise.all([
-			refreshMcpTokensForWorkspace(
-				ctx,
-				identity.tokenIdentifier,
-				args.workspaceId,
-				"jira-mcp",
-			),
-			refreshMcpTokensForWorkspace(
-				ctx,
-				identity.tokenIdentifier,
-				args.workspaceId,
-				"notion",
-			),
-			refreshMcpTokensForWorkspace(
-				ctx,
-				identity.tokenIdentifier,
-				args.workspaceId,
-				"posthog",
-			),
-			refreshZoomTokensForWorkspace(
-				ctx,
-				identity.tokenIdentifier,
-				args.workspaceId,
-			),
-		]);
-		return await ctx.runQuery(
-			internal.appConnections.getAllForChatInternal,
-			{
-				ownerTokenIdentifier: identity.tokenIdentifier,
-				workspaceId: args.workspaceId,
-			},
-		);
-	},
-});
-
 export const getSelectedForChatWithFreshTokens = action({
 	args: {
 		workspaceId: v.id("workspaces"),
@@ -1190,48 +1148,6 @@ export const getSelectedForChatWithFreshTokens = action({
 				ownerTokenIdentifier: identity.tokenIdentifier,
 				workspaceId: args.workspaceId,
 				sourceIds: args.sourceIds,
-			},
-		);
-	},
-});
-
-export const getAllForChatInternalWithFreshTokens = internalAction({
-	args: {
-		ownerTokenIdentifier: v.string(),
-		workspaceId: v.id("workspaces"),
-	},
-	returns: v.array(chatToolConnectionValidator),
-	handler: async (ctx, args): Promise<ChatToolConnection[]> => {
-		await Promise.all([
-			refreshMcpTokensForWorkspace(
-				ctx,
-				args.ownerTokenIdentifier,
-				args.workspaceId,
-				"jira-mcp",
-			),
-			refreshMcpTokensForWorkspace(
-				ctx,
-				args.ownerTokenIdentifier,
-				args.workspaceId,
-				"notion",
-			),
-			refreshMcpTokensForWorkspace(
-				ctx,
-				args.ownerTokenIdentifier,
-				args.workspaceId,
-				"posthog",
-			),
-			refreshZoomTokensForWorkspace(
-				ctx,
-				args.ownerTokenIdentifier,
-				args.workspaceId,
-			),
-		]);
-		return await ctx.runQuery(
-			internal.appConnections.getAllForChatInternal,
-			{
-				ownerTokenIdentifier: args.ownerTokenIdentifier,
-				workspaceId: args.workspaceId,
 			},
 		);
 	},

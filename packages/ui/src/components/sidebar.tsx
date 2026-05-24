@@ -904,6 +904,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
 
 	return (
 		<button
+			type="button"
 			ref={buttonRef}
 			data-sidebar="rail"
 			data-slot="sidebar-rail"

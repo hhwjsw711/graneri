@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { APP_SOURCE_PREFIX } from "../packages/ai/src/app-source-providers.mjs";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -188,7 +189,6 @@ export const chatToolConnectionValidator = v.union(
 	zoomChatToolConnectionValidator,
 );
 
-const APP_SOURCE_PREFIX = "app:";
 const REMOVE_ALL_APP_CONNECTIONS_BATCH_SIZE = 100;
 
 const jiraWebhookConnectionValidator = v.union(
@@ -1328,45 +1328,6 @@ export const getSelectedForChat = query({
 	},
 });
 
-export const getAllForChat = query({
-	args: {
-		workspaceId: v.id("workspaces"),
-	},
-	returns: v.array(chatToolConnectionValidator),
-	handler: async (ctx, args): Promise<ChatToolConnection[]> => {
-		const identity = await requireIdentity(ctx);
-		await requireOwnedWorkspace(
-			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-		const connections = await ctx.db
-			.query("appConnections")
-			.withIndex(
-				"by_ownerTokenIdentifier_and_workspaceId_and_status_and_updatedAt",
-				(q) =>
-					q
-						.eq("ownerTokenIdentifier", identity.tokenIdentifier)
-						.eq("workspaceId", args.workspaceId)
-						.eq("status", "connected"),
-			)
-			.order("desc")
-			.take(20);
-
-		return connections
-			.map((connection) =>
-				toChatToolConnection(
-					connection,
-					identity.tokenIdentifier,
-					args.workspaceId,
-				),
-			)
-			.filter((connection): connection is ChatToolConnection =>
-				Boolean(connection),
-			);
-	},
-});
-
 export const getSelectedForChatInternal = internalQuery({
 	args: {
 		ownerTokenIdentifier: v.string(),
@@ -1389,40 +1350,6 @@ export const getSelectedForChatInternal = internalQuery({
 		const connections = await Promise.all(
 			normalizedIds.map((id) => ctx.db.get(id)),
 		);
-
-		return connections
-			.map((connection) =>
-				toChatToolConnection(
-					connection,
-					args.ownerTokenIdentifier,
-					args.workspaceId,
-				),
-			)
-			.filter((connection): connection is ChatToolConnection =>
-				Boolean(connection),
-			);
-	},
-});
-
-export const getAllForChatInternal = internalQuery({
-	args: {
-		ownerTokenIdentifier: v.string(),
-		workspaceId: v.id("workspaces"),
-	},
-	returns: v.array(chatToolConnectionValidator),
-	handler: async (ctx, args): Promise<ChatToolConnection[]> => {
-		const connections = await ctx.db
-			.query("appConnections")
-			.withIndex(
-				"by_ownerTokenIdentifier_and_workspaceId_and_status_and_updatedAt",
-				(q) =>
-					q
-						.eq("ownerTokenIdentifier", args.ownerTokenIdentifier)
-						.eq("workspaceId", args.workspaceId)
-						.eq("status", "connected"),
-			)
-			.order("desc")
-			.take(20);
 
 		return connections
 			.map((connection) =>

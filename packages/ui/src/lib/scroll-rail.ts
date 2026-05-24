@@ -39,7 +39,10 @@ function ScrollRailVisibilityProvider() {
 			activeScrollElements.set(target, nextTimeout);
 		};
 
-		document.addEventListener("scroll", handleScroll, { capture: true });
+		document.addEventListener("scroll", handleScroll, {
+			capture: true,
+			passive: true,
+		});
 
 		return () => {
 			document.removeEventListener("scroll", handleScroll, { capture: true });

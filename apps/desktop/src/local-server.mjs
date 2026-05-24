@@ -7,10 +7,11 @@ import { fileURLToPath } from "node:url";
 import { openai } from "@ai-sdk/openai";
 import {
 	consumeStream,
+	createAgentUIStream,
 	createIdGenerator,
 	generateText,
 	Output,
-	pipeAgentUIStreamToResponse,
+	pipeUIMessageStreamToResponse,
 	smoothStream,
 	stepCountIs,
 	streamText,
@@ -20,8 +21,16 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import { api } from "../../../convex/_generated/api.js";
-import { buildSelectedAppSourceInstructions } from "../../../packages/ai/src/app-source-providers.mjs";
+import {
+	buildSelectedAppSourceInstructions,
+	getSelectedAppSourceIds,
+	getSelectedNoteSourceIds,
+} from "../../../packages/ai/src/app-source-providers.mjs";
 import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
+import {
+	createChatLatencyLogger,
+	createChatStreamLatencyTracker,
+} from "../../../packages/ai/src/chat-latency-logger.mjs";
 import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
@@ -49,6 +58,7 @@ import {
 	parseTemplateStreamToStructuredNote,
 	validateTemplateStream,
 } from "../../../packages/ai/src/note-template-stream.mjs";
+import { addOpenAIToolSearch } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
 	APPLY_TEMPLATE_SYSTEM_PROMPT,
 	buildApplyTemplatePrompt,
@@ -64,6 +74,7 @@ import {
 
 const runtimeDir = dirname(fileURLToPath(import.meta.url));
 const webDistDir = resolve(runtimeDir, "../../web/dist");
+const AI_LATENCY_DEBUG_ENABLED = process.env.OPENGRAN_AI_LATENCY_DEBUG === "1";
 
 const mimeTypes = {
 	".css": "text/css; charset=utf-8",
@@ -105,8 +116,6 @@ const structuredNoteSchema = z.object({
 		)
 		.min(1),
 });
-const APP_SOURCE_PREFIX = "app:";
-const WORKSPACE_SOURCE_PREFIX = "workspace:";
 const OPEN_GRAN_MARK_SVG = `
 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
 	<path
@@ -221,53 +230,20 @@ const getHostedApiBaseUrl = () =>
 const shouldProxyHostedAiRequest = () =>
 	!process.env.OPENAI_API_KEY && Boolean(getHostedApiBaseUrl());
 
-const getReferencedNoteIds = ({ mentions, selectedSourceIds }) =>
-	[
-		...(mentions ?? []),
-		...((selectedSourceIds ?? []).filter(
-			(value) =>
-				!value.startsWith(APP_SOURCE_PREFIX) &&
-				!value.startsWith(WORKSPACE_SOURCE_PREFIX),
-		) ?? []),
-	].filter((value, index, values) => value && values.indexOf(value) === index);
-
-const getSelectedAppSourceIds = ({ selectedSourceIds }) =>
-	(selectedSourceIds ?? []).filter((value) =>
-		value.startsWith(APP_SOURCE_PREFIX),
-	);
-
-const hasWorkspaceSourceSelected = ({ selectedSourceIds }) =>
-	(selectedSourceIds ?? []).some((value) =>
-		value.startsWith(WORKSPACE_SOURCE_PREFIX),
-	);
-
-const getNotesContext = async ({
-	convexToken,
-	mentions,
-	selectedSourceIds,
-	workspaceId,
-}) => {
+const getNotesContext = async ({ convexToken, mentions, workspaceId }) => {
 	if (!convexToken || !workspaceId) {
 		return "";
 	}
 
-	const noteIds = getReferencedNoteIds({ mentions, selectedSourceIds });
+	const noteIds = getSelectedNoteSourceIds({ mentions });
 	const client = new ConvexHttpClient(getConvexUrl(), { auth: convexToken });
-	const shouldUseWorkspaceScope =
-		noteIds.length === 0 &&
-		((selectedSourceIds ?? []).length === 0 ||
-			hasWorkspaceSourceSelected({ selectedSourceIds }));
 	const notes =
 		noteIds.length > 0
 			? await client.query(api.notes.getChatContext, {
 					workspaceId,
 					ids: noteIds,
 				})
-			: shouldUseWorkspaceScope
-				? await client.query(api.notes.getWorkspaceChatContext, {
-						workspaceId,
-					})
-				: [];
+			: [];
 
 	if (notes.length === 0) {
 		return "";
@@ -294,21 +270,16 @@ const getSelectedAppConnections = async ({
 	}
 
 	const allSelectedSourceIds = selectedSourceIds ?? [];
-	const sourceIds = getSelectedAppSourceIds({ selectedSourceIds });
+
+	if (allSelectedSourceIds.length === 0) {
+		return [];
+	}
+
+	const sourceIds = getSelectedAppSourceIds(selectedSourceIds);
 	const client = new ConvexHttpClient(getConvexUrl(), { auth: convexToken });
 	const googleSources = await client
 		.action(api.googleTools.listAvailableSources, { workspaceId })
 		.catch(() => []);
-
-	if (allSelectedSourceIds.length === 0) {
-		const connections = await client.action(
-			api.appConnectionActions.getAllForChatWithFreshTokens,
-			{
-				workspaceId,
-			},
-		);
-		return [...connections, ...googleSources];
-	}
 
 	if (sourceIds.length === 0) {
 		return googleSources.filter((source) =>
@@ -684,6 +655,18 @@ const handleChatRequest = async ({
 		recipeSlug,
 		noteContext,
 	} = await readJsonBody(request);
+	const logLatency = createChatLatencyLogger({
+		chatId: id,
+		enabled: AI_LATENCY_DEBUG_ENABLED,
+		model,
+		reasoningEffort,
+	});
+	logLatency("request.body_read", {
+		appsEnabled,
+		hasMessage: Boolean(message),
+		hasNoteContext: Boolean(noteContext),
+		webSearchEnabled,
+	});
 
 	if (!Array.isArray(messages)) {
 		sendJson(response, 400, {
@@ -707,11 +690,19 @@ const handleChatRequest = async ({
 					})
 					.catch(() => null)
 			: null;
+	logLatency("convex.session_loaded", {
+		hasStoredChat: Boolean(storedChat),
+	});
 	const selectedModel = resolveChatModel(model ?? storedChat?.model);
 	const resolvedReasoningEffort = normalizeReasoningEffort(
 		reasoningEffort ?? storedChat?.reasoningEffort,
 	);
 	const providerOptions = getChatModelProviderOptions(selectedModel.model, {
+		reasoningEffort: resolvedReasoningEffort,
+	});
+	logLatency("chat.model_resolved", {
+		hasProviderOptions: Boolean(providerOptions),
+		model: selectedModel.model,
 		reasoningEffort: resolvedReasoningEffort,
 	});
 	const resolvedNoteId = noteContext?.noteId ?? storedChat?.noteId ?? null;
@@ -743,6 +734,9 @@ const handleChatRequest = async ({
 			lastUserMessage &&
 			(!storedChat || storedChat.title === "New chat"),
 	);
+	logLatency("chat.messages_validated", {
+		chatMessageCount: chatMessages.length,
+	});
 	if (convexClient && id && resolvedWorkspaceId && lastUserMessage) {
 		try {
 			await convexClient.mutation(api.chats.saveMessage, {
@@ -758,11 +752,15 @@ const handleChatRequest = async ({
 			console.error("Failed to persist user chat message", error);
 		}
 	}
+	logLatency("convex.user_message_saved", {
+		attempted: Boolean(
+			convexClient && id && resolvedWorkspaceId && lastUserMessage,
+		),
+	});
 
 	const notesContext = await getNotesContext({
 		convexToken,
 		mentions,
-		selectedSourceIds,
 		workspaceId: resolvedWorkspaceId,
 	});
 	const attachedNoteContext =
@@ -802,6 +800,13 @@ const handleChatRequest = async ({
 	const selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
 		selectedAppConnections,
 	);
+	logLatency("context.sources_loaded", {
+		appConnectionCount: selectedAppConnections.length,
+		hasAttachedNoteContext: attachedNoteContext.length > 0,
+		hasNotesContext: notesContext.length > 0,
+		hasRecipeContext: recipeContext.length > 0,
+		hasUserProfileContext: Boolean(userProfileContext),
+	});
 	const appTools = await buildConvexWorkspaceToolSet({
 		connections: selectedAppConnections,
 		convexClient,
@@ -816,6 +821,10 @@ const handleChatRequest = async ({
 				)
 			: [];
 	const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
+	logLatency("tools.workspace_ready", {
+		appToolCount: Object.keys(appTools).length,
+		localFolderCount: localFolderRoots.length,
+	});
 	const imageGenerationEnabled = Boolean(
 		convexClient && message && shouldEnableImageGeneration(message),
 	);
@@ -878,22 +887,33 @@ const handleChatRequest = async ({
 			? buildLocalFolderTools(localFolderRoots)
 			: {}),
 	};
+	const tools = addOpenAIToolSearch(enabledTools);
+	const hasEnabledTools = Object.keys(tools).length > 0;
+	logLatency("tools.finalized", {
+		hasEnabledTools,
+		toolCount: Object.keys(tools).length,
+	});
 	const agent = new ToolLoopAgent({
 		model: openai(selectedModel.model),
 		providerOptions,
 		instructions: systemPrompt,
-		tools: Object.keys(enabledTools).length > 0 ? enabledTools : undefined,
-		stopWhen: Object.keys(enabledTools).length > 0 ? stepCountIs(5) : undefined,
+		tools: hasEnabledTools ? tools : undefined,
+		stopWhen: hasEnabledTools ? stepCountIs(5) : undefined,
+	});
+	logLatency("ai.agent_created", {
+		hasEnabledTools,
+		systemPromptLength: systemPrompt.length,
 	});
 
-	await pipeAgentUIStreamToResponse({
-		response,
+	const streamLatencyTracker = createChatStreamLatencyTracker(logLatency);
+	const stream = await createAgentUIStream({
 		agent,
 		uiMessages: chatMessages,
 		originalMessages: chatMessages,
 		generateMessageId,
-		consumeSseStream: consumeStream,
 		onFinish: async ({ responseMessage }) => {
+			logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
+
 			if (!convexClient || !id || !resolvedWorkspaceId) {
 				return;
 			}
@@ -921,6 +941,14 @@ const handleChatRequest = async ({
 			}
 		},
 		onError: () => "Something went wrong.",
+	});
+	logLatency("ai.stream_created");
+	const timedStream = streamLatencyTracker.wrapStream(stream);
+
+	pipeUIMessageStreamToResponse({
+		response,
+		stream: timedStream,
+		consumeSseStream: consumeStream,
 	});
 };
 

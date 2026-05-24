@@ -41,30 +41,3 @@ const APP_SOURCE_LABELS: Record<ChatAppSourceProvider, string> = {
 
 export const getAppSourceLabel = (provider: ChatAppSourceProvider) =>
 	APP_SOURCE_LABELS[provider];
-
-export const getSelectedScopeLabel = ({
-	appSources,
-	selectedSourceIds,
-}: {
-	appSources: Array<{
-		id: string;
-		provider: ChatAppSourceProvider;
-	}>;
-	selectedSourceIds: string[];
-}) => {
-	if (selectedSourceIds.length === 0) {
-		return "All sources";
-	}
-
-	if (selectedSourceIds.length > 1) {
-		return `${selectedSourceIds.length} sources`;
-	}
-
-	const [selectedSourceId] = selectedSourceIds;
-	const appSource = appSources.find((source) => source.id === selectedSourceId);
-	if (appSource) {
-		return getAppSourceLabel(appSource.provider);
-	}
-
-	return "1 source";
-};

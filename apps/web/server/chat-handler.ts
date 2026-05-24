@@ -17,8 +17,16 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { buildSelectedAppSourceInstructions } from "../../../packages/ai/src/app-source-providers.mjs";
+import {
+	buildSelectedAppSourceInstructions,
+	getSelectedAppSourceIds,
+	getSelectedNoteSourceIds,
+} from "../../../packages/ai/src/app-source-providers.mjs";
 import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
+import {
+	createChatLatencyLogger,
+	createChatStreamLatencyTracker,
+} from "../../../packages/ai/src/chat-latency-logger.mjs";
 import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
@@ -74,14 +82,13 @@ type ChatRequestBody = {
 const MAX_CHAT_PREVIEW_LENGTH = 180;
 const MAX_CHAT_TITLE_LENGTH = 80;
 const MAX_NOTE_CONTEXT_LENGTH = 16000;
-const APP_SOURCE_PREFIX = "app:";
-const WORKSPACE_SOURCE_PREFIX = "workspace:";
 const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,
 });
 const ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
 const activeChatStreamControllers = new Map<string, AbortController>();
+const AI_LATENCY_DEBUG_ENABLED = process.env.OPENGRAN_AI_LATENCY_DEBUG === "1";
 
 const shouldEnableImageGeneration = (message: UIMessage) =>
 	/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
@@ -205,68 +212,24 @@ const getConvexUrl = () => {
 	return value;
 };
 
-const getReferencedNoteIds = ({
-	mentions,
-	selectedSourceIds,
-}: Pick<ChatRequestBody, "mentions" | "selectedSourceIds">): Id<"notes">[] =>
-	Array.from(
-		new Set(
-			[
-				...(mentions ?? []),
-				...(selectedSourceIds ?? []).flatMap((value) =>
-					value.startsWith(APP_SOURCE_PREFIX) ||
-					value.startsWith(WORKSPACE_SOURCE_PREFIX)
-						? []
-						: [value],
-				),
-			].filter(Boolean),
-		),
-	).map((value) => value as Id<"notes">);
-
-const getSelectedAppSourceIds = ({
-	selectedSourceIds,
-}: Pick<ChatRequestBody, "selectedSourceIds">) =>
-	(selectedSourceIds ?? []).filter((value) =>
-		value.startsWith(APP_SOURCE_PREFIX),
-	);
-
-const hasWorkspaceSourceSelected = ({
-	selectedSourceIds,
-}: Pick<ChatRequestBody, "selectedSourceIds">) =>
-	(selectedSourceIds ?? []).some((value) =>
-		value.startsWith(WORKSPACE_SOURCE_PREFIX),
-	);
-
 const getNotesContext = async ({
 	convexToken,
 	mentions,
-	selectedSourceIds,
 	workspaceId,
-}: Pick<
-	ChatRequestBody,
-	"convexToken" | "mentions" | "selectedSourceIds" | "workspaceId"
->) => {
+}: Pick<ChatRequestBody, "convexToken" | "mentions" | "workspaceId">) => {
 	if (!convexToken || !workspaceId) {
 		return "";
 	}
 
-	const noteIds = getReferencedNoteIds({ mentions, selectedSourceIds });
+	const noteIds = getSelectedNoteSourceIds({ mentions }) as Id<"notes">[];
 	const client = new ConvexHttpClient(getConvexUrl(), { auth: convexToken });
-	const shouldUseWorkspaceScope =
-		noteIds.length === 0 &&
-		((selectedSourceIds ?? []).length === 0 ||
-			hasWorkspaceSourceSelected({ selectedSourceIds }));
 	const notes =
 		noteIds.length > 0
 			? await client.query(api.notes.getChatContext, {
 					workspaceId: workspaceId as Id<"workspaces">,
 					ids: noteIds,
 				})
-			: shouldUseWorkspaceScope
-				? await client.query(api.notes.getWorkspaceChatContext, {
-						workspaceId: workspaceId as Id<"workspaces">,
-					})
-				: [];
+			: [];
 
 	if (notes.length === 0) {
 		return "";
@@ -296,7 +259,12 @@ const getSelectedAppConnections = async ({
 	}
 
 	const allSelectedSourceIds = selectedSourceIds ?? [];
-	const sourceIds = getSelectedAppSourceIds({ selectedSourceIds });
+
+	if (allSelectedSourceIds.length === 0) {
+		return [];
+	}
+
+	const sourceIds = getSelectedAppSourceIds(selectedSourceIds);
 	const client = new ConvexHttpClient(getConvexUrl(), { auth: convexToken });
 	const googleSources = await client
 		.action(api.googleTools.listAvailableSources, {
@@ -304,28 +272,19 @@ const getSelectedAppConnections = async ({
 		})
 		.catch(() => []);
 
-	if (allSelectedSourceIds.length === 0) {
-		const connections = await client.action(
-			api.appConnectionActions.getAllForChatWithFreshTokens,
-			{
-				workspaceId: workspaceId as Id<"workspaces">,
-			},
-		);
-		return [...connections, ...googleSources];
-	}
-
 	if (sourceIds.length === 0) {
 		return googleSources.filter((source) =>
 			allSelectedSourceIds.includes(source.id),
 		);
 	}
 
-	const [connections] = await Promise.all([
-		client.action(api.appConnectionActions.getSelectedForChatWithFreshTokens, {
+	const connections = await client.action(
+		api.appConnectionActions.getSelectedForChatWithFreshTokens,
+		{
 			workspaceId: workspaceId as Id<"workspaces">,
 			sourceIds,
-		}),
-	]);
+		},
+	);
 
 	return [
 		...connections,
@@ -612,6 +571,18 @@ export const handleChatRequest = async (
 		recipeSlug,
 		noteContext,
 	} = await readJsonBody(request);
+	const logLatency = createChatLatencyLogger({
+		chatId: id,
+		enabled: AI_LATENCY_DEBUG_ENABLED,
+		model,
+		reasoningEffort,
+	});
+	logLatency("request.body_read", {
+		appsEnabled,
+		hasMessage: Boolean(message),
+		hasNoteContext: Boolean(noteContext),
+		webSearchEnabled,
+	});
 
 	const resolvedWorkspaceId =
 		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
@@ -643,6 +614,9 @@ export const handleChatRequest = async (
 					})
 					.catch(() => null)
 			: null;
+	logLatency("convex.session_loaded", {
+		hasStoredChat: Boolean(storedChat),
+	});
 	const requestedModel = model ?? storedChat?.model ?? null;
 
 	if (!requestedModel) {
@@ -668,6 +642,11 @@ export const handleChatRequest = async (
 	const providerOptions = getChatModelProviderOptions(resolvedModel.model, {
 		reasoningEffort: resolvedReasoningEffort,
 	});
+	logLatency("chat.model_resolved", {
+		hasProviderOptions: Boolean(providerOptions),
+		model: resolvedModel.model,
+		reasoningEffort: resolvedReasoningEffort,
+	});
 
 	const resolvedNoteId =
 		(noteContext?.noteId as Id<"notes"> | null | undefined) ??
@@ -682,6 +661,9 @@ export const handleChatRequest = async (
 					})
 					.catch(() => [])
 			: [];
+	logLatency("convex.messages_loaded", {
+		messageCount: storedChatMessages.length,
+	});
 	const editedMessageId = messageId ?? message?.id;
 	const editedMessageIndex = editedMessageId
 		? storedChatMessages.findIndex(
@@ -718,11 +700,14 @@ export const handleChatRequest = async (
 			);
 		}
 	}
+	logLatency("chat.branch_ready", {
+		incomingMessageCount: incomingMessages.length,
+		shouldTruncateChatBranch,
+	});
 
 	const notesContext = await getNotesContext({
 		convexToken,
 		mentions,
-		selectedSourceIds,
 		workspaceId,
 	});
 	const attachedNoteContext =
@@ -762,6 +747,13 @@ export const handleChatRequest = async (
 	const selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
 		selectedAppConnections,
 	);
+	logLatency("context.sources_loaded", {
+		appConnectionCount: selectedAppConnections.length,
+		hasAttachedNoteContext: attachedNoteContext.length > 0,
+		hasNotesContext: notesContext.length > 0,
+		hasRecipeContext: recipeContext.length > 0,
+		hasUserProfileContext: Boolean(userProfileContext),
+	});
 	const appTools = await buildConvexWorkspaceToolSet({
 		connections: selectedAppConnections,
 		convexClient,
@@ -778,6 +770,10 @@ export const handleChatRequest = async (
 			)
 		: [];
 	const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
+	logLatency("tools.workspace_ready", {
+		appToolCount: Object.keys(appTools).length,
+		localFolderCount: localFolderRoots.length,
+	});
 	const imageGenerationEnabled = Boolean(
 		convexClient && shouldEnableImageGeneration(message),
 	);
@@ -841,11 +837,18 @@ export const handleChatRequest = async (
 
 	const tools = addOpenAIToolSearch(enabledTools);
 	const hasEnabledTools = Object.keys(tools).length > 0;
+	logLatency("tools.finalized", {
+		hasEnabledTools,
+		toolCount: Object.keys(tools).length,
+	});
 	const chatMessages = await validateUIMessages<
 		UIMessage<unknown, never, InferUITools<typeof tools>>
 	>({
 		messages: incomingMessages,
 		tools,
+	});
+	logLatency("chat.messages_validated", {
+		chatMessageCount: chatMessages.length,
 	});
 	const lastUserMessage =
 		message.role === "user"
@@ -874,6 +877,11 @@ export const handleChatRequest = async (
 			console.error("Failed to persist user chat message", error);
 		}
 	}
+	logLatency("convex.user_message_saved", {
+		attempted: Boolean(
+			convexClient && id && resolvedWorkspaceId && lastUserMessage,
+		),
+	});
 
 	const activeStreamPersister =
 		convexClient && id && resolvedWorkspaceId
@@ -906,6 +914,9 @@ export const handleChatRequest = async (
 			console.error("Failed to start active chat stream", error);
 		}
 	}
+	logLatency("convex.active_stream_started", {
+		enabled: Boolean(activeStreamPersister),
+	});
 
 	const agent = new ToolLoopAgent({
 		model: openai(resolvedModel.model),
@@ -914,7 +925,13 @@ export const handleChatRequest = async (
 		tools: hasEnabledTools ? tools : undefined,
 		stopWhen: hasEnabledTools ? stepCountIs(5) : undefined,
 	});
+	logLatency("ai.agent_created", {
+		hasEnabledTools,
+		systemPromptLength: systemPrompt.length,
+	});
 
+	const streamLatencyTracker =
+		createChatStreamLatencyTracker<UIMessageChunk>(logLatency);
 	const stream = await createAgentUIStream({
 		agent,
 		uiMessages: chatMessages,
@@ -924,6 +941,8 @@ export const handleChatRequest = async (
 		sendReasoning: true,
 		sendSources: true,
 		onFinish: async ({ responseMessage }) => {
+			logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
+
 			if (!convexClient || !id || !resolvedWorkspaceId) {
 				return;
 			}
@@ -963,19 +982,18 @@ export const handleChatRequest = async (
 		},
 		onError: () => "Something went wrong.",
 	});
-	const persistedStream = activeStreamPersister
-		? stream.pipeThrough(
-				new TransformStream<UIMessageChunk, UIMessageChunk>({
-					transform(chunk, controller) {
-						if (chunk.type === "text-delta") {
-							activeStreamPersister.append(chunk.delta);
-						}
+	logLatency("ai.stream_created");
+	const persistedStream = streamLatencyTracker.wrapStream(stream).pipeThrough(
+		new TransformStream({
+			transform(chunk, controller) {
+				if (chunk.type === "text-delta") {
+					activeStreamPersister?.append(chunk.delta);
+				}
 
-						controller.enqueue(chunk);
-					},
-				}),
-			)
-		: stream;
+				controller.enqueue(chunk);
+			},
+		}),
+	);
 
 	pipeUIMessageStreamToResponse({
 		response,

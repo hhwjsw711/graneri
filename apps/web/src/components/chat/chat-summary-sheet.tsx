@@ -274,8 +274,6 @@ export function ChatSummarySheet({
 	desktopSafeTop = false,
 	workspaceSources,
 	openSourceRequest,
-	onAddSource,
-	onRemoveAutoAddedSource,
 	onOpenChange,
 }: {
 	open: boolean;
@@ -285,8 +283,6 @@ export function ChatSummarySheet({
 	desktopSafeTop?: boolean;
 	workspaceSources: SummaryWorkspaceSource[];
 	openSourceRequest?: ChatSummaryOpenSourceRequest | null;
-	onAddSource?: (sourceId: string) => void;
-	onRemoveAutoAddedSource?: (sourceId: string) => void;
 	onOpenChange: (open: boolean) => void;
 }) {
 	const sidebarShell = useOptionalSidebarShell();
@@ -340,8 +336,6 @@ export function ChatSummarySheet({
 			sources={sources}
 			workspaceSources={workspaceSources}
 			openSourceRequest={openSourceRequest}
-			onAddSource={onAddSource}
-			onRemoveAutoAddedSource={onRemoveAutoAddedSource}
 			onOpenSummary={() => onOpenChange(true)}
 			onTogglePinned={togglePinned}
 		/>
@@ -405,8 +399,6 @@ function ChatSummaryPanel({
 	sources,
 	workspaceSources,
 	openSourceRequest,
-	onAddSource,
-	onRemoveAutoAddedSource,
 	onOpenSummary,
 	onTogglePinned,
 }: {
@@ -419,8 +411,6 @@ function ChatSummaryPanel({
 	sources: SummarySource[];
 	workspaceSources: SummaryWorkspaceSource[];
 	openSourceRequest?: ChatSummaryOpenSourceRequest | null;
-	onAddSource?: (sourceId: string) => void;
-	onRemoveAutoAddedSource?: (sourceId: string) => void;
 	onOpenSummary: () => void;
 	onTogglePinned: () => void;
 }) {
@@ -433,7 +423,6 @@ function ChatSummaryPanel({
 	);
 	const [activeTabId, setActiveTabId] = React.useState(SUMMARY_TAB.id);
 	const [fileSearchOpen, setFileSearchOpen] = React.useState(false);
-	const autoAddedSourceIdsRef = React.useRef(new Set<string>());
 	const handledOpenSourceRequestIdRef = React.useRef<number | null>(null);
 	const effectiveActiveTabId =
 		activeTabId === AUTOMATION_TAB.id && !automation
@@ -480,11 +469,9 @@ function ChatSummaryPanel({
 				preview: source.preview,
 				content: source.content,
 			});
-			autoAddedSourceIdsRef.current.add(source.id);
-			onAddSource?.(source.id);
 			onOpenSummary();
 		},
-		[addTab, onAddSource, onOpenSummary, workspaceSources],
+		[addTab, onOpenSummary, workspaceSources],
 	);
 	const openFileSearch = React.useCallback(() => {
 		setFileSearchOpen(true);
@@ -533,22 +520,13 @@ function ChatSummaryPanel({
 	}, []);
 	const closeTab = React.useCallback(
 		(tabId: string) => {
-			const tabToClose = fileTabs.find((tab) => tab.id === tabId);
-			if (
-				tabToClose?.kind === "file" &&
-				autoAddedSourceIdsRef.current.has(tabToClose.sourceId)
-			) {
-				autoAddedSourceIdsRef.current.delete(tabToClose.sourceId);
-				onRemoveAutoAddedSource?.(tabToClose.sourceId);
-			}
-
 			if (activeTabId === tabId) {
 				setActiveTabId(SUMMARY_TAB.id);
 			}
 
 			setFileTabs((current) => current.filter((tab) => tab.id !== tabId));
 		},
-		[activeTabId, fileTabs, onRemoveAutoAddedSource],
+		[activeTabId],
 	);
 	React.useEffect(() => {
 		if (!openSourceRequest) {

@@ -123,10 +123,7 @@ const getStoredChatReasoningEffort = (
 const escapeRegExp = (value: string) =>
 	value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const getMentionRequestContext = (
-	mentions: ChatComposerMention[],
-	selectedSourceIds: string[],
-) => {
+const getMentionRequestContext = (mentions: ChatComposerMention[]) => {
 	const noteMentionIds: string[] = [];
 	const toolMentionIds: string[] = [];
 
@@ -141,9 +138,7 @@ const getMentionRequestContext = (
 
 	return {
 		mentionIds: [...new Set(noteMentionIds)],
-		requestSelectedSourceIds: [
-			...new Set([...selectedSourceIds, ...toolMentionIds]),
-		],
+		requestSelectedSourceIds: [...new Set(toolMentionIds)],
 	};
 };
 
@@ -285,7 +280,6 @@ const useChatPageController = ({
 	const [summaryOpenSourceRequest, setSummaryOpenSourceRequest] =
 		React.useState<ChatSummaryOpenSourceRequest | null>(null);
 	const [webSearchEnabled, setWebSearchEnabled] = React.useState(false);
-	const [appsEnabled, setAppsEnabled] = React.useState(true);
 	const [editingMessageId, setEditingMessageId] = React.useState<string | null>(
 		null,
 	);
@@ -294,18 +288,11 @@ const useChatPageController = ({
 		DesktopLocalFolder[]
 	>([]);
 	const localFolderStorageScope = `chat:${chatId}`;
-	const [selectedSourceIds, setSelectedSourceIds] = React.useState<string[]>(
-		[],
-	);
 	const notes = useQuery(
 		api.notes.list,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
 	const appSources = useAppSources(activeWorkspaceId);
-	React.useEffect(() => {
-		void activeWorkspaceId;
-		setSelectedSourceIds([]);
-	}, [activeWorkspaceId]);
 	React.useEffect(() => {
 		let isCurrent = true;
 		const storedFolders = loadStoredSharedLocalFolders(localFolderStorageScope);
@@ -552,10 +539,8 @@ const useChatPageController = ({
 			onChatPersisted?.(chatId);
 			const readyFiles = getReadyFileParts(attachedFiles);
 			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
-			const { mentionIds, requestSelectedSourceIds } = getMentionRequestContext(
-				mentions,
-				selectedSourceIds,
-			);
+			const { mentionIds, requestSelectedSourceIds } =
+				getMentionRequestContext(mentions);
 			const metadata =
 				mentions.length > 0 ? { mentionPositions: mentions } : undefined;
 			const nextOutgoingMessage = editingMessageId
@@ -578,7 +563,6 @@ const useChatPageController = ({
 						reasoningEffort: selectedReasoningEffort,
 						localFolders: nextSharedLocalFolders,
 						webSearchEnabled,
-						appsEnabled,
 						mentions: mentionIds,
 						selectedSourceIds: requestSelectedSourceIds,
 						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -599,7 +583,6 @@ const useChatPageController = ({
 		}
 	}, [
 		activeWorkspaceId,
-		appsEnabled,
 		attachedFiles,
 		chatId,
 		draft,
@@ -612,7 +595,6 @@ const useChatPageController = ({
 		selectedModel.model,
 		sendMessage,
 		webSearchEnabled,
-		selectedSourceIds,
 	]);
 
 	const handleDraftKeyDown = React.useCallback(
@@ -673,17 +655,14 @@ const useChatPageController = ({
 
 	const buildRequestBody = React.useCallback(async () => {
 		const convexToken = await getCachedConvexToken();
-		const { mentionIds, requestSelectedSourceIds } = getMentionRequestContext(
-			mentions,
-			selectedSourceIds,
-		);
+		const { mentionIds, requestSelectedSourceIds } =
+			getMentionRequestContext(mentions);
 
 		return {
 			model: selectedModel.model,
 			reasoningEffort: selectedReasoningEffort,
 			localFolders: sharedLocalFolders,
 			webSearchEnabled,
-			appsEnabled,
 			mentions: mentionIds,
 			selectedSourceIds: requestSelectedSourceIds,
 			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -692,11 +671,9 @@ const useChatPageController = ({
 		};
 	}, [
 		activeWorkspaceId,
-		appsEnabled,
 		mentions,
 		selectedReasoningEffort,
 		selectedModel.model,
-		selectedSourceIds,
 		sharedLocalFolders,
 		webSearchEnabled,
 	]);
@@ -772,12 +749,10 @@ const useChatPageController = ({
 	}, []);
 
 	return {
-		appsEnabled,
 		contextPages,
 		currentChatTitle: currentChat?.title ?? "",
 		draft,
 		error,
-		handleClearSelectedSources: () => setSelectedSourceIds([]),
 		attachedFiles,
 		setAttachedFiles,
 		handleDraftKeyDown,
@@ -792,8 +767,6 @@ const useChatPageController = ({
 		modelPopoverOpen,
 		selectedModel: isModelResolving ? null : selectedModel,
 		reasoningEffort: selectedReasoningEffort,
-		selectedSourceIds,
-		setAppsEnabled,
 		setDraft,
 		setMentions,
 		setModelPopoverOpen,
@@ -812,22 +785,6 @@ const useChatPageController = ({
 		handleCancelEdit,
 		onDeleteMessage: handleDeleteMessage,
 		onOpenMention: handleOpenMention,
-		onAddSource: (sourceId: string) => {
-			setSelectedSourceIds((current) => {
-				if (current.includes(sourceId)) {
-					return current;
-				}
-
-				return [...current, sourceId];
-			});
-		},
-		onRemoveAutoAddedSource: (sourceId: string) => {
-			setSelectedSourceIds((current) =>
-				current.includes(sourceId)
-					? current.filter((id) => id !== sourceId)
-					: current,
-			);
-		},
 		onEditMessage: handleEditMessage,
 		onRegenerateMessage: handleRegenerateMessage,
 	};
@@ -1181,7 +1138,6 @@ export function ChatPage({
 			onSourcesOpenChange={controller.setSourcesOpen}
 			webSearchEnabled={controller.webSearchEnabled}
 			onWebSearchEnabledChange={controller.handleWebSearchEnabledChange}
-			selectedSourceIds={controller.selectedSourceIds}
 			appSources={controller.appSources}
 			onOpenConnectionsSettings={onOpenConnectionsSettings}
 			editingMessageId={controller.editingMessageId}
@@ -1290,8 +1246,6 @@ export function ChatPage({
 					desktopSafeTop={isDesktopMac}
 					workspaceSources={controller.workspaceSources}
 					openSourceRequest={controller.summaryOpenSourceRequest}
-					onAddSource={controller.onAddSource}
-					onRemoveAutoAddedSource={controller.onRemoveAutoAddedSource}
 					onOpenChange={controller.setSummaryOpen}
 				/>
 			) : null}

@@ -10,6 +10,7 @@ export const appSourceProviders = [
 ];
 
 export const automationAppSourceProviders = appSourceProviders;
+export const APP_SOURCE_PREFIX = "app:";
 
 export const appSourceLabels = {
 	"google-calendar": "Google Calendar",
@@ -21,6 +22,14 @@ export const appSourceLabels = {
 	"yandex-tracker": "Yandex Tracker",
 	zoom: "Zoom",
 };
+
+export const getSelectedAppSourceIds = (selectedSourceIds) =>
+	(selectedSourceIds ?? []).filter((value) =>
+		value.startsWith(APP_SOURCE_PREFIX),
+	);
+
+export const getSelectedNoteSourceIds = ({ mentions }) =>
+	Array.from(new Set(mentions ?? [])).filter(Boolean);
 
 const getConnectionDisplayName = (connection) =>
 	connection.displayName ??

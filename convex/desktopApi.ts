@@ -14,6 +14,10 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import {
+	getSelectedAppSourceIds,
+	getSelectedNoteSourceIds,
+} from "../packages/ai/src/app-source-providers.mjs";
+import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
@@ -100,8 +104,6 @@ type ApplyTemplateRequestBody = {
 const MAX_CHAT_PREVIEW_LENGTH = 180;
 const MAX_CHAT_TITLE_LENGTH = 80;
 const MAX_NOTE_CONTEXT_LENGTH = 16_000;
-const APP_SOURCE_PREFIX = "app:";
-const WORKSPACE_SOURCE_PREFIX = "workspace:";
 const chatModels = CHAT_SERVER_MODELS;
 const fallbackChatModel = chatModels[0];
 const generateMessageId = createIdGenerator({
@@ -165,36 +167,6 @@ const getConvexClient = (
 				auth: convexToken,
 			})
 		: null;
-
-const getReferencedNoteIds = ({
-	mentions,
-	selectedSourceIds,
-}: Pick<ChatRequestBody, "mentions" | "selectedSourceIds">): Id<"notes">[] =>
-	[
-		...(mentions ?? []),
-		...((selectedSourceIds ?? []).filter(
-			(value) =>
-				!value.startsWith(APP_SOURCE_PREFIX) &&
-				!value.startsWith(WORKSPACE_SOURCE_PREFIX),
-		) as string[]),
-	]
-		.filter(
-			(value, index, values): value is string =>
-				Boolean(value) && values.indexOf(value) === index,
-		)
-		.map((value) => value as Id<"notes">);
-
-const getSelectedAppSourceIds = (selectedSourceIds: string[] | undefined) =>
-	(selectedSourceIds ?? []).filter((value) =>
-		value.startsWith(APP_SOURCE_PREFIX),
-	);
-
-const hasWorkspaceSourceSelected = ({
-	selectedSourceIds,
-}: Pick<ChatRequestBody, "selectedSourceIds">) =>
-	(selectedSourceIds ?? []).some((value) =>
-		value.startsWith(WORKSPACE_SOURCE_PREFIX),
-	);
 
 const clampWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
 
@@ -297,11 +269,10 @@ const getNotesContext = async ({
 	request,
 	convexToken,
 	mentions,
-	selectedSourceIds,
 	workspaceId,
 }: Pick<
 	ChatRequestBody,
-	"convexToken" | "mentions" | "selectedSourceIds" | "workspaceId"
+	"convexToken" | "mentions" | "workspaceId"
 > & {
 	request: Request;
 }) => {
@@ -315,22 +286,14 @@ const getNotesContext = async ({
 		return "";
 	}
 
-	const noteIds = getReferencedNoteIds({ mentions, selectedSourceIds });
-	const shouldUseWorkspaceScope =
-		noteIds.length === 0 &&
-		((selectedSourceIds ?? []).length === 0 ||
-			hasWorkspaceSourceSelected({ selectedSourceIds }));
+	const noteIds = getSelectedNoteSourceIds({ mentions }) as Id<"notes">[];
 	const notes =
 		noteIds.length > 0
 			? await client.query(api.notes.getChatContext, {
 					workspaceId: workspaceId as Id<"workspaces">,
 					ids: noteIds,
 				})
-			: shouldUseWorkspaceScope
-				? await client.query(api.notes.getWorkspaceChatContext, {
-						workspaceId: workspaceId as Id<"workspaces">,
-					})
-				: [];
+			: [];
 
 	if (notes.length === 0) {
 		return "";
@@ -604,7 +567,6 @@ export const handleChatRequest = async (request: Request) => {
 		request,
 		convexToken,
 		mentions,
-		selectedSourceIds,
 		workspaceId,
 	});
 	const attachedNoteContext =
@@ -633,21 +595,16 @@ export const handleChatRequest = async (request: Request) => {
 	const recipeContext = getRecipeContext(selectedRecipe);
 	const appSourceIds = getSelectedAppSourceIds(selectedSourceIds);
 	const appConnections =
-		convexClient && resolvedWorkspaceId && appsEnabled
-			? selectedSourceIds?.length === 0
-				? await convexClient
-						.action(api.appConnectionActions.getAllForChatWithFreshTokens, {
-							workspaceId: resolvedWorkspaceId,
-						})
-						.catch(() => [])
-				: appSourceIds.length > 0
-					? await convexClient
-							.action(api.appConnectionActions.getSelectedForChatWithFreshTokens, {
-								workspaceId: resolvedWorkspaceId,
-								sourceIds: appSourceIds,
-							})
-							.catch(() => [])
-					: []
+		convexClient &&
+		resolvedWorkspaceId &&
+		appsEnabled &&
+		appSourceIds.length > 0
+			? await convexClient
+					.action(api.appConnectionActions.getSelectedForChatWithFreshTokens, {
+						workspaceId: resolvedWorkspaceId,
+						sourceIds: appSourceIds,
+					})
+					.catch(() => [])
 			: [];
 	const appTools = appsEnabled
 		? await buildWorkspaceToolSet(appConnections as WorkspaceToolConnection[])

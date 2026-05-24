@@ -49,7 +49,6 @@ import {
 import {
 	type ChatAppSourceProvider,
 	getAppSourceLabel,
-	getSelectedScopeLabel,
 } from "@/lib/chat-source-display";
 import { createPlainTextEditorExtensions } from "@/lib/plain-text-editor";
 import {
@@ -267,7 +266,6 @@ type ChatComposerProps = {
 	onSourcesOpenChange: (open: boolean) => void;
 	webSearchEnabled: boolean;
 	onWebSearchEnabledChange: (value: boolean) => void;
-	selectedSourceIds: string[];
 	appSources: AppSource[];
 	onOpenConnectionsSettings: () => void;
 };
@@ -299,7 +297,6 @@ export function ChatComposer({
 	onSourcesOpenChange,
 	webSearchEnabled,
 	onWebSearchEnabledChange,
-	selectedSourceIds,
 	appSources,
 	onOpenConnectionsSettings,
 }: ChatComposerProps) {
@@ -337,7 +334,6 @@ export function ChatComposer({
 		onFileUploaded: handleAttachmentUploaded,
 		onFilesAdded: handleAttachmentsAdded,
 	});
-	const scopesLabel = getSelectedScopeLabel({ selectedSourceIds, appSources });
 	const showTopAddon = attachedFiles.length > 0;
 	return (
 		<div
@@ -406,7 +402,6 @@ export function ChatComposer({
 						<ScopePicker
 							open={sourcesOpen}
 							onOpenChange={onSourcesOpenChange}
-							scopesLabel={scopesLabel}
 							webSearchEnabled={webSearchEnabled}
 							onWebSearchEnabledChange={onWebSearchEnabledChange}
 							onOpenConnectionsSettings={onOpenConnectionsSettings}
@@ -1245,14 +1240,12 @@ function ChatComposerFooter({
 function ScopePicker({
 	open,
 	onOpenChange,
-	scopesLabel,
 	webSearchEnabled,
 	onWebSearchEnabledChange,
 	onOpenConnectionsSettings,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	scopesLabel: string;
 	webSearchEnabled: boolean;
 	onWebSearchEnabledChange: (value: boolean) => void;
 	onOpenConnectionsSettings: () => void;
@@ -1263,7 +1256,7 @@ function ScopePicker({
 				<TooltipTrigger asChild>
 					<DropdownMenuTrigger asChild>
 						<InputGroupButton
-							aria-label={`Select scope: ${scopesLabel}`}
+							aria-label="Chat options"
 							size="icon-sm"
 							className="group rounded-full"
 						>
@@ -1271,7 +1264,7 @@ function ScopePicker({
 						</InputGroupButton>
 					</DropdownMenuTrigger>
 				</TooltipTrigger>
-				<TooltipContent>Select scope</TooltipContent>
+				<TooltipContent>Chat options</TooltipContent>
 			</Tooltip>
 			<DropdownMenuContent
 				side="bottom"
@@ -1298,12 +1291,11 @@ function ScopePicker({
 				<DropdownMenuSeparator />
 				<DropdownMenuGroup>
 					<DropdownMenuItem
-						aria-label="Connect apps"
+						aria-label="Connect tools"
 						onClick={onOpenConnectionsSettings}
 					>
 						<Plus aria-hidden="true" />
-						<span aria-hidden="true">Connect tools</span>
-						<span className="sr-only">Connect apps</span>
+						<span>Connect tools</span>
 					</DropdownMenuItem>
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
