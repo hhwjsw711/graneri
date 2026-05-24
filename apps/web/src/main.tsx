@@ -15,6 +15,7 @@ import App from "./App.tsx";
 import { MeetingWidgetScreen } from "./components/desktop/meeting-widget-screen";
 import { initializeAuthClient } from "./lib/auth-client";
 import { initializeConvexClient } from "./lib/convex";
+import { installNavigationHistoryState } from "./lib/navigation-history-state";
 import { loadRuntimeConfig } from "./lib/runtime-config";
 
 const rootElement = document.getElementById("root");
@@ -29,6 +30,8 @@ const meetingWidgetPathname = "/desktop/meeting-widget";
 const isMeetingWidgetRoute = () =>
 	typeof window !== "undefined" &&
 	window.location.pathname === meetingWidgetPathname;
+
+installNavigationHistoryState();
 
 const syncDesktopNativeTheme = (theme: DesktopThemeSource) => {
 	void setDesktopNativeTheme(theme).catch((error: unknown) => {

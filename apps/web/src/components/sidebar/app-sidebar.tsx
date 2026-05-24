@@ -27,6 +27,7 @@ import {
 	type SettingsPage,
 } from "@/components/settings/settings-dialog";
 import { NavUser } from "@/components/sidebar/nav-user";
+import { SidebarHistoryControls } from "@/components/sidebar/sidebar-history-controls";
 import { TemplatesDialog } from "@/components/templates/templates-dialog";
 import { WorkspaceSwitcher } from "@/components/workspaces/workspace-switcher";
 import { useRecordingNoteId } from "@/hooks/use-transcription-session";
@@ -696,8 +697,9 @@ const AppSidebarHeaderSection = React.memo(function AppSidebarHeaderSection({
 	return (
 		<SidebarHeader
 			data-app-region={desktopSafeTop ? "drag" : undefined}
-			className={desktopSafeTop ? "pt-8" : undefined}
+			className={desktopSafeTop ? "relative pt-8" : undefined}
 		>
+			{desktopSafeTop ? <SidebarHistoryControls /> : null}
 			<div
 				data-app-region={desktopSafeTop ? "no-drag" : undefined}
 				className={

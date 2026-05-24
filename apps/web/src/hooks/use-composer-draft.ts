@@ -28,7 +28,7 @@ export const useComposerDraft = <TMetadata>(
 	text: string;
 	metadata: TMetadata | null;
 	setText: (value: React.SetStateAction<string>) => void;
-	setMetadata: (value: React.SetStateAction<TMetadata | null>) => void;
+	setMetadata: (value: TMetadata | null) => void;
 	clear: () => void;
 } => {
 	const [draft, setDraftState] = React.useState(() =>
@@ -75,12 +75,10 @@ export const useComposerDraft = <TMetadata>(
 	);
 
 	const setMetadata = React.useCallback(
-		(value: React.SetStateAction<TMetadata | null>) => {
-			const nextMetadata =
-				typeof value === "function" ? value(draftRef.current.metadata) : value;
+		(value: TMetadata | null) => {
 			setDraft({
 				...draftRef.current,
-				metadata: nextMetadata,
+				metadata: value,
 			});
 		},
 		[setDraft],

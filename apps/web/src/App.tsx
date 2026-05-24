@@ -50,6 +50,7 @@ import { SharedNotePage } from "@/components/note/shared-note-page";
 import { WorkspaceComposer } from "@/components/workspaces/workspace-composer";
 import { type AuthSession, authClient } from "@/lib/auth-client";
 import { DESKTOP_AUTH_SAFE_TOP_CLASS } from "@/lib/desktop-chrome";
+import { useNavigationHistoryShortcuts } from "@/lib/navigation-history-state";
 import {
 	getSuggestedWorkspaceName,
 	type WorkspaceRecord,
@@ -703,6 +704,8 @@ function MainApp() {
 }
 
 function App() {
+	useNavigationHistoryShortcuts();
+
 	return <MainApp />;
 }
 
