@@ -130,6 +130,24 @@ describe("local folder tools", () => {
 		}
 	});
 
+	it("marks local folder tools as deferred for OpenAI tool search", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "opengran-local-tools-"));
+		try {
+			const tools = buildLocalFolderTools([
+				{
+					name: "shared",
+					path: directory,
+				},
+			]);
+
+			for (const tool of Object.values(tools)) {
+				expect(tool.providerOptions?.openai?.deferLoading).toBe(true);
+			}
+		} finally {
+			await rm(directory, { force: true, recursive: true });
+		}
+	});
+
 	it("runs bash commands against a text-only virtual snapshot", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "opengran-local-tools-"));
 		try {
