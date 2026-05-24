@@ -58,7 +58,7 @@ import {
 	parseTemplateStreamToStructuredNote,
 	validateTemplateStream,
 } from "../../../packages/ai/src/note-template-stream.mjs";
-import { addOpenAIToolSearch } from "../../../packages/ai/src/openai-tool-search.mjs";
+import { finalizeOpenAIToolSet } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
 	APPLY_TEMPLATE_SYSTEM_PROMPT,
 	buildApplyTemplatePrompt,
@@ -887,21 +887,23 @@ const handleChatRequest = async ({
 			? buildLocalFolderTools(localFolderRoots)
 			: {}),
 	};
-	const tools = addOpenAIToolSearch(enabledTools);
-	const hasEnabledTools = Object.keys(tools).length > 0;
+	const finalizedToolSet = finalizeOpenAIToolSet(enabledTools);
+	const { tools } = finalizedToolSet;
 	logLatency("tools.finalized", {
-		hasEnabledTools,
-		toolCount: Object.keys(tools).length,
+		deferredToolCount: finalizedToolSet.deferredToolCount,
+		hasEnabledTools: finalizedToolSet.hasTools,
+		hasToolSearch: finalizedToolSet.hasToolSearch,
+		toolCount: finalizedToolSet.toolCount,
 	});
 	const agent = new ToolLoopAgent({
 		model: openai(selectedModel.model),
 		providerOptions,
 		instructions: systemPrompt,
-		tools: hasEnabledTools ? tools : undefined,
-		stopWhen: hasEnabledTools ? stepCountIs(5) : undefined,
+		tools: finalizedToolSet.hasTools ? tools : undefined,
+		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
 	});
 	logLatency("ai.agent_created", {
-		hasEnabledTools,
+		hasEnabledTools: finalizedToolSet.hasTools,
 		systemPromptLength: systemPrompt.length,
 	});
 

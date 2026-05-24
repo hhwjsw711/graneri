@@ -8,7 +8,7 @@ import {
 	type WorkspaceToolConnection,
 } from "../packages/ai/src/workspace-tool-registry.mjs";
 import { getChatModelProviderOptions } from "../packages/ai/src/models.mjs";
-import { addOpenAIToolSearch } from "../packages/ai/src/openai-tool-search.mjs";
+import { finalizeOpenAIToolSet } from "../packages/ai/src/openai-tool-search.mjs";
 import { BASE_CHAT_SYSTEM_PROMPT } from "../packages/ai/src/prompts.mjs";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -177,7 +177,7 @@ export const runAutomation = internalAction({
 					content: message.text,
 				}));
 			const appTools = await getAutomationAppTools(ctx, run);
-			const tools = addOpenAIToolSearch({
+			const finalizedToolSet = finalizeOpenAIToolSet({
 				...(run.webSearchEnabled
 					? {
 							web_search: openai.tools.webSearch({
@@ -191,6 +191,7 @@ export const runAutomation = internalAction({
 					: {}),
 				...appTools,
 			});
+			const { tools } = finalizedToolSet;
 			const automationAgent = new ToolLoopAgent({
 				id: "automation-runner",
 				model: openai(run.model),
@@ -203,8 +204,8 @@ export const runAutomation = internalAction({
 					appSources: run.appSources,
 					notes: run.notes,
 				}),
-				tools: Object.keys(tools).length > 0 ? tools : undefined,
-				stopWhen: stepCountIs(5),
+				tools: finalizedToolSet.hasTools ? tools : undefined,
+				stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
 			});
 			const result = await automationAgent.generate({
 				messages,

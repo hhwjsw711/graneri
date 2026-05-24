@@ -44,7 +44,7 @@ import {
 	resolveLocalFolderRoots,
 } from "../../../packages/ai/src/local-folder-tools.mjs";
 import { extractTextFromUIMessage } from "../../../packages/ai/src/local-path-references.mjs";
-import { addOpenAIToolSearch } from "../../../packages/ai/src/openai-tool-search.mjs";
+import { finalizeOpenAIToolSet } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
 	buildChatSystemPrompt,
 	CHAT_TITLE_SYSTEM_PROMPT,
@@ -835,11 +835,13 @@ export const handleChatRequest = async (
 		Object.assign(enabledTools, buildLocalFolderTools(localFolderRoots));
 	}
 
-	const tools = addOpenAIToolSearch(enabledTools);
-	const hasEnabledTools = Object.keys(tools).length > 0;
+	const finalizedToolSet = finalizeOpenAIToolSet(enabledTools);
+	const { tools } = finalizedToolSet;
 	logLatency("tools.finalized", {
-		hasEnabledTools,
-		toolCount: Object.keys(tools).length,
+		deferredToolCount: finalizedToolSet.deferredToolCount,
+		hasEnabledTools: finalizedToolSet.hasTools,
+		hasToolSearch: finalizedToolSet.hasToolSearch,
+		toolCount: finalizedToolSet.toolCount,
 	});
 	const chatMessages = await validateUIMessages<
 		UIMessage<unknown, never, InferUITools<typeof tools>>
@@ -922,11 +924,11 @@ export const handleChatRequest = async (
 		model: openai(resolvedModel.model),
 		providerOptions,
 		instructions: systemPrompt,
-		tools: hasEnabledTools ? tools : undefined,
-		stopWhen: hasEnabledTools ? stepCountIs(5) : undefined,
+		tools: finalizedToolSet.hasTools ? tools : undefined,
+		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
 	});
 	logLatency("ai.agent_created", {
-		hasEnabledTools,
+		hasEnabledTools: finalizedToolSet.hasTools,
 		systemPromptLength: systemPrompt.length,
 	});
 
