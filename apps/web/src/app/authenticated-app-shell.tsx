@@ -2523,6 +2523,7 @@ const AppShellContent = React.memo(function AppShellContent({
 	chatComposerId,
 	initialChatMessages,
 	chats,
+	activeStreamingChatIds,
 	currentChatId,
 	onChatPersisted,
 	onOpenChat,
@@ -2575,6 +2576,7 @@ const AppShellContent = React.memo(function AppShellContent({
 	chatComposerId: string;
 	initialChatMessages: UIMessage[];
 	chats: Array<Doc<"chats">> | undefined;
+	activeStreamingChatIds: ReadonlySet<string>;
 	currentChatId: string | null;
 	onChatPersisted?: (chatId: string) => void;
 	onOpenChat: (chatId: string) => void;
@@ -2724,6 +2726,7 @@ const AppShellContent = React.memo(function AppShellContent({
 			onChatPersisted={onChatPersisted}
 			chats={chats ?? []}
 			isChatsLoading={chats === undefined}
+			activeStreamingChatIds={activeStreamingChatIds}
 			activeChatId={currentChatId}
 			onOpenChat={onOpenChat}
 			onPrefetchChat={onPrefetchChat}
@@ -2875,6 +2878,7 @@ export function AuthenticatedAppShell({
 						chatComposerId={controller.chatComposerId}
 						initialChatMessages={controller.initialChatMessages}
 						chats={controller.chats}
+						activeStreamingChatIds={controller.activeStreamingChatIds}
 						currentChatId={controller.currentChatId}
 						onChatPersisted={controller.handleChatPersisted}
 						onOpenChat={controller.handleOpenChat}

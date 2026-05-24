@@ -9,6 +9,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@workspace/ui/components/empty";
+import { Icons } from "@workspace/ui/components/icons";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 import { CalendarClock, FileText, MoreHorizontal } from "lucide-react";
@@ -22,6 +23,7 @@ import {
 } from "@/app/location";
 import { PageTitle } from "@/components/layout/page-title";
 import { NoteActionsMenu } from "@/components/note/note-actions-menu";
+import { useRecordingNoteId } from "@/hooks/use-transcription-session";
 import { formatRelativeTimestamp } from "@/lib/chat-timestamp";
 import {
 	groupItemsByRelativeDate,
@@ -108,6 +110,7 @@ export function HomeView({
 		hasLiveMeeting: hasLiveUpcomingMeeting,
 		status: upcomingCalendarStatus,
 	});
+	const recordingNoteId = useRecordingNoteId();
 
 	const openMeetingLink = React.useCallback(async (url: string) => {
 		if (await openDesktopExternalUrl(url)) {
@@ -278,10 +281,11 @@ export function HomeView({
 					{notes === undefined ? (
 						<HomeNotesSkeleton />
 					) : notes.length > 0 ? (
-						<HomeNotesList
+						<NotesList
 							notes={notes}
 							activeNoteId={currentNoteId}
 							activeNoteTitle={currentNoteTitle}
+							recordingNoteId={recordingNoteId}
 							currentUser={currentUser}
 							onOpenNote={onOpenNote}
 							onNoteTrashed={onNoteTrashed}
@@ -422,33 +426,7 @@ function SharedNotesList({
 			notes={notes}
 			activeNoteId={activeNoteId}
 			activeNoteTitle={activeNoteTitle}
-			currentUser={currentUser}
-			onOpenNote={onOpenNote}
-			onNoteTrashed={onNoteTrashed}
-		/>
-	);
-}
-
-function HomeNotesList({
-	notes,
-	activeNoteId,
-	activeNoteTitle,
-	currentUser,
-	onOpenNote,
-	onNoteTrashed,
-}: {
-	notes: Array<Doc<"notes">>;
-	activeNoteId: Id<"notes"> | null;
-	activeNoteTitle: string;
-	currentUser: AppUser;
-	onOpenNote: (noteId: Id<"notes">) => void;
-	onNoteTrashed: (noteId: Id<"notes">) => void;
-}) {
-	return (
-		<NotesList
-			notes={notes}
-			activeNoteId={activeNoteId}
-			activeNoteTitle={activeNoteTitle}
+			recordingNoteId={null}
 			currentUser={currentUser}
 			onOpenNote={onOpenNote}
 			onNoteTrashed={onNoteTrashed}
@@ -460,6 +438,7 @@ function NotesList({
 	notes,
 	activeNoteId,
 	activeNoteTitle,
+	recordingNoteId,
 	currentUser,
 	onOpenNote,
 	onNoteTrashed,
@@ -467,6 +446,7 @@ function NotesList({
 	notes: Array<Doc<"notes">>;
 	activeNoteId: Id<"notes"> | null;
 	activeNoteTitle: string;
+	recordingNoteId: Id<"notes"> | null;
 	currentUser: AppUser;
 	onOpenNote: (noteId: Id<"notes">) => void;
 	onNoteTrashed: (noteId: Id<"notes">) => void;
@@ -495,6 +475,7 @@ function NotesList({
 						<div className="space-y-2">
 							{section.notes.map((note) => {
 								const isActive = note._id === activeNoteId;
+								const isRecording = note._id === recordingNoteId;
 								const title = getNoteDisplayTitle(
 									isActive && activeNoteTitle.trim()
 										? activeNoteTitle
@@ -520,7 +501,11 @@ function NotesList({
 											className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg p-1 text-left"
 										>
 											<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-												<FileText className="size-4" />
+												{isRecording ? (
+													<Icons.sidebarRecordingSpinner />
+												) : (
+													<FileText className="size-4" />
+												)}
 											</div>
 											<div className="min-w-0 flex-1">
 												<div className="truncate text-sm font-medium">

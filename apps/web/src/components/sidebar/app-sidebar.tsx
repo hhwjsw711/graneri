@@ -29,7 +29,7 @@ import {
 import { NavUser } from "@/components/sidebar/nav-user";
 import { TemplatesDialog } from "@/components/templates/templates-dialog";
 import { WorkspaceSwitcher } from "@/components/workspaces/workspace-switcher";
-import { useTranscriptionSession } from "@/hooks/use-transcription-session";
+import { useRecordingNoteId } from "@/hooks/use-transcription-session";
 import { getChatId } from "@/lib/chat";
 import { SIDEBAR_NAVIGATION } from "@/lib/navigation";
 import { getNoteDisplayTitle } from "@/lib/note-title";
@@ -330,7 +330,6 @@ function useAppSidebarModel({
 		onWorkspaceSelect,
 		setOpenMobile,
 	});
-	const transcriptionSession = useTranscriptionSession();
 	React.useEffect(() => {
 		if (typeof window === "undefined") {
 			return;
@@ -366,23 +365,7 @@ function useAppSidebarModel({
 		inboxItems?.filter(
 			(item) => !uiState.optimisticReadInboxItemIds.has(String(item._id)),
 		).length ?? 0;
-	const recordingNoteId = React.useMemo(() => {
-		if (!transcriptionSession.isListening) {
-			return null;
-		}
-
-		const scopeKey = transcriptionSession.scopeKey;
-		if (!scopeKey?.startsWith("note:")) {
-			return null;
-		}
-
-		const scopedNoteId = scopeKey.slice("note:".length);
-		if (!scopedNoteId || scopedNoteId === "draft") {
-			return null;
-		}
-
-		return scopedNoteId as Id<"notes">;
-	}, [transcriptionSession.isListening, transcriptionSession.scopeKey]);
+	const recordingNoteId = useRecordingNoteId();
 
 	React.useEffect(() => {
 		const workspaceScope = activeWorkspaceId ?? "no-workspace";

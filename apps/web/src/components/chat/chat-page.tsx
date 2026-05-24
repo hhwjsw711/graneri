@@ -81,6 +81,7 @@ type ChatPageProps = {
 	onChatPersisted?: (chatId: string) => void;
 	chats: Array<Doc<"chats">>;
 	isChatsLoading: boolean;
+	activeStreamingChatIds: ReadonlySet<string>;
 	activeChatId: string | null;
 	onOpenChat: (chatId: string) => void;
 	onPrefetchChat: (chatId: string) => void;
@@ -252,9 +253,15 @@ const useChatPageController = ({
 	onChatPersisted,
 	chats,
 	isChatsLoading,
+	activeStreamingChatIds,
 }: Pick<
 	ChatPageProps,
-	"chatId" | "initialMessages" | "onChatPersisted" | "chats" | "isChatsLoading"
+	| "chatId"
+	| "initialMessages"
+	| "onChatPersisted"
+	| "chats"
+	| "isChatsLoading"
+	| "activeStreamingChatIds"
 >) => {
 	const activeWorkspaceId = useActiveWorkspaceId();
 	const currentChat = React.useMemo(
@@ -323,10 +330,6 @@ const useChatPageController = ({
 	const runningAutomationRun = useQuery(
 		api.automations.getRunningRunForChat,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
-	);
-	const activeStreamChatIds = useQuery(
-		api.chats.listActiveStreamChatIds,
-		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
 	const transport = React.useMemo(() => {
 		const chatApiUrl = getChatApiUrl();
@@ -760,7 +763,7 @@ const useChatPageController = ({
 		handleStop,
 		handleWebSearchEnabledChange,
 		hasMessages,
-		activeStreamChatIds: activeStreamChatIds ?? [],
+		activeStreamingChatIds,
 		isLoading,
 		isNotesLoading,
 		messages,
@@ -797,6 +800,7 @@ export function ChatPage({
 	onChatPersisted,
 	chats,
 	isChatsLoading,
+	activeStreamingChatIds,
 	activeChatId,
 	onOpenChat,
 	onPrefetchChat,
@@ -813,6 +817,7 @@ export function ChatPage({
 		onChatPersisted,
 		chats,
 		isChatsLoading,
+		activeStreamingChatIds,
 	});
 	const {
 		containerRef,
@@ -872,8 +877,8 @@ export function ChatPage({
 		() => new Set((automations ?? []).map((automation) => automation.chatId)),
 		[automations],
 	);
-	const activeStreamingChatIds = React.useMemo(() => {
-		const ids = new Set(controller.activeStreamChatIds);
+	const chatHistoryStreamingChatIds = React.useMemo(() => {
+		const ids = new Set(controller.activeStreamingChatIds);
 
 		if (controller.isLoading && controller.hasMessages) {
 			ids.add(chatId);
@@ -882,7 +887,7 @@ export function ChatPage({
 		return ids;
 	}, [
 		chatId,
-		controller.activeStreamChatIds,
+		controller.activeStreamingChatIds,
 		controller.hasMessages,
 		controller.isLoading,
 	]);
@@ -1227,7 +1232,7 @@ export function ChatPage({
 											onPrefetchChat={onPrefetchChat}
 											onMoveToTrash={onChatRemoved}
 											automationChatIds={automationChatIds}
-											activeStreamingChatIds={activeStreamingChatIds}
+											activeStreamingChatIds={chatHistoryStreamingChatIds}
 											onAddAutomation={onAddAutomation}
 										/>
 									</div>
