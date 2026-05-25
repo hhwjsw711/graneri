@@ -13,7 +13,6 @@ import {
 	MessageCircle,
 	MoreHorizontal,
 } from "lucide-react";
-import * as React from "react";
 import { getChatId } from "@/lib/chat";
 import { formatRelativeTimestamp } from "@/lib/chat-timestamp";
 import {
@@ -49,18 +48,7 @@ export function ChatHistoryList({
 	activeStreamingChatIds,
 	onAddAutomation,
 }: ChatHistoryListProps) {
-	const starredChats = React.useMemo(
-		() => chats.filter((chat) => chat.isStarred ?? false),
-		[chats],
-	);
-	const unstarredChats = React.useMemo(
-		() => chats.filter((chat) => !(chat.isStarred ?? false)),
-		[chats],
-	);
-	const groupedChats = groupItemsByRelativeDate(
-		unstarredChats,
-		(chat) => chat.updatedAt || chat.createdAt || chat._creationTime,
-	);
+	const groupedChats = groupItemsByRelativeDate(chats, getChatActivityTime);
 	const chatSections = RELATIVE_DATE_GROUP_SECTIONS.map((section) => ({
 		...section,
 		chats: groupedChats[section.key],
@@ -72,32 +60,6 @@ export function ChatHistoryList({
 				<ChatHistorySkeleton />
 			) : chats.length > 0 ? (
 				<div className="space-y-1">
-					{starredChats.length > 0 ? (
-						<div className="space-y-2">
-							<div className="flex h-6 shrink-0 items-center rounded-md px-2 text-xs font-medium text-foreground/70">
-								Starred
-							</div>
-							<div className="space-y-2">
-								{starredChats.map((chat) => (
-									<ChatHistoryItem
-										key={chat._id}
-										chat={chat}
-										activeChatId={activeChatId}
-										onOpenChat={onOpenChat}
-										onPrefetchChat={onPrefetchChat}
-										onMoveToTrash={onMoveToTrash}
-										hasAutomation={
-											automationChatIds?.has(getChatId(chat)) ?? false
-										}
-										isStreaming={
-											activeStreamingChatIds?.has(getChatId(chat)) ?? false
-										}
-										onAddAutomation={onAddAutomation}
-									/>
-								))}
-							</div>
-						</div>
-					) : null}
 					{chatSections.map((section) => {
 						if (section.chats.length === 0) {
 							return null;
