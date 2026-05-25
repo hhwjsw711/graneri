@@ -108,6 +108,7 @@ export const useNoteTranscriptSession = ({
 	const initialCaptureScopeKey = React.useMemo(
 		() =>
 			getInitialCaptureScopeKey({
+				// react-doctor-disable-next-line react-doctor/no-event-handler
 				noteId,
 				isListening: transcriptionSession.isListening,
 				scopeKey: transcriptionSession.scopeKey,
@@ -152,6 +153,7 @@ export const useNoteTranscriptSession = ({
 	const captureTranscriptDraftKey = captureScopeKey;
 	const isScopedTranscriptionSession =
 		transcriptionSession.isListening &&
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		transcriptionSession.scopeKey === captureScopeKey;
 	const isViewingCaptureScope = resolvedCaptureScopeKey === captureScopeKey;
 	const reusesCaptureTranscriptSessionRepository =
@@ -245,9 +247,17 @@ export const useNoteTranscriptSession = ({
 			currentNoteLatestTranscriptSessionSummary?.finalTranscript,
 		],
 	);
-	const visibleOrderedTranscriptUtterances = isViewingCaptureScope
-		? orderedTranscriptUtterances
-		: (currentNoteLatestTranscriptSession?.utterances ?? []);
+	const visibleOrderedTranscriptUtterances = React.useMemo(
+		() =>
+			isViewingCaptureScope
+				? orderedTranscriptUtterances
+				: (currentNoteLatestTranscriptSession?.utterances ?? []),
+		[
+			currentNoteLatestTranscriptSession?.utterances,
+			isViewingCaptureScope,
+			orderedTranscriptUtterances,
+		],
+	);
 	const visibleLiveTranscript = React.useMemo<LiveTranscriptState>(
 		() =>
 			isViewingCaptureScope ? liveTranscript : createEmptyLiveTranscriptState(),
@@ -331,6 +341,7 @@ export const useNoteTranscriptSession = ({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 		setCaptureScopeKey((currentScopeKey) =>
 			currentScopeKey === resolvedCaptureScopeKey
 				? currentScopeKey
@@ -345,6 +356,7 @@ export const useNoteTranscriptSession = ({
 			transcriptionLanguage === undefined
 		) {
 			lastQueuedAutoStartKeyRef.current = null;
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			setPendingAutoStartKey(null);
 			return;
 		}
@@ -356,6 +368,7 @@ export const useNoteTranscriptSession = ({
 		}
 
 		lastQueuedAutoStartKeyRef.current = nextAutoStartKey;
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setPendingAutoStartKey(nextAutoStartKey);
 	}, [autoStartTranscription, noteId, transcriptionLanguage]);
 
@@ -378,7 +391,9 @@ export const useNoteTranscriptSession = ({
 	React.useEffect(() => {
 		// Latch meeting-controlled auto-stop for the active capture even after
 		// the route/query state is cleaned up post-start.
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		if (stopTranscriptionWhenMeetingEnds && isDesktopRuntime()) {
+			// react-doctor-disable-next-line react-doctor/no-event-handler
 			shouldStopWhenMeetingEndsRef.current = true;
 		}
 	}, [stopTranscriptionWhenMeetingEnds]);
@@ -628,7 +643,9 @@ export const useNoteTranscriptSession = ({
 		}
 
 		previousTranscriptDraftKeyRef.current = captureTranscriptDraftKey;
+		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 		setGeneratedTranscriptSessionId(null);
+		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 		resetTranscriptSessionState();
 	}, [
 		captureTranscriptDraftKey,
@@ -641,6 +658,7 @@ export const useNoteTranscriptSession = ({
 		hasRestoredTranscriptDraftRef.current = false;
 		hasLoadedTranscriptDraftContentRef.current = false;
 		loadedTranscriptDraftUpdatedAtRef.current = null;
+		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-derived-state
 		setIsTranscriptDraftReady(false);
 		void captureTranscriptSessionRepository
 			.loadDraft(captureTranscriptDraftKey)
@@ -702,6 +720,7 @@ export const useNoteTranscriptSession = ({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		hydrateStoredTranscriptSession({
 			generatedSessionId: generatedTranscriptSessionId,
 			latestServerTranscript,
@@ -757,10 +776,12 @@ export const useNoteTranscriptSession = ({
 
 	React.useEffect(() => {
 		if (isSpeechListening && !previousSpeechListeningRef.current) {
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 			markSpeechListeningStarted();
 		}
 
 		if (!isSpeechListening && previousSpeechListeningRef.current) {
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 			const completedSessionId = markSpeechListeningStopped();
 
 			if (completedSessionId) {

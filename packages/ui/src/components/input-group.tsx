@@ -1,11 +1,9 @@
-"use client";
-
-import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
-import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
+import { InputGroupAddon } from "./input-group-addon";
+import { InputGroupButton } from "./input-group-button";
 
 const INPUT_GROUP_INTERACTIVE_SELECTOR = [
 	"button",
@@ -137,79 +135,6 @@ function InputGroup({
 			)}
 			onPointerDown={handlePointerDown}
 			onPointerUp={handlePointerUp}
-			{...props}
-		/>
-	);
-}
-
-const inputGroupAddonVariants = cva(
-	"flex h-auto cursor-text items-center justify-center gap-2 py-1.5 text-sm font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-[6px] [&>svg:not([class*='size-'])]:size-4",
-	{
-		variants: {
-			align: {
-				"inline-start":
-					"order-first pl-2 has-[>button]:ml-[-0.3rem] has-[>kbd]:ml-[-0.15rem]",
-				"inline-end":
-					"order-last pr-2 has-[>button]:mr-[-0.3rem] has-[>kbd]:mr-[-0.15rem]",
-				"block-start":
-					"order-first w-full justify-start px-2.5 pt-2 group-has-[>input]/input-group:pt-2 [.border-b]:pb-2",
-				"block-end":
-					"order-last w-full justify-start px-2.5 pb-2 group-has-[>input]/input-group:pb-2 [.border-t]:pt-2",
-			},
-		},
-		defaultVariants: {
-			align: "inline-start",
-		},
-	},
-);
-
-function InputGroupAddon({
-	className,
-	align = "inline-start",
-	...props
-}: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
-	return (
-		<div
-			data-slot="input-group-addon"
-			data-align={align}
-			className={cn(inputGroupAddonVariants({ align }), className)}
-			{...props}
-		/>
-	);
-}
-
-const inputGroupButtonVariants = cva(
-	"flex items-center gap-2 text-sm shadow-none",
-	{
-		variants: {
-			size: {
-				xs: "h-6 gap-1 rounded-[calc(var(--radius)-3px)] px-1.5 [&>svg:not([class*='size-'])]:size-3.5",
-				sm: "",
-				"icon-xs":
-					"size-6 rounded-[calc(var(--radius)-3px)] p-0 has-[>svg]:p-0",
-				"icon-sm": "size-8 p-0 has-[>svg]:p-0",
-			},
-		},
-		defaultVariants: {
-			size: "xs",
-		},
-	},
-);
-
-function InputGroupButton({
-	className,
-	type = "button",
-	variant = "ghost",
-	size = "xs",
-	...props
-}: Omit<React.ComponentProps<typeof Button>, "size"> &
-	VariantProps<typeof inputGroupButtonVariants>) {
-	return (
-		<Button
-			type={type}
-			data-size={size}
-			variant={variant}
-			className={cn(inputGroupButtonVariants({ size }), className)}
 			{...props}
 		/>
 	);

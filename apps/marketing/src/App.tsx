@@ -5,6 +5,8 @@ import { OpenGranMark } from "@workspace/ui/components/open-gran-mark";
 const githubProjectUrl = "https://github.com/murabcd/opengran";
 const desktopDownloadUrl =
 	"https://github.com/murabcd/opengran/releases/latest";
+const GithubLogo = Icons.githubLogo;
+const MacLogo = Icons.macLogo;
 
 function App() {
 	return (
@@ -24,7 +26,7 @@ function App() {
 					>
 						<span className="relative flex size-10 items-center justify-center rounded-xl text-foreground">
 							<OpenGranMark className="size-5 transition-opacity duration-150 group-hover:opacity-0" />
-							<Icons.githubLogo className="absolute size-4.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+							<GithubLogo className="absolute size-4.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
 						</span>
 					</a>
 					<h1 className="marketing-display mt-8 text-[clamp(3.55rem,7vw,6.4rem)] leading-[0.88] font-normal tracking-[-0.07em] text-balance">
@@ -44,7 +46,7 @@ function App() {
 							className="h-13 rounded-full border-0 bg-primary px-7 text-base font-medium text-primary-foreground shadow-[0_22px_50px_rgba(0,0,0,0.34)] hover:bg-primary/90"
 						>
 							<a href={desktopDownloadUrl} target="_blank" rel="noreferrer">
-								<Icons.macLogo className="size-4.5" />
+								<MacLogo className="size-4.5" />
 								Download for Mac
 							</a>
 						</Button>

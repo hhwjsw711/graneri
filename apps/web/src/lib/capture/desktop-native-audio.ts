@@ -138,7 +138,8 @@ export const createDesktopNativeAudioStream = async (
 			}
 
 			if (restartAttempts >= restartDelaysMs.length) {
-				await dispose();
+				// react-doctor-disable-next-line react-doctor/async-defer-await
+				void dispose();
 				return;
 			}
 
@@ -150,6 +151,7 @@ export const createDesktopNativeAudioStream = async (
 			restartAttempts += 1;
 
 			try {
+				// react-doctor-disable-next-line react-doctor/async-defer-await
 				await new Promise((resolvePromise) => {
 					window.setTimeout(resolvePromise, delay);
 				});

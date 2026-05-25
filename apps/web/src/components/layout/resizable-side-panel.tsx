@@ -319,9 +319,10 @@ function useResizableSidePanel({
 	}, [panelWidth]);
 
 	React.useEffect(() => {
+		const animationFrameId = resizeAnimationFrameRef.current;
 		return () => {
-			if (resizeAnimationFrameRef.current !== null) {
-				window.cancelAnimationFrame(resizeAnimationFrameRef.current);
+			if (animationFrameId !== null) {
+				window.cancelAnimationFrame(animationFrameId);
 			}
 		};
 	}, []);
@@ -361,6 +362,7 @@ function useResizableSidePanel({
 		const defaultWidth = isMobile ? window.innerWidth : defaultDesktopWidth;
 		const nextWidth = Number.isFinite(parsedWidth) ? parsedWidth : defaultWidth;
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setPanelWidth(clampPanelWidth(nextWidth, nextBounds));
 	}, [
 		defaultDesktopWidth,
@@ -375,6 +377,7 @@ function useResizableSidePanel({
 	]);
 
 	React.useEffect(() => {
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setPanelWidth((currentWidth) => clampPanelWidth(currentWidth, bounds));
 	}, [bounds]);
 

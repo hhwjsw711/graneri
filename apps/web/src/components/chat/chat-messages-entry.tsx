@@ -1,20 +1,14 @@
 import type * as React from "react";
 import {
-	createComponentEntry,
+	createDefaultComponentEntry,
 	getOnlyComponentModule,
 } from "@/lib/component-entry";
 import type { ChatMessagesProps } from "./messages";
 
-export const ChatMessagesEntry = createComponentEntry<
-	ChatMessagesProps,
-	{
-		ChatMessages: React.ComponentType<ChatMessagesProps>;
-	}
->(
+export const ChatMessagesEntry = createDefaultComponentEntry<ChatMessagesProps>(
 	getOnlyComponentModule(
 		import.meta.glob<{
-			ChatMessages: React.ComponentType<ChatMessagesProps>;
+			default: React.ComponentType<ChatMessagesProps>;
 		}>("./messages.tsx"),
 	),
-	(module) => module.ChatMessages,
 );

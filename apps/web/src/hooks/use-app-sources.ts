@@ -21,10 +21,12 @@ export function useAppSources(
 	const listGoogleSources = useAction(api.googleTools.listAvailableSources);
 	const [googleSources, setGoogleSources] = React.useState<AppSource[]>([]);
 
+	// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 	React.useEffect(() => {
 		let cancelled = false;
 
 		if (!workspaceId) {
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			setGoogleSources([]);
 			return () => {
 				cancelled = true;

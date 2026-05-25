@@ -68,6 +68,7 @@ export function NoteTableOfContents({
 						<button
 							key={anchor.id}
 							type="button"
+							aria-label={anchor.textContent}
 							tabIndex={-1}
 							className={cn(
 								"h-0.5 rounded-full transition-colors",

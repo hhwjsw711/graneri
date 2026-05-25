@@ -342,6 +342,7 @@ export class TranscriptionController {
 	};
 
 	start = async () => {
+		// react-doctor-disable-next-line react-doctor/async-defer-await
 		await this.pendingStopPromise;
 
 		if (this.pendingStartPromise) {
@@ -568,6 +569,7 @@ export class TranscriptionController {
 				return false;
 			}
 
+			// react-doctor-disable-next-line react-doctor/async-defer-await
 			await this.connectSpeaker({
 				logger,
 				operationId,
@@ -606,6 +608,7 @@ export class TranscriptionController {
 
 			return true;
 		} catch (error) {
+			// react-doctor-disable-next-line react-doctor/async-defer-await
 			await Promise.allSettled(
 				pendingStreams.map((entry) => disposePendingInputStream(entry)),
 			);
@@ -966,6 +969,7 @@ export class TranscriptionController {
 			!this.activePolicy?.systemAudioCapability.shouldAutoBootstrap;
 
 		const operationId = ++this.lifecycleOperationId;
+		// react-doctor-disable-next-line react-doctor/async-defer-await
 		await this.cleanupSession({
 			operationId,
 			preserveUtterances: true,

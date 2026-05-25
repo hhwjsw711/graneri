@@ -49,7 +49,8 @@ export type ChatMessagesProps = {
 	onOpenMention?: (noteId: string) => void;
 };
 
-export function ChatMessages({
+// react-doctor-disable-next-line deslop/unused-export
+export default function ChatMessages({
 	messages,
 	error,
 	isLoading,

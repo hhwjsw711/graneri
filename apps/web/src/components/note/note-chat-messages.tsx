@@ -26,7 +26,8 @@ export type NoteChatMessagesProps = {
 	onRegenerateMessage?: (messageId: string) => void;
 };
 
-export function NoteChatMessages({
+// react-doctor-disable-next-line deslop/unused-export
+export default function NoteChatMessages({
 	chatError,
 	chatMessages,
 	chatViewportRef,

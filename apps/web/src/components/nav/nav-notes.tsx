@@ -1,4 +1,3 @@
-import { Icons } from "@workspace/ui/components/icons";
 import {
 	SidebarMenu,
 	SidebarMenuAction,
@@ -6,7 +5,7 @@ import {
 	SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import { FileText, MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 import * as React from "react";
 import {
 	SIDEBAR_COLLAPSIBLE_GROUP_ACTION_CLASS_NAME,
@@ -15,6 +14,7 @@ import {
 import { NoteActionsMenu } from "@/components/note/note-actions-menu";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
+import { NoteRenameAnchor } from "./note-rename-anchor";
 
 const MAX_VISIBLE_NOTES = 5;
 const SIDEBAR_NOTE_SKELETON_IDS = [
@@ -180,6 +180,16 @@ function SidebarNotesList({
 				const title =
 					isActive && currentNoteTitle?.trim() ? currentNoteTitle : note.title;
 				const displayTitle = getNoteDisplayTitle(title);
+				const renameAnchor = (
+					<NoteRenameAnchor
+						displayTitle={displayTitle}
+						isActive={isActive}
+						isRecording={isRecording}
+						noteId={note._id}
+						onNoteSelect={onNoteSelect}
+						onPrefetchNote={onPrefetchNote}
+					/>
+				);
 
 				return (
 					<SidebarMenuItem key={note._id}>
@@ -188,22 +198,8 @@ function SidebarNotesList({
 							onMoveToTrash={onNoteTrashed}
 							align="start"
 							side="right"
-							renameAnchor={
-								<SidebarMenuButton
-									isActive={isActive}
-									onFocus={() => onPrefetchNote(note._id)}
-									onMouseEnter={() => onPrefetchNote(note._id)}
-									onPointerDown={() => onPrefetchNote(note._id)}
-									onClick={() => onNoteSelect(note._id)}
-								>
-									{isRecording ? (
-										<Icons.sidebarRecordingSpinner />
-									) : (
-										<FileText />
-									)}
-									<span>{displayTitle}</span>
-								</SidebarMenuButton>
-							}
+							// react-doctor-disable-next-line react-doctor/jsx-no-jsx-as-prop
+							renameAnchor={renameAnchor}
 							renamePopoverAlign="start"
 							renamePopoverSide="bottom"
 							renamePopoverSideOffset={6}

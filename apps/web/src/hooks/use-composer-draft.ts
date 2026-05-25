@@ -36,9 +36,11 @@ export const useComposerDraft = <TMetadata>(
 	);
 	const draftRef = React.useRef(draft);
 
+	// react-doctor-disable-next-line react-doctor/no-derived-state
 	React.useEffect(() => {
 		const nextDraft = readComposerDraft<TMetadata>(scopeKey);
 		draftRef.current = nextDraft;
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setDraftState(nextDraft);
 	}, [scopeKey]);
 

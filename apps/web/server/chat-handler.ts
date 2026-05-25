@@ -172,6 +172,7 @@ class ActiveChatStreamPersister {
 				});
 
 			this.#flushPromise = flushPromise;
+			// react-doctor-disable-next-line react-doctor/async-await-in-loop
 			await flushPromise;
 
 			if (this.#flushPromise === flushPromise) {

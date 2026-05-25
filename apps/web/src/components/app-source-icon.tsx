@@ -1,6 +1,15 @@
 import { Icons } from "@workspace/ui/components/icons";
 import type { ChatAppSourceProvider } from "@/lib/chat-source-display";
 
+const GoogleCalendarLogo = Icons.googleCalendarLogo;
+const GoogleDriveLogo = Icons.googleDriveLogo;
+const JiraLogo = Icons.jiraLogo;
+const NotionLogo = Icons.notionLogo;
+const PlaneLogo = Icons.planeLogo;
+const ZoomLogo = Icons.zoomLogo;
+const YandexCalendarLogo = Icons.yandexCalendarLogo;
+const YandexTrackerLogo = Icons.yandexTrackerLogo;
+
 export function AppSourceIcon({
 	provider,
 	className,
@@ -10,25 +19,23 @@ export function AppSourceIcon({
 }) {
 	switch (provider) {
 		case "google-calendar":
-			return <Icons.googleCalendarLogo className={className} />;
+			return <GoogleCalendarLogo className={className} />;
 		case "google-drive":
-			return <Icons.googleDriveLogo className={className} />;
+			return <GoogleDriveLogo className={className} />;
 		case "jira":
 		case "jira-mcp":
-			return <Icons.jiraLogo className={className} />;
+			return <JiraLogo className={className} />;
 		case "notion":
-			return <Icons.notionLogo className={className} />;
+			return <NotionLogo className={className} />;
 		case "posthog":
-			return <Icons.planeLogo className={className} />;
+			return <PlaneLogo className={className} />;
 		case "zoom":
-			return <Icons.zoomLogo className={className} />;
+			return <ZoomLogo className={className} />;
 		case "yandex-calendar":
-			return <Icons.yandexCalendarLogo className={className} />;
+			return <YandexCalendarLogo className={className} />;
 		case "yandex-tracker":
 			return (
-				<Icons.yandexTrackerLogo
-					className={`${className ?? ""} text-blue-500`}
-				/>
+				<YandexTrackerLogo className={`${className ?? ""} text-blue-500`} />
 			);
 	}
 

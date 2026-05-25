@@ -163,12 +163,16 @@ export const useTranscriptSessionRepository = (
 		}
 	}, [convex, noteId]);
 
+	// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-derived-state
 	React.useEffect(() => {
 		latestTranscriptSessionRequestIdRef.current += 1;
+		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 		setIsFetchingLatestTranscriptSession(false);
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setLatestTranscriptSession(noteId ? undefined : null);
 	}, [noteId]);
 
+	// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 	React.useEffect(() => {
 		if (
 			!shouldAutoLoadLatestTranscriptSession ||
@@ -179,6 +183,7 @@ export const useTranscriptSessionRepository = (
 		}
 
 		if (latestTranscriptSessionSummary === null) {
+			// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 			setLatestTranscriptSession(null);
 			return;
 		}

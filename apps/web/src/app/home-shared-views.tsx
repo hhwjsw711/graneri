@@ -37,6 +37,7 @@ const HOME_NOTE_SKELETON_IDS = [
 	"home-note-skeleton-2",
 	"home-note-skeleton-3",
 ] as const;
+const SidebarRecordingSpinner = Icons.sidebarRecordingSpinner;
 
 const getNoteAuthorDisplayName = (note: Doc<"notes">, currentUser: AppUser) =>
 	note.authorName?.trim() || currentUser.name;
@@ -145,8 +146,7 @@ export function HomeView({
 										</div>
 										<div className="flex min-w-0 items-center gap-2 pt-1 text-base leading-none">
 											<span>{currentMonthLabel}</span>
-											<span
-												role="status"
+											<output
 												aria-label={`Calendar status: ${upcomingCalendarIndicator.label}`}
 												className="inline-flex"
 											>
@@ -156,7 +156,7 @@ export function HomeView({
 														upcomingCalendarIndicator.dotClassName,
 													)}
 												/>
-											</span>
+											</output>
 										</div>
 										<p className="text-base leading-none text-muted-foreground">
 											{currentWeekdayLabel}
@@ -502,7 +502,7 @@ function NotesList({
 										>
 											<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
 												{isRecording ? (
-													<Icons.sidebarRecordingSpinner />
+													<SidebarRecordingSpinner />
 												) : (
 													<FileText className="size-4" />
 												)}

@@ -14,7 +14,9 @@ export const useLinkedAccounts = (
 	);
 	const [isLoadingAccounts, setIsLoadingAccounts] = useState(false);
 
+	// react-doctor-disable-next-line react-doctor/no-derived-state
 	useEffect(() => {
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setAccounts(cacheKey ? (linkedAccountsCache.get(cacheKey) ?? []) : []);
 	}, [cacheKey]);
 

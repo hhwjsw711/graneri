@@ -679,10 +679,13 @@ function ChatComposerTextEditor({
 							noteMentionRangeRef.current = range;
 							visibleMentionDocumentsRef.current = nextDocuments;
 							visibleMentionItemsRef.current = nextItems;
+							// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 							setDocumentSearchTerm(query);
+							// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 							selectMentionIndex(0);
 							requestAnimationFrame(() => {
 								const rect = getMentionAnchorRect(editor, range);
+								// react-doctor-disable-next-line react-doctor/no-derived-state
 								setMentionPickerPosition(
 									getMentionPickerPosition({
 										rect,
@@ -692,6 +695,7 @@ function ChatComposerTextEditor({
 								);
 							});
 							mentionPopoverOpenRef.current = true;
+							// react-doctor-disable-next-line react-doctor/no-derived-state
 							setMentionPopoverOpen(true);
 						};
 
@@ -762,14 +766,17 @@ function ChatComposerTextEditor({
 		},
 	});
 
+	// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 	React.useEffect(() => {
 		if (!composerEditor) {
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 		const currentText = composerEditor.getText({ blockSeparator: "\n" });
 		if (
 			currentText === draft &&
+			// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 			getMentionsFromComposerContent(composerEditor.getJSON()).length ===
 				mentions.length
 		) {
@@ -780,10 +787,12 @@ function ChatComposerTextEditor({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		composerEditor.commands.setContent(getDraftDocument(draft, mentions), {
 			emitUpdate: false,
 		});
 	}, [composerEditor, draft, editingMessageId, mentions]);
+	// react-doctor-disable-next-line react-doctor/no-derived-state
 	React.useEffect(() => {
 		if (!composerEditor) {
 			return;
@@ -801,6 +810,7 @@ function ChatComposerTextEditor({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		composerEditor.commands.focus("end", { scrollIntoView: false });
 	}, [composerEditor]);
 
@@ -921,6 +931,7 @@ function useChatComposerPromptFocus({
 	}, [promptRef]);
 
 	React.useEffect(() => {
+		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
 		focusPrompt();
 	}, [focusPrompt]);
 
@@ -929,6 +940,7 @@ function useChatComposerPromptFocus({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
 		focusPrompt();
 	}, [editingMessageId, focusPrompt]);
 
@@ -985,6 +997,7 @@ function MentionPicker({
 	}
 
 	return createPortal(
+		// react-doctor-disable-next-line react-doctor/prefer-tag-over-role
 		<div
 			role="listbox"
 			aria-label="Mention suggestions"

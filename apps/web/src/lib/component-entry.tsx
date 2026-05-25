@@ -1,37 +1,10 @@
 import * as React from "react";
+import { ComponentEntryBoundary } from "@/lib/component-entry-boundary";
 
 type ComponentModuleLoader<Module> = () => Promise<Module>;
-type ComponentEntryBoundaryProps = {
-	children: React.ReactNode;
+type DefaultComponentModule<Props extends object> = {
+	default: React.ComponentType<Props>;
 };
-type ComponentEntryBoundaryState = {
-	error: Error | null;
-};
-
-class ComponentEntryBoundary extends React.Component<
-	ComponentEntryBoundaryProps,
-	ComponentEntryBoundaryState
-> {
-	state: ComponentEntryBoundaryState = {
-		error: null,
-	};
-
-	static getDerivedStateFromError(error: Error): ComponentEntryBoundaryState {
-		return { error };
-	}
-
-	componentDidCatch(error: Error) {
-		console.error("Failed to load component entry", error);
-	}
-
-	render() {
-		if (this.state.error) {
-			return null;
-		}
-
-		return this.props.children;
-	}
-}
 
 export function getOnlyComponentModule<Module>(
 	modules: Record<string, ComponentModuleLoader<Module>>,
@@ -67,6 +40,12 @@ export function createComponentEntry<Props extends object, Module>(
 			</ComponentEntryBoundary>
 		);
 	};
+}
+
+export function createDefaultComponentEntry<Props extends object>(
+	loadModule: ComponentModuleLoader<DefaultComponentModule<Props>>,
+) {
+	return createComponentEntry(loadModule, (module) => module.default);
 }
 
 export function createOpenComponentEntry<

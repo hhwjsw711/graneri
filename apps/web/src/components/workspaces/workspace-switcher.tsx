@@ -53,15 +53,6 @@ export function WorkspaceSwitcher({
 		workspaces.find((workspace) => workspace._id === activeWorkspaceId) ??
 		workspaces[0];
 
-	React.useEffect(() => {
-		if (createOpen) {
-			return;
-		}
-
-		setName("");
-		setCreateError(null);
-	}, [createOpen]);
-
 	if (!activeWorkspace) {
 		return null;
 	}
@@ -101,6 +92,14 @@ export function WorkspaceSwitcher({
 	const handleOpenCreateWorkspace = () => {
 		setMenuOpen(false);
 		setCreateOpen(true);
+	};
+	const handleCreateOpenChange = (nextOpen: boolean) => {
+		setCreateOpen(nextOpen);
+
+		if (!nextOpen) {
+			setName("");
+			setCreateError(null);
+		}
 	};
 
 	return (
@@ -185,7 +184,7 @@ export function WorkspaceSwitcher({
 					</DropdownMenu>
 				</SidebarMenuItem>
 			</SidebarMenu>
-			<Dialog open={createOpen} onOpenChange={setCreateOpen}>
+			<Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
 				<DialogContent>
 					<DialogHeader>
 						<DialogTitle>Create a workspace</DialogTitle>
