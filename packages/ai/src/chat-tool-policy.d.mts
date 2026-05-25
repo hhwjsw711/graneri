@@ -1,4 +1,6 @@
 import type { ToolSet, UIMessage } from "ai";
+import type { ConvexHttpClient } from "convex/browser";
+import type { ChatAttachmentsApi } from "./image-generation-tool.mjs";
 
 export declare const buildCoreChatToolPolicy: ({
 	chatAttachmentsApi,
@@ -6,8 +8,8 @@ export declare const buildCoreChatToolPolicy: ({
 	message,
 	webSearchEnabled,
 }: {
-	chatAttachmentsApi: unknown;
-	convexClient: unknown;
+	chatAttachmentsApi: ChatAttachmentsApi;
+	convexClient: ConvexHttpClient | null | undefined;
 	message: UIMessage | undefined;
 	webSearchEnabled: boolean;
 }) => {
