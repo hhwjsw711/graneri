@@ -1,6 +1,7 @@
 import * as React from "react";
 
 const BOTTOM_OFFSET_PX = 96;
+const PRESERVE_SCROLL_ON_TOGGLE_SELECTOR = "[data-preserve-scroll-on-toggle]";
 
 export function useStickyScrollToBottom() {
 	const containerElementRef = React.useRef<HTMLDivElement | null>(null);
@@ -87,12 +88,14 @@ export function useStickyScrollToBottom() {
 			const nextScrollHeight = container.scrollHeight;
 
 			if (!isAtBottomRef.current || isUserScrollingRef.current) {
-				const delta = nextScrollHeight - previousScrollHeightRef.current;
+				previousScrollHeightRef.current = nextScrollHeight;
+				return;
+			}
 
-				if (delta > 0 && previousScrollHeightRef.current > 0) {
-					container.scrollTop += delta;
-				}
-
+			if (
+				document.activeElement instanceof HTMLElement &&
+				document.activeElement.closest(PRESERVE_SCROLL_ON_TOGGLE_SELECTOR)
+			) {
 				previousScrollHeightRef.current = nextScrollHeight;
 				return;
 			}

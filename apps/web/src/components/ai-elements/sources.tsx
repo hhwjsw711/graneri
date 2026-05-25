@@ -6,7 +6,7 @@ import {
 	CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible";
 import { cn } from "@workspace/ui/lib/utils";
-import { BookIcon, ChevronDownIcon } from "lucide-react";
+import { BookIcon, ChevronRight } from "lucide-react";
 import type { ComponentProps } from "react";
 
 export const Sources = ({
@@ -14,7 +14,7 @@ export const Sources = ({
 	...props
 }: ComponentProps<typeof Collapsible>) => (
 	<Collapsible
-		className={cn("text-xs text-muted-foreground", className)}
+		className={cn("group/sources flex w-full flex-col gap-2", className)}
 		{...props}
 	/>
 );
@@ -29,15 +29,18 @@ export const SourcesTrigger = ({
 }) => (
 	<CollapsibleTrigger
 		className={cn(
-			"flex cursor-pointer items-center gap-1 text-muted-foreground transition-colors hover:text-foreground",
+			"group flex max-w-full cursor-pointer items-center gap-1 rounded-[var(--an-tool-border-radius)] text-sm",
 			className,
 		)}
+		data-preserve-scroll-on-toggle
 		{...props}
 	>
 		{children ?? (
 			<>
-				<p className="font-medium">Used {count} sources</p>
-				<ChevronDownIcon className="size-3.5 shrink-0" />
+				<span className="shrink-0 whitespace-nowrap font-[450] text-foreground/70">
+					{count} sources
+				</span>
+				<ChevronRight className="size-3 shrink-0 text-muted-foreground transition-all duration-150 ease-out group-data-[state=open]/sources:rotate-90" />
 			</>
 		)}
 	</CollapsibleTrigger>
@@ -49,7 +52,7 @@ export const SourcesContent = ({
 }: ComponentProps<typeof CollapsibleContent>) => (
 	<CollapsibleContent
 		className={cn(
-			"mt-3 flex w-fit flex-col gap-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2",
+			"flex w-fit flex-col gap-1.5 overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down",
 			className,
 		)}
 		{...props}
@@ -63,7 +66,7 @@ export const Source = ({
 	...props
 }: ComponentProps<"a">) => (
 	<a
-		className="flex cursor-pointer items-start gap-2 text-muted-foreground transition-colors hover:text-foreground"
+		className="flex max-w-full cursor-pointer items-center gap-2 text-sm text-muted-foreground/70 transition-colors hover:text-foreground"
 		href={href}
 		rel="noreferrer"
 		target="_blank"
@@ -71,8 +74,10 @@ export const Source = ({
 	>
 		{children ?? (
 			<>
-				<BookIcon className="mt-0.5 size-3.5 shrink-0" />
-				<span className="block font-medium">{title}</span>
+				<BookIcon className="size-3 shrink-0 text-muted-foreground" />
+				<span className="min-w-0 flex-1 truncate font-[450] text-foreground/70">
+					{title}
+				</span>
 			</>
 		)}
 	</a>

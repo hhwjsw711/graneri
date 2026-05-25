@@ -101,6 +101,7 @@ export function ToolRowBase({
 				className="group flex"
 				disabled={!canToggle}
 				aria-disabled={!canToggle}
+				data-preserve-scroll-on-toggle
 			>
 				{row}
 			</CollapsibleTrigger>

@@ -84,6 +84,7 @@ export function CollapsibleMessageContent({
 					size="xs"
 					className="h-auto p-0 text-secondary-foreground/55 hover:bg-transparent hover:text-secondary-foreground aria-expanded:bg-transparent aria-expanded:text-secondary-foreground/55 aria-expanded:hover:text-secondary-foreground"
 					aria-expanded={isExpanded}
+					data-preserve-scroll-on-toggle
 					onClick={() => setIsExpanded((current) => !current)}
 				>
 					{isExpanded ? "Show less" : "Show more"}

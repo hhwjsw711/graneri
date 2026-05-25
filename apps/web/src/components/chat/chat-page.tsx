@@ -1213,7 +1213,7 @@ export function ChatPage({
 		<>
 			<ScrollArea
 				className="min-h-0 flex-1"
-				viewportClassName="overscroll-contain"
+				viewportClassName="overscroll-contain [overflow-anchor:none]"
 				viewportRef={viewportRef}
 			>
 				<div className="box-border flex w-full max-w-full min-w-0 flex-1 justify-center px-4 md:px-6">

@@ -55,9 +55,7 @@ import type { UIMessage } from "ai";
 import {
 	ChevronRight,
 	Clock3,
-	ExternalLink,
 	FileText,
-	Globe,
 	Paperclip,
 	Plus,
 	X,
@@ -95,7 +93,6 @@ import {
 	type ChatAppSourceProvider,
 	getAppSourceLabel,
 } from "@/lib/chat-source-display";
-import { collectMessageSources, type ToolSource } from "@/lib/chat-sources";
 import { DESKTOP_MAIN_HEADER_CONTENT_CLASS } from "@/lib/desktop-chrome";
 import {
 	createNoteEditorExtensions,
@@ -125,7 +122,6 @@ type SummaryArtifact = {
 };
 
 type SummarySource =
-	| ({ kind: "link" } & ToolSource)
 	| ({
 			kind: "file";
 	  } & SummaryArtifact)
@@ -191,22 +187,18 @@ const writeDesktopChatSummaryPanelPinnedState = (isPinned: boolean) => {
 
 const collectChatSources = (messages: UIMessage[]): SummarySource[] => {
 	const sources = messages.flatMap<SummarySource>((message) => {
-		if (message.role === "assistant") {
-			return collectMessageSources(message).map((source) => ({
-				...source,
-				kind: "link",
-			}));
-		}
-
-		const fileSources = extractFileParts(message).map(
-			(file) =>
-				({
-					filename: file.filename,
-					kind: "file",
-					mediaType: file.mediaType,
-					url: file.url,
-				}) satisfies SummarySource,
-		);
+		const fileSources =
+			message.role === "user"
+				? extractFileParts(message).map(
+						(file) =>
+							({
+								filename: file.filename,
+								kind: "file",
+								mediaType: file.mediaType,
+								url: file.url,
+							}) satisfies SummarySource,
+					)
+				: [];
 		const mentionSources = (
 			getChatMessageMetadata(message)?.mentionPositions ?? []
 		).flatMap((mention) =>
@@ -1082,10 +1074,6 @@ function SummaryDefaultContent({
 }
 
 function getSummarySourceKey(source: SummarySource) {
-	if (source.kind === "link") {
-		return `${source.kind}:${source.href}:${source.title}`;
-	}
-
 	if (source.kind === "file") {
 		return `${source.kind}:${source.url}`;
 	}
@@ -1147,20 +1135,6 @@ function SummarySourceRow({ source }: { source: SummarySource }) {
 			</div>
 		);
 	}
-
-	return (
-		<a
-			href={source.href}
-			target="_blank"
-			rel="noreferrer"
-			className={className}
-			title={source.title}
-		>
-			<Globe className="size-3.5 shrink-0" />
-			<span className="min-w-0 flex-1 basis-0 truncate">{source.title}</span>
-			<ExternalLink className="size-3 shrink-0 opacity-0 transition-opacity group-hover/source:opacity-70" />
-		</a>
-	);
 }
 
 function SummaryToolSourceIcon({

@@ -24,7 +24,10 @@ export function Reasoning({
 
 	return (
 		<Collapsible className={cn("group/reasoning w-full", className)}>
-			<CollapsibleTrigger className="flex max-w-full cursor-pointer items-center gap-1 rounded-[var(--an-tool-border-radius)] text-sm">
+			<CollapsibleTrigger
+				className="flex max-w-full cursor-pointer items-center gap-1 rounded-[var(--an-tool-border-radius)] text-sm"
+				data-preserve-scroll-on-toggle
+			>
 				<span className="font-[450] text-foreground/70">
 					{isStreaming ? (
 						<ShimmerText
