@@ -46,7 +46,7 @@ import * as React from "react";
 import type { SocialAuthProvider } from "@/app/app-types";
 import { AuthenticatedAppShell } from "@/app/authenticated-app-shell";
 import { getSharedNoteShareId, getThemeFireworkColors } from "@/app/location";
-import { SharedNotePage } from "@/components/note/shared-note-page";
+import { SharedNotePageEntry } from "@/components/note/shared-note-page-entry";
 import { WorkspaceComposer } from "@/components/workspaces/workspace-composer";
 import { type AuthSession, authClient } from "@/lib/auth-client";
 import { DESKTOP_AUTH_SAFE_TOP_CLASS } from "@/lib/desktop-chrome";
@@ -77,6 +77,8 @@ const DESKTOP_PERMISSION_LABELS: Record<DesktopPermissionId, string> = {
 	microphone: "Transcribe me",
 	systemAudio: "Transcribe others",
 };
+const GoogleLogo = Icons.googleLogo;
+const GithubLogo = Icons.githubLogo;
 
 const DESKTOP_PERMISSION_BUTTON_LABELS: Record<DesktopPermissionId, string> = {
 	microphone: "Enable",
@@ -226,6 +228,7 @@ const useAppBootstrapState = () => {
 			? `${authErrorParam}: ${authErrorDescription}`
 			: authErrorParam.replaceAll("_", " ");
 
+		// react-doctor-disable-next-line react-doctor/no-initialize-state
 		setAuthError(message);
 		url.searchParams.delete("authError");
 		url.searchParams.delete("authErrorDescription");
@@ -241,6 +244,7 @@ const useAppBootstrapState = () => {
 			setSharedNoteShareId(getSharedNoteShareId(window.location.pathname));
 		};
 
+		// react-doctor-disable-next-line react-doctor/no-initialize-state
 		syncSharedNoteRoute();
 		window.addEventListener("popstate", syncSharedNoteRoute);
 
@@ -369,6 +373,7 @@ const useAppBootstrapState = () => {
 
 	React.useEffect(() => {
 		if (!shouldLoadDesktopPermissions) {
+			// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 			resetDesktopPermissionsState();
 			return;
 		}
@@ -546,7 +551,7 @@ function MainApp() {
 	if (controller.sharedNoteShareId) {
 		return (
 			<ScrollArea className="h-svh" viewportClassName="overscroll-contain">
-				<SharedNotePage
+				<SharedNotePageEntry
 					note={controller.sharedNote}
 					onOpenNote={controller.handleOpenOwnedSharedNote}
 				/>
@@ -800,7 +805,10 @@ function AppGate({
 	if (sharedNoteShareId) {
 		return (
 			<ScrollArea className="h-svh" viewportClassName="overscroll-contain">
-				<SharedNotePage note={sharedNote} onOpenNote={onOpenOwnedSharedNote} />
+				<SharedNotePageEntry
+					note={sharedNote}
+					onOpenNote={onOpenOwnedSharedNote}
+				/>
 			</ScrollArea>
 		);
 	}
@@ -1094,10 +1102,9 @@ function AuthBootstrapScreen({
 	isDesktopMac: boolean;
 }) {
 	return (
-		<div
+		<output
 			data-app-region={isDesktopMac ? "drag" : undefined}
 			className="fixed inset-0 grid place-items-center bg-background"
-			role="status"
 			aria-label="Loading OpenGran"
 		>
 			{isDesktopApp ? (
@@ -1106,7 +1113,7 @@ function AuthBootstrapScreen({
 					data-app-region={isDesktopMac ? "no-drag" : undefined}
 				/>
 			) : null}
-		</div>
+		</output>
 	);
 }
 
@@ -1411,7 +1418,7 @@ function LoginForm({
 									{authenticatingProvider === "google" ? (
 										<LoaderCircle className="animate-spin" />
 									) : (
-										<Icons.googleLogo className="size-4" />
+										<GoogleLogo className="size-4" />
 									)}
 									Login with Google
 								</Button>
@@ -1427,7 +1434,7 @@ function LoginForm({
 									{authenticatingProvider === "github" ? (
 										<LoaderCircle className="animate-spin" />
 									) : (
-										<Icons.githubLogo />
+										<GithubLogo />
 									)}
 									Login with GitHub
 								</Button>

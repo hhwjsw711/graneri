@@ -12,7 +12,6 @@
 }
 
 @source "../../../node_modules/streamdown/dist/*.js";
-@source "../node_modules/@streamdown/code/dist/*.js";
 @source "./**/*.{ts,tsx}";
 @source "../../../packages/*/src/**/*.{js,jsx,ts,tsx}";
 

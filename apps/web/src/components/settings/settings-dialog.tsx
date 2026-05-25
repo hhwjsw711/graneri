@@ -126,11 +126,31 @@ import {
 import type { WorkspaceRecord } from "@/lib/workspaces";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
+import type {
+	SettingsDialogProps,
+	SettingsPage,
+	SettingsUser,
+} from "./settings-types";
 
-type SettingsUser = {
-	name: string;
-	email: string;
-	avatar: string;
+type SettingsEnvVar = {
+	key: string;
+	value: string;
+};
+
+const getNonEmptyEnvRecord = (
+	envVars: SettingsEnvVar[],
+	options: { requireValue: boolean },
+) => {
+	const entries: Array<[string, string]> = [];
+	for (const envVar of envVars) {
+		const key = envVar.key.trim();
+		const value = envVar.value;
+		if (key.length === 0 || (options.requireValue && value.length === 0)) {
+			continue;
+		}
+		entries.push([key, value]);
+	}
+	return Object.fromEntries(entries);
 };
 
 function useResetStateWhenValueChanges<T>(
@@ -141,25 +161,6 @@ function useResetStateWhenValueChanges<T>(
 		resetState(value);
 	}, [resetState, value]);
 }
-
-export type SettingsPage =
-	| "Profile"
-	| "Appearance"
-	| "Preferences"
-	| "Notifications"
-	| "Workspace"
-	| "Calendar"
-	| "Connections"
-	| "Data controls";
-
-type SettingsDialogProps = {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	user: SettingsUser;
-	workspace: WorkspaceRecord | null;
-	initialPage?: SettingsPage;
-	onPageChange?: (page: SettingsPage) => void;
-};
 
 const settingsNav = [
 	{ name: "Profile", icon: UserRound },
@@ -2164,11 +2165,9 @@ function useConnectionsSettingsController() {
 				workspaceId: activeWorkspaceId,
 				displayName: jiraMcpFormState.name.trim(),
 				baseUrl: jiraMcpFormState.baseUrl.trim(),
-				env: Object.fromEntries(
-					jiraMcpFormState.envVars
-						.map((envVar) => [envVar.key.trim(), envVar.value] as const)
-						.filter(([key, value]) => key.length > 0 && value.length > 0),
-				),
+				env: getNonEmptyEnvRecord(jiraMcpFormState.envVars, {
+					requireValue: true,
+				}),
 				...(jiraMcpFormState.oauthClientId.trim()
 					? { oauthClientId: jiraMcpFormState.oauthClientId.trim() }
 					: {}),
@@ -2397,11 +2396,9 @@ function useConnectionsSettingsController() {
 				workspaceId: activeWorkspaceId,
 				displayName: posthogFormState.name.trim(),
 				baseUrl: posthogFormState.baseUrl.trim(),
-				env: Object.fromEntries(
-					posthogFormState.envVars
-						.map((envVar) => [envVar.key.trim(), envVar.value] as const)
-						.filter(([key, value]) => key.length > 0 && value.length > 0),
-				),
+				env: getNonEmptyEnvRecord(posthogFormState.envVars, {
+					requireValue: true,
+				}),
 				...(posthogFormState.oauthClientId.trim()
 					? { oauthClientId: posthogFormState.oauthClientId.trim() }
 					: {}),
@@ -2513,11 +2510,9 @@ function useConnectionsSettingsController() {
 				workspaceId: activeWorkspaceId,
 				displayName: notionFormState.name.trim(),
 				baseUrl: notionFormState.baseUrl.trim(),
-				env: Object.fromEntries(
-					notionFormState.envVars
-						.map((envVar) => [envVar.key.trim(), envVar.value])
-						.filter(([key]) => key.length > 0),
-				),
+				env: getNonEmptyEnvRecord(notionFormState.envVars, {
+					requireValue: false,
+				}),
 				...(notionFormState.oauthClientId.trim()
 					? { oauthClientId: notionFormState.oauthClientId.trim() }
 					: {}),
@@ -2626,11 +2621,9 @@ function useConnectionsSettingsController() {
 				workspaceId: activeWorkspaceId,
 				displayName: zoomFormState.name.trim(),
 				baseUrl: zoomFormState.baseUrl.trim(),
-				env: Object.fromEntries(
-					zoomFormState.envVars
-						.map((envVar) => [envVar.key.trim(), envVar.value])
-						.filter(([key]) => key.length > 0),
-				),
+				env: getNonEmptyEnvRecord(zoomFormState.envVars, {
+					requireValue: false,
+				}),
 				...(zoomFormState.oauthClientId.trim()
 					? { oauthClientId: zoomFormState.oauthClientId.trim() }
 					: {}),
@@ -2750,6 +2743,7 @@ function useConnectionsSettingsController() {
 				throw new Error("Google auth URL was not returned.");
 			}
 
+			// react-doctor-disable-next-line react-doctor/async-defer-await
 			await enableGoogleToolForWorkspace();
 
 			if (await openDesktopExternalUrl(url)) {
@@ -3352,6 +3346,7 @@ function YandexTrackerDialog({
 	);
 }
 
+// react-doctor-disable-next-line react-doctor/no-many-boolean-props
 function JiraDialog({
 	open,
 	onOpenChange,
@@ -4435,6 +4430,7 @@ function WorkspaceSettings({
 								variant="outline"
 								size="sm"
 								className="w-min"
+								aria-label="Upload workspace icon"
 								onClick={() => fileInputRef.current?.click()}
 								disabled={isSaving || isUploadingIcon}
 							>
@@ -4443,6 +4439,7 @@ function WorkspaceSettings({
 							<input
 								ref={fileInputRef}
 								type="file"
+								aria-label="Upload workspace icon file"
 								accept="image/png,image/jpeg,image/gif,image/webp"
 								className="hidden"
 								onChange={(event) => {
@@ -4972,6 +4969,7 @@ function useManageAccountFormElement({
 								variant="outline"
 								size="sm"
 								className="w-min"
+								aria-label="Upload avatar"
 								onClick={() => fileInputRef.current?.click()}
 								disabled={isSavingPreferences || isUploadingAvatar}
 							>
@@ -4980,6 +4978,7 @@ function useManageAccountFormElement({
 							<input
 								ref={fileInputRef}
 								type="file"
+								aria-label="Upload avatar file"
 								accept="image/png,image/jpeg,image/gif,image/webp"
 								className="hidden"
 								onChange={(event) => {

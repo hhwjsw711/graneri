@@ -1,4 +1,3 @@
-import { code } from "@streamdown/code";
 import { cn } from "@workspace/ui/lib/utils";
 import { Streamdown, type StreamdownProps } from "streamdown";
 
@@ -22,7 +21,10 @@ const normalizeCodeFenceLanguages = (text: string) =>
 const normalizeMarkdownForStreamdown = (content: string) =>
 	normalizeCodeFenceLanguages(fixNumberedListBreaks(content));
 
-type MarkdownStreamProps = Omit<StreamdownProps, "children" | "shikiTheme"> & {
+export type MarkdownStreamProps = Omit<
+	StreamdownProps,
+	"children" | "plugins" | "shikiTheme"
+> & {
 	children: string;
 };
 
@@ -33,7 +35,6 @@ export function MarkdownStream({
 	caret = "block",
 	linkSafety = { enabled: false },
 	mode,
-	plugins,
 	...props
 }: MarkdownStreamProps) {
 	return (
@@ -43,8 +44,6 @@ export function MarkdownStream({
 			caret={caret}
 			linkSafety={linkSafety}
 			mode={mode}
-			plugins={{ code, ...plugins }}
-			shikiTheme={["github-light", "github-dark"]}
 			{...props}
 		>
 			{normalizeMarkdownForStreamdown(children)}

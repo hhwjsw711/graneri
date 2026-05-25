@@ -101,8 +101,7 @@ import {
 	createNoteEditorExtensions,
 	parseStoredNoteContent,
 } from "@/lib/note-editor";
-
-export const OPEN_CHAT_SUMMARY_EVENT = "opengran:open-chat-summary";
+import type { ChatSummaryOpenSourceRequest } from "./chat-summary-events";
 
 const CHAT_SUMMARY_PANEL_STORAGE_KEY_DESKTOP =
 	"opengran.chat-summary-panel-width.desktop";
@@ -111,17 +110,12 @@ const CHAT_SUMMARY_PANEL_STORAGE_KEY_MOBILE =
 const CHAT_SUMMARY_PANEL_PINNED_STORAGE_KEY =
 	"opengran.chat-summary-panel-pinned.desktop";
 
-type SummaryWorkspaceSource = {
+export type SummaryWorkspaceSource = {
 	id: string;
 	title: string;
 	preview?: string;
 	content?: string;
 	updatedAt?: number;
-};
-
-export type ChatSummaryOpenSourceRequest = {
-	sourceId: string;
-	requestId: number;
 };
 
 type SummaryArtifact = {
@@ -266,6 +260,17 @@ const collectChatArtifacts = (messages: UIMessage[]): SummaryArtifact[] => {
 	});
 };
 
+export type ChatSummarySheetProps = {
+	open: boolean;
+	messages: UIMessage[];
+	automation?: AutomationListItem | null;
+	chatTitle: string;
+	desktopSafeTop?: boolean;
+	workspaceSources: SummaryWorkspaceSource[];
+	openSourceRequest?: ChatSummaryOpenSourceRequest | null;
+	onOpenChange: (open: boolean) => void;
+};
+
 export function ChatSummarySheet({
 	open,
 	messages,
@@ -275,16 +280,7 @@ export function ChatSummarySheet({
 	workspaceSources,
 	openSourceRequest,
 	onOpenChange,
-}: {
-	open: boolean;
-	messages: UIMessage[];
-	automation?: AutomationListItem | null;
-	chatTitle: string;
-	desktopSafeTop?: boolean;
-	workspaceSources: SummaryWorkspaceSource[];
-	openSourceRequest?: ChatSummaryOpenSourceRequest | null;
-	onOpenChange: (open: boolean) => void;
-}) {
+}: ChatSummarySheetProps) {
 	const sidebarShell = useOptionalSidebarShell();
 	const isMobile = useIsMobile();
 	const [isPinned, setIsPinned] = React.useState(
@@ -538,7 +534,7 @@ function ChatSummaryPanel({
 		}
 
 		handledOpenSourceRequestIdRef.current = openSourceRequest.requestId;
-		// react-doctor-disable-next-line react-doctor/no-derived-state
+		// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 		openWorkspaceSource(openSourceRequest.sourceId);
 	}, [openSourceRequest, openWorkspaceSource]);
 	return (

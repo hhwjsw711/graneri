@@ -21,6 +21,11 @@ type TranscriptionControllerLike = {
 	}) => Promise<void>;
 };
 
+type TranscriptionSessionManagerOptions = {
+	controller: TranscriptionControllerLike;
+	store: TranscriptionSessionStore;
+};
+
 // The app intentionally supports one active transcription session at a time.
 // All UI surfaces subscribe to this single manager so capture ownership stays explicit.
 class TranscriptionSessionManager {
@@ -30,20 +35,39 @@ class TranscriptionSessionManager {
 
 	readonly controller: TranscriptionControllerLike;
 
-	constructor(
-		dependencies: Partial<TranscriptionControllerDependencies> = {},
-		store = new TranscriptionSessionStore(),
-	) {
+	constructor({ controller, store }: TranscriptionSessionManagerOptions) {
 		this.store = store;
-		this.controller =
-			Object.keys(dependencies).length === 0 &&
-			shouldUseDesktopTranscriptionProxy()
-				? new DesktopTranscriptionControllerProxy(store)
-				: new TranscriptionController({
-						...dependencies,
-						store,
-					});
+		this.controller = controller;
 	}
 }
 
-export const transcriptionSessionManager = new TranscriptionSessionManager();
+function createTranscriptionController(
+	store: TranscriptionSessionStore,
+	dependencies?: Partial<TranscriptionControllerDependencies>,
+): TranscriptionControllerLike {
+	if (dependencies) {
+		return new TranscriptionController({
+			...dependencies,
+			store,
+		});
+	}
+
+	if (shouldUseDesktopTranscriptionProxy()) {
+		return new DesktopTranscriptionControllerProxy(store);
+	}
+
+	return new TranscriptionController({ store });
+}
+
+function createTranscriptionSessionManager(
+	dependencies?: Partial<TranscriptionControllerDependencies>,
+) {
+	const store = new TranscriptionSessionStore();
+
+	return new TranscriptionSessionManager({
+		controller: createTranscriptionController(store, dependencies),
+		store,
+	});
+}
+
+export const transcriptionSessionManager = createTranscriptionSessionManager();

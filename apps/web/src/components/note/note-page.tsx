@@ -19,7 +19,7 @@ import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { ShimmerText } from "@/components/ai-elements/shimmer";
-import { MarkdownStream } from "@/components/chat/markdown-stream";
+import { MarkdownStreamEntry } from "@/components/chat/markdown-stream-entry";
 import { COMPOSER_DOCK_WRAPPER_CLASS } from "@/components/layout/composer-dock";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
@@ -727,6 +727,7 @@ const useNotePageController = ({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		editor.setEditable(!templateApplyState.isRunning);
 	}, [editor, templateApplyState.isRunning]);
 
@@ -745,6 +746,7 @@ const useNotePageController = ({
 		void syncHydratedNoteState();
 	}, [syncHydratedNoteState]);
 
+	// react-doctor-disable-next-line react-doctor/exhaustive-deps
 	React.useEffect(() => {
 		return () => {
 			if (tableOfContentsAnimationFrameRef.current !== null) {
@@ -851,6 +853,7 @@ const useNotePageController = ({
 		}
 
 		const nextTitle = externalTitle;
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setTitle((currentTitle) => {
 			if (nextTitle === currentTitle) {
 				return currentTitle;
@@ -1055,6 +1058,10 @@ const useNotePageController = ({
 				return false;
 			}
 
+			if (!activeWorkspaceId) {
+				return false;
+			}
+
 			setTemplateApplyState({
 				isRunning: true,
 				templateName: template.name,
@@ -1062,10 +1069,7 @@ const useNotePageController = ({
 			});
 
 			try {
-				if (!activeWorkspaceId) {
-					return false;
-				}
-
+				// react-doctor-disable-next-line react-doctor/async-defer-await
 				await setNoteTemplate({
 					workspaceId: activeWorkspaceId,
 					id: nextNoteIdRef.current ?? noteId,
@@ -1298,6 +1302,7 @@ const useNotePageController = ({
 		};
 
 		publishEditorActionsRef.current = publishEditorActions;
+		// react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
 		publishEditorActions();
 		editor.on("update", publishEditorActions);
 
@@ -1574,6 +1579,7 @@ function useNotePageCommentPanel({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
 		onCommentsOpenChange?.(handleOpenComments);
 
 		return () => {
@@ -1583,7 +1589,9 @@ function useNotePageCommentPanel({
 
 	React.useEffect(() => {
 		const nextCommentsPinned = readDesktopCommentsPanelPinnedState(noteId);
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setCommentsPinned(nextCommentsPinned);
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setCommentPanelState({
 			commentsOpen: !isMobile && nextCommentsPinned,
 			activeCommentThreadId: null,
@@ -1620,6 +1628,7 @@ function useNotePageCommentPanel({
 	}, [syncCommentThreadSelectionFromLocation]);
 
 	React.useEffect(() => {
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		syncCommentThreadSelectionFromLocation();
 	}, [syncCommentThreadSelectionFromLocation]);
 
@@ -1762,13 +1771,13 @@ const NotePageEditorPane = React.memo(function NotePageEditorPane({
 								) : null}
 								{templateApplyState.isRunning ? (
 									templateApplyState.streamedMarkdown.trim().length > 0 ? (
-										<MarkdownStream
+										<MarkdownStreamEntry
 											className="note-streamdown min-h-[320px] text-base text-foreground"
 											isAnimating
 											mode="streaming"
 										>
 											{templateApplyState.streamedMarkdown}
-										</MarkdownStream>
+										</MarkdownStreamEntry>
 									) : (
 										<div className="min-h-[320px] text-base text-muted-foreground">
 											<ShimmerText>Thinking</ShimmerText>
@@ -1987,7 +1996,195 @@ function NoteSearchBar({
 	);
 }
 
-// oxlint-disable-next-line react-doctor/no-giant-component -- Page-level orchestrator coordinates editor, comments, search, and transcription.
+function useNoteSearch(searchableText: string) {
+	const inputRef = React.useRef<HTMLInputElement | null>(null);
+	const [open, setOpen] = React.useState(false);
+	const [query, setQuery] = React.useState("");
+	const [index, setIndex] = React.useState(0);
+	const noteSearchRoot = React.useCallback(
+		() => document.querySelector<HTMLElement>(".note-tiptap"),
+		[],
+	);
+	const ranges = React.useMemo(() => {
+		void searchableText;
+		const root = noteSearchRoot();
+
+		if (!root) {
+			return [];
+		}
+
+		return createTextMatchRanges({
+			element: root,
+			query,
+		});
+	}, [searchableText, query, noteSearchRoot]);
+	const activeRange =
+		ranges.length > 0 ? ranges[Math.min(index, ranges.length - 1)] : null;
+	const focusSearchInput = React.useCallback(() => {
+		requestAnimationFrame(() => {
+			inputRef.current?.focus();
+			inputRef.current?.select();
+		});
+	}, []);
+	const handleQueryChange = React.useCallback((value: string) => {
+		setQuery(value);
+		setIndex(0);
+	}, []);
+	const handlePrevious = React.useCallback(() => {
+		setIndex((current) =>
+			ranges.length === 0 ? 0 : (current - 1 + ranges.length) % ranges.length,
+		);
+	}, [ranges.length]);
+	const handleNext = React.useCallback(() => {
+		setIndex((current) =>
+			ranges.length === 0 ? 0 : (current + 1) % ranges.length,
+		);
+	}, [ranges.length]);
+	const handleKeyDown = React.useCallback(
+		(event: React.KeyboardEvent<HTMLInputElement>) => {
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setOpen(false);
+				return;
+			}
+
+			if (event.key !== "Enter") {
+				return;
+			}
+
+			event.preventDefault();
+			if (event.shiftKey) {
+				handlePrevious();
+				return;
+			}
+
+			handleNext();
+		},
+		[handleNext, handlePrevious],
+	);
+
+	React.useEffect(() => {
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		if (open) {
+			focusSearchInput();
+		}
+	}, [focusSearchInput, open]);
+	React.useEffect(() => {
+		if (index < ranges.length) {
+			return;
+		}
+
+		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates
+		setIndex(0);
+	}, [index, ranges.length]);
+	React.useEffect(() => {
+		if (!activeRange || !open) {
+			return;
+		}
+
+		activeRange.startContainer.parentElement?.scrollIntoView?.({
+			block: "center",
+			behavior: "smooth",
+		});
+	}, [activeRange, open]);
+	React.useEffect(() => {
+		const highlightRegistry =
+			typeof CSS === "undefined"
+				? undefined
+				: (CSS as CssWithHighlights).highlights;
+
+		if (
+			!open ||
+			!query.trim() ||
+			!highlightRegistry ||
+			typeof Highlight === "undefined"
+		) {
+			highlightRegistry?.delete(NOTE_SEARCH_MATCH_HIGHLIGHT);
+			highlightRegistry?.delete(NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
+			return;
+		}
+
+		ensureCssHighlightStyles();
+
+		const activeRangeIndex = Math.min(index, Math.max(0, ranges.length - 1));
+		const matchRanges = ranges.filter(
+			(_range, rangeIndex) => rangeIndex !== activeRangeIndex,
+		);
+		const activeRanges = ranges[activeRangeIndex]
+			? [ranges[activeRangeIndex]]
+			: [];
+
+		highlightRegistry.set(
+			NOTE_SEARCH_MATCH_HIGHLIGHT,
+			new Highlight(...matchRanges),
+		);
+		highlightRegistry.set(
+			NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT,
+			new Highlight(...activeRanges),
+		);
+
+		return () => {
+			highlightRegistry.delete(NOTE_SEARCH_MATCH_HIGHLIGHT);
+			highlightRegistry.delete(NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
+		};
+	}, [index, open, query, ranges]);
+	React.useEffect(() => {
+		if (!isDesktopRuntime()) {
+			return;
+		}
+
+		const handleDesktopFindKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.defaultPrevented ||
+				!(event.metaKey || event.ctrlKey) ||
+				event.altKey ||
+				event.shiftKey ||
+				(event.key.toLowerCase() !== "f" && event.code !== "KeyF")
+			) {
+				return;
+			}
+
+			event.preventDefault();
+			if (open) {
+				focusSearchInput();
+			}
+			setOpen(true);
+		};
+
+		window.addEventListener("keydown", handleDesktopFindKeyDown);
+		return () =>
+			window.removeEventListener("keydown", handleDesktopFindKeyDown);
+	}, [focusSearchInput, open]);
+
+	return {
+		close: () => setOpen(false),
+		handleKeyDown,
+		handleNext,
+		handlePrevious,
+		handleQueryChange,
+		index,
+		inputRef,
+		matchCount: ranges.length,
+		open,
+		query,
+	};
+}
+
+export type NotePageProps = {
+	autoStartTranscription?: boolean;
+	currentUser?: NotePageCurrentUser;
+	noteId: Id<"notes"> | null;
+	note?: Doc<"notes"> | null;
+	externalTitle?: string;
+	onAutoStartTranscriptionHandled?: () => void;
+	onCommentsOpenChange?: (opener: (() => void) | null) => void;
+	isDesktopMac?: boolean;
+	onTitleChange?: (title: string) => void;
+	onEditorActionsChange?: (actions: NoteEditorActions | null) => void;
+	scrollParentRef?: React.RefObject<HTMLDivElement | null>;
+	stopTranscriptionWhenMeetingEnds?: boolean;
+};
+
 export function NotePage({
 	autoStartTranscription = false,
 	currentUser = {
@@ -2005,20 +2202,7 @@ export function NotePage({
 	onEditorActionsChange,
 	scrollParentRef,
 	stopTranscriptionWhenMeetingEnds = false,
-}: {
-	autoStartTranscription?: boolean;
-	currentUser?: NotePageCurrentUser;
-	noteId: Id<"notes"> | null;
-	note?: Doc<"notes"> | null;
-	externalTitle?: string;
-	onAutoStartTranscriptionHandled?: () => void;
-	onCommentsOpenChange?: (opener: (() => void) | null) => void;
-	isDesktopMac?: boolean;
-	onTitleChange?: (title: string) => void;
-	onEditorActionsChange?: (actions: NoteEditorActions | null) => void;
-	scrollParentRef?: React.RefObject<HTMLDivElement | null>;
-	stopTranscriptionWhenMeetingEnds?: boolean;
-}) {
+}: NotePageProps) {
 	const isMobile = useIsMobile();
 	const commentPanel = useNotePageCommentPanel({
 		isMobile,
@@ -2044,31 +2228,7 @@ export function NotePage({
 	);
 	const shouldHideEmptyBodyPlaceholder =
 		!controller.title.trim() && !controller.searchableText.trim();
-	const noteSearchInputRef = React.useRef<HTMLInputElement | null>(null);
-	const [noteSearchOpen, setNoteSearchOpen] = React.useState(false);
-	const [noteSearchQuery, setNoteSearchQuery] = React.useState("");
-	const [noteSearchIndex, setNoteSearchIndex] = React.useState(0);
-	const noteSearchRoot = React.useCallback(
-		() => document.querySelector<HTMLElement>(".note-tiptap"),
-		[],
-	);
-	const noteSearchRanges = React.useMemo(() => {
-		void controller.searchableText;
-		const root = noteSearchRoot();
-
-		if (!root) {
-			return [];
-		}
-
-		return createTextMatchRanges({
-			element: root,
-			query: noteSearchQuery,
-		});
-	}, [controller.searchableText, noteSearchQuery, noteSearchRoot]);
-	const activeNoteSearchRange =
-		noteSearchRanges.length > 0
-			? noteSearchRanges[Math.min(noteSearchIndex, noteSearchRanges.length - 1)]
-			: null;
+	const noteSearch = useNoteSearch(controller.searchableText);
 	const handleTableOfContentsSelect = React.useCallback(
 		(anchor: TableOfContentDataItem) => {
 			const topOffset = 72;
@@ -2126,159 +2286,20 @@ export function NotePage({
 		activeCommentThreadId: commentPanel.activeCommentThreadId,
 		editor: controller.editor,
 	});
-	React.useEffect(() => {
-		if (!noteSearchOpen) {
-			return;
-		}
-
-		requestAnimationFrame(() => {
-			noteSearchInputRef.current?.focus();
-			noteSearchInputRef.current?.select();
-		});
-	}, [noteSearchOpen]);
-	React.useEffect(() => {
-		if (noteSearchIndex < noteSearchRanges.length) {
-			return;
-		}
-
-		setNoteSearchIndex(0);
-	}, [noteSearchIndex, noteSearchRanges.length]);
-	React.useEffect(() => {
-		if (!activeNoteSearchRange || !noteSearchOpen) {
-			return;
-		}
-
-		activeNoteSearchRange.startContainer.parentElement?.scrollIntoView?.({
-			block: "center",
-			behavior: "smooth",
-		});
-	}, [activeNoteSearchRange, noteSearchOpen]);
-	React.useEffect(() => {
-		const highlightRegistry =
-			typeof CSS === "undefined"
-				? undefined
-				: (CSS as CssWithHighlights).highlights;
-
-		if (
-			!noteSearchOpen ||
-			!noteSearchQuery.trim() ||
-			!highlightRegistry ||
-			typeof Highlight === "undefined"
-		) {
-			highlightRegistry?.delete(NOTE_SEARCH_MATCH_HIGHLIGHT);
-			highlightRegistry?.delete(NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
-			return;
-		}
-
-		ensureCssHighlightStyles();
-
-		const activeRangeIndex = Math.min(
-			noteSearchIndex,
-			Math.max(0, noteSearchRanges.length - 1),
-		);
-		const matchRanges = noteSearchRanges.filter(
-			(_range, index) => index !== activeRangeIndex,
-		);
-		const activeRanges = noteSearchRanges[activeRangeIndex]
-			? [noteSearchRanges[activeRangeIndex]]
-			: [];
-
-		highlightRegistry.set(
-			NOTE_SEARCH_MATCH_HIGHLIGHT,
-			new Highlight(...matchRanges),
-		);
-		highlightRegistry.set(
-			NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT,
-			new Highlight(...activeRanges),
-		);
-
-		return () => {
-			highlightRegistry.delete(NOTE_SEARCH_MATCH_HIGHLIGHT);
-			highlightRegistry.delete(NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
-		};
-	}, [noteSearchIndex, noteSearchOpen, noteSearchQuery, noteSearchRanges]);
-	React.useEffect(() => {
-		if (!isDesktopRuntime()) {
-			return;
-		}
-
-		const handleKeyDown = (event: KeyboardEvent) => {
-			if (
-				event.defaultPrevented ||
-				!(event.metaKey || event.ctrlKey) ||
-				event.altKey ||
-				event.shiftKey ||
-				(event.key.toLowerCase() !== "f" && event.code !== "KeyF")
-			) {
-				return;
-			}
-
-			event.preventDefault();
-			if (noteSearchOpen) {
-				requestAnimationFrame(() => {
-					noteSearchInputRef.current?.focus();
-					noteSearchInputRef.current?.select();
-				});
-			}
-			setNoteSearchOpen(true);
-		};
-
-		window.addEventListener("keydown", handleKeyDown);
-		return () => window.removeEventListener("keydown", handleKeyDown);
-	}, [noteSearchOpen]);
-	const handleNoteSearchPrevious = React.useCallback(() => {
-		setNoteSearchIndex((current) =>
-			noteSearchRanges.length === 0
-				? 0
-				: (current - 1 + noteSearchRanges.length) % noteSearchRanges.length,
-		);
-	}, [noteSearchRanges.length]);
-	const handleNoteSearchNext = React.useCallback(() => {
-		setNoteSearchIndex((current) =>
-			noteSearchRanges.length === 0
-				? 0
-				: (current + 1) % noteSearchRanges.length,
-		);
-	}, [noteSearchRanges.length]);
-	const handleNoteSearchKeyDown = React.useCallback(
-		(event: React.KeyboardEvent<HTMLInputElement>) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				setNoteSearchOpen(false);
-				return;
-			}
-
-			if (event.key !== "Enter") {
-				return;
-			}
-
-			event.preventDefault();
-			if (event.shiftKey) {
-				handleNoteSearchPrevious();
-				return;
-			}
-
-			handleNoteSearchNext();
-		},
-		[handleNoteSearchNext, handleNoteSearchPrevious],
-	);
 
 	return (
 		<>
-			{noteSearchOpen ? (
+			{noteSearch.open ? (
 				<NoteSearchBar
-					inputRef={noteSearchInputRef}
-					query={noteSearchQuery}
-					onQueryChange={(value) => {
-						setNoteSearchQuery(value);
-						setNoteSearchIndex(0);
-					}}
-					matchCount={noteSearchRanges.length}
-					matchIndex={noteSearchRanges.length > 0 ? noteSearchIndex : -1}
-					onPrevious={handleNoteSearchPrevious}
-					onNext={handleNoteSearchNext}
-					onClose={() => setNoteSearchOpen(false)}
-					onKeyDown={handleNoteSearchKeyDown}
+					inputRef={noteSearch.inputRef}
+					query={noteSearch.query}
+					onQueryChange={noteSearch.handleQueryChange}
+					matchCount={noteSearch.matchCount}
+					matchIndex={noteSearch.matchCount > 0 ? noteSearch.index : -1}
+					onPrevious={noteSearch.handlePrevious}
+					onNext={noteSearch.handleNext}
+					onClose={noteSearch.close}
+					onKeyDown={noteSearch.handleKeyDown}
 				/>
 			) : null}
 			<NotePageContent

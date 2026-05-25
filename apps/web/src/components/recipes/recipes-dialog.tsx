@@ -35,7 +35,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 
 type RecipeDraft = RecipePrompt;
 
-type RecipesDialogProps = {
+export type RecipesDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 };

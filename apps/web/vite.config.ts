@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import type { HtmlTagDescriptor, Plugin } from "vite";
 import { defineConfig } from "vite";
 import { openGranChatPlugin } from "./server/chat-plugin";
 
@@ -59,78 +60,177 @@ const loadSelectedEnvFile = () => {
 	}
 };
 
+const getRequiredEnv = (name: string) => {
+	const value = process.env[name]?.trim();
+
+	if (!value) {
+		throw new Error(`Missing required environment variable: ${name}`);
+	}
+
+	return value;
+};
+
+const getOrigin = (name: string) => {
+	const value = getRequiredEnv(name);
+
+	try {
+		return new URL(value).origin;
+	} catch (error) {
+		throw new Error(`Invalid URL in environment variable ${name}: ${value}`, {
+			cause: error,
+		});
+	}
+};
+
+const convexSitePreconnectPlugin = (): Plugin => ({
+	name: "opengran-convex-site-preconnect",
+	transformIndexHtml() {
+		const tags: HtmlTagDescriptor[] = [
+			{
+				tag: "link",
+				attrs: {
+					rel: "preconnect",
+					href: getOrigin("VITE_CONVEX_SITE_URL"),
+					crossorigin: "anonymous",
+				},
+				injectTo: "head-prepend",
+			},
+		];
+
+		return tags;
+	},
+});
+
+type VendorChunkPolicy = {
+	name: string;
+	match: (normalizedId: string) => boolean;
+};
+
+const includesAny =
+	(...needles: string[]) =>
+	(normalizedId: string) =>
+		needles.some((needle) => normalizedId.includes(needle));
+
+const vendorChunkPolicies: VendorChunkPolicy[] = [
+	{
+		name: "react-vendors",
+		match: includesAny(
+			"/node_modules/react/",
+			"/node_modules/react-dom/",
+			"/node_modules/scheduler/",
+		),
+	},
+	{
+		name: "convex-vendors",
+		match: includesAny("/node_modules/convex/"),
+	},
+	{
+		name: "radix-vendors",
+		match: includesAny("/node_modules/@radix-ui/"),
+	},
+	{
+		name: "shell-vendors",
+		match: includesAny("/node_modules/sonner/", "/node_modules/@better-fetch/"),
+	},
+	{
+		name: "ui-vendors",
+		match: includesAny(
+			"/node_modules/clsx/",
+			"/node_modules/class-variance-authority/",
+			"/node_modules/tailwind-merge/",
+		),
+	},
+	{
+		name: "tiptap-note-vendors",
+		match: includesAny(
+			"/node_modules/@tiptap/markdown/",
+			"/node_modules/@tiptap/extension-table-of-contents/",
+			"/node_modules/@tiptap/extension-underline/",
+			"/node_modules/@tiptap/starter-kit/",
+		),
+	},
+	{
+		name: "tiptap-editor-vendors",
+		match: includesAny("/node_modules/@tiptap/"),
+	},
+	{
+		name: "prosemirror-vendors",
+		match: includesAny("/node_modules/prosemirror-"),
+	},
+	{
+		name: "streamdown-vendors",
+		match: includesAny("/node_modules/streamdown/"),
+	},
+	{
+		name: "marked-vendors",
+		match: includesAny("/node_modules/marked/"),
+	},
+	{
+		name: "linkify-vendors",
+		match: includesAny("/node_modules/linkify"),
+	},
+	{
+		name: "markdown-parse-vendors",
+		match: includesAny(
+			"/node_modules/micromark",
+			"/node_modules/mdast",
+			"/node_modules/remark",
+			"/node_modules/rehype",
+			"/node_modules/unified/",
+			"/node_modules/unist",
+		),
+	},
+	{
+		name: "html-parse-vendors",
+		match: includesAny("/node_modules/parse5/", "/node_modules/entities/"),
+	},
+	{
+		name: "ai-vendors",
+		match: includesAny("/node_modules/ai/", "/node_modules/@ai-sdk/"),
+	},
+	{
+		name: "sidebar-dialog-vendors",
+		match: includesAny(
+			"/node_modules/@dnd-kit/",
+			"/node_modules/react-day-picker/",
+		),
+	},
+];
+
+const getVendorChunkName = (id: string) => {
+	const normalizedId = id.replaceAll("\\", "/");
+
+	if (
+		normalizedId.includes("\0vite/") ||
+		normalizedId.includes("vite/preload-helper")
+	) {
+		return "vite-runtime";
+	}
+
+	if (!normalizedId.includes("/node_modules/")) {
+		return undefined;
+	}
+
+	return vendorChunkPolicies.find((policy) => policy.match(normalizedId))?.name;
+};
+
 // https://vite.dev/config/
 export default defineConfig(() => {
 	loadSelectedEnvFile();
 	process.env.VITE_CONVEX_URL ??= process.env.CONVEX_URL;
 	process.env.VITE_CONVEX_SITE_URL ??= process.env.CONVEX_SITE_URL;
 
-	const getVendorChunkName = (id: string) => {
-		const normalizedId = id.replaceAll("\\", "/");
-
-		if (!normalizedId.includes("/node_modules/")) {
-			return undefined;
-		}
-
-		if (normalizedId.includes("/node_modules/@tiptap/")) {
-			return "tiptap-vendors";
-		}
-
-		if (normalizedId.includes("/node_modules/prosemirror-")) {
-			return "prosemirror-vendors";
-		}
-
-		if (normalizedId.includes("/node_modules/streamdown/")) {
-			return "streamdown-vendors";
-		}
-
-		if (
-			normalizedId.includes("/node_modules/marked/") ||
-			normalizedId.includes("/node_modules/linkify")
-		) {
-			return "markdown-render-vendors";
-		}
-
-		if (
-			normalizedId.includes("/node_modules/micromark") ||
-			normalizedId.includes("/node_modules/mdast") ||
-			normalizedId.includes("/node_modules/remark") ||
-			normalizedId.includes("/node_modules/rehype") ||
-			normalizedId.includes("/node_modules/unified/") ||
-			normalizedId.includes("/node_modules/unist")
-		) {
-			return "markdown-parse-vendors";
-		}
-
-		if (
-			normalizedId.includes("/node_modules/parse5/") ||
-			normalizedId.includes("/node_modules/entities/")
-		) {
-			return "html-parse-vendors";
-		}
-
-		if (
-			normalizedId.includes("/node_modules/ai/") ||
-			normalizedId.includes("/node_modules/@ai-sdk/")
-		) {
-			return "ai-vendors";
-		}
-
-		if (
-			normalizedId.includes("/node_modules/@dnd-kit/") ||
-			normalizedId.includes("/node_modules/react-day-picker/")
-		) {
-			return "sidebar-dialog-vendors";
-		}
-
-		return undefined;
-	};
-
 	return {
 		envDir: workspaceRoot,
 		envPrefix: ["VITE_"],
-		plugins: [react(), tailwindcss(), openGranChatPlugin()],
+		plugins: [
+			convexSitePreconnectPlugin(),
+			react(),
+			tailwindcss(),
+			openGranChatPlugin(),
+		],
 		build: {
+			modulePreload: false,
 			rollupOptions: {
 				output: {
 					manualChunks: getVendorChunkName,

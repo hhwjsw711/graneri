@@ -1,6 +1,6 @@
 import type { UIMessage } from "ai";
 import type { AppLocationState, UpcomingCalendarEvent } from "@/app/app-types";
-import type { SettingsPage } from "@/components/settings/settings-dialog";
+import type { SettingsPage } from "@/components/settings/settings-types";
 
 const SETTINGS_PAGE_BY_SLUG = {
 	profile: "Profile",

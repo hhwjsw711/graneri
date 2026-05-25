@@ -39,12 +39,12 @@ function SharedNotePageShell({
 	);
 }
 
-export function SharedNotePage({
-	note,
-}: {
+export type SharedNotePageProps = {
 	note: Doc<"notes"> | null | undefined;
 	onOpenNote?: (noteId: Doc<"notes">["_id"]) => void;
-}) {
+};
+
+export function SharedNotePage({ note }: SharedNotePageProps) {
 	const editor = useEditor({
 		extensions: createNoteEditorExtensions(),
 		immediatelyRender: false,

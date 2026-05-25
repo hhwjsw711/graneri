@@ -45,7 +45,7 @@ import {
 import type { AutomationListItem } from "./automation-types";
 import { getAutomationSchedulePeriodLabel } from "./automation-utils";
 
-type AutomationsPageProps = {
+export type AutomationsPageProps = {
 	automations: AutomationListItem[] | undefined;
 	isDesktopMac: boolean;
 	onCreateAutomation: () => void;

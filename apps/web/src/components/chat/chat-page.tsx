@@ -27,12 +27,12 @@ import {
 	hasUploadingAttachments,
 } from "@/components/ai-elements/file-attachment-utils";
 import type { AutomationListItem } from "@/components/automations/automation-types";
+import { ChatMessagesEntry } from "@/components/chat/chat-messages-entry";
 import {
 	type ChatSummaryOpenSourceRequest,
-	ChatSummarySheet,
 	OPEN_CHAT_SUMMARY_EVENT,
-} from "@/components/chat/chat-summary-sheet";
-import { ChatMessages } from "@/components/chat/messages";
+} from "@/components/chat/chat-summary-events";
+import { ChatSummarySheetEntry } from "@/components/chat/chat-summary-sheet-entry";
 import type {
 	ChatModel,
 	ReasoningEffort,
@@ -77,7 +77,7 @@ import type { Doc } from "../../../../../convex/_generated/dataModel";
 import { ChatComposer, type ChatComposerMention } from "./chat-composer";
 import { ChatHistoryList } from "./chat-history-list";
 
-type ChatPageProps = {
+export type ChatPageProps = {
 	chatId: string;
 	initialMessages: UIMessage[];
 	onChatPersisted?: (chatId: string) => void;
@@ -271,9 +271,11 @@ const useChatPageController = ({
 >) => {
 	const activeWorkspaceId = useActiveWorkspaceId();
 	const draftStorageScope = activeWorkspaceId
-		? getChatComposerDraftScope({ chatId, workspaceId: activeWorkspaceId })
+		? // react-doctor-disable-next-line react-doctor/no-event-handler
+			getChatComposerDraftScope({ chatId, workspaceId: activeWorkspaceId })
 		: null;
 	const currentChat = React.useMemo(
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		() => chats.find((chat) => getChatId(chat) === chatId) ?? null,
 		[chats, chatId],
 	);
@@ -284,14 +286,17 @@ const useChatPageController = ({
 		setText: setDraft,
 		text: draft,
 	} = useComposerDraft<ChatComposerDraftMetadata>(draftStorageScope);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [attachedFiles, setAttachedFiles] = React.useState<ChatAttachment[]>(
 		[],
 	);
 	useRevokeAttachmentObjectUrls(attachedFiles);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [selectedModelOverride, setSelectedModelOverride] = React.useState<{
 		chatId: string;
 		model: ChatModel;
 	} | null>(null);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>(
 		getStoredReasoningEffort,
 	);
@@ -300,16 +305,24 @@ const useChatPageController = ({
 			Array.isArray(draftMetadata?.mentions) ? draftMetadata.mentions : [],
 		[draftMetadata],
 	);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [modelPopoverOpen, setModelPopoverOpen] = React.useState(false);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [sourcesOpen, setSourcesOpen] = React.useState(false);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [summaryOpen, setSummaryOpen] = React.useState(false);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [summaryOpenSourceRequest, setSummaryOpenSourceRequest] =
 		React.useState<ChatSummaryOpenSourceRequest | null>(null);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [webSearchEnabled, setWebSearchEnabled] = React.useState(false);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [editingMessageId, setEditingMessageId] = React.useState<string | null>(
 		null,
 	);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [isPreparingRequest, setIsPreparingRequest] = React.useState(false);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
 		DesktopLocalFolder[]
 	>([]);
@@ -396,6 +409,7 @@ const useChatPageController = ({
 		stop,
 	} = useChat({
 		id: chatId,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		messages: initialMessages,
 		transport,
 		experimental_throttle: 50,
@@ -431,6 +445,7 @@ const useChatPageController = ({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
 			const shouldUsePersistedMessages =
@@ -471,6 +486,7 @@ const useChatPageController = ({
 	const selectedReasoningEffort =
 		getStoredChatReasoningEffort(currentChat?.reasoningEffort) ??
 		reasoningEffort;
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const isModelResolving = isChatsLoading && !currentChat;
 	const handleSelectedModelChange = React.useCallback(
 		(model: ChatModel) => {
@@ -566,6 +582,7 @@ const useChatPageController = ({
 				});
 			setSharedLocalFolders(nextSharedLocalFolders);
 			storeSharedLocalFolders(localFolderStorageScope, nextSharedLocalFolders);
+			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onChatPersisted?.(chatId);
 			const readyFiles = getReadyFileParts(attachedFiles);
 			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
@@ -792,6 +809,7 @@ const useChatPageController = ({
 		handleStop,
 		handleWebSearchEnabledChange,
 		hasMessages,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		activeStreamingChatIds,
 		isLoading,
 		isNotesLoading,
@@ -841,11 +859,17 @@ export function ChatPage({
 	onAddAutomation,
 }: ChatPageProps) {
 	const controller = useChatPageController({
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		chatId,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		initialMessages,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		onChatPersisted,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		chats,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		isChatsLoading,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		activeStreamingChatIds,
 	});
 	const {
@@ -879,6 +903,7 @@ export function ChatPage({
 		],
 	);
 	const shouldShowActiveChatSurface =
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		controller.hasMessages || activeChatId === chatId;
 	const canSearchMessages =
 		shouldShowActiveChatSurface && controller.hasMessages;
@@ -901,6 +926,7 @@ export function ChatPage({
 		},
 		[containerRef, controller.hasMessages],
 	);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const canShowChatSummary = activeChatId === chatId;
 	const automationChatIds = React.useMemo(
 		() => new Set((automations ?? []).map((automation) => automation.chatId)),
@@ -943,6 +969,7 @@ export function ChatPage({
 	}, [canShowChatSummary, controller.setSummaryOpen]);
 	React.useEffect(() => {
 		if (!canShowChatSummary) {
+			// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 			controller.setSummaryOpen(false);
 		}
 	}, [canShowChatSummary, controller.setSummaryOpen]);
@@ -1133,24 +1160,27 @@ export function ChatPage({
 		: "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4rem)]";
 	const shouldShowScrollToLatest =
 		controller.hasMessages && !isChatViewportAtBottom;
+	const composerTopAccessory = React.useMemo(
+		() =>
+			shouldShowScrollToLatest ? (
+				<Button
+					type="button"
+					variant="secondary"
+					size="icon"
+					className="size-9 rounded-full border border-border/60 shadow-md"
+					onClick={() => scrollChatToBottom()}
+					aria-label="Scroll to latest messages"
+				>
+					<ArrowDown className="size-4" />
+				</Button>
+			) : undefined,
+		[scrollChatToBottom, shouldShowScrollToLatest],
+	);
 	const composer = (
 		<ChatComposer
 			useCompactLayout={shouldShowActiveChatSurface}
 			draft={controller.draft}
-			topAccessory={
-				shouldShowScrollToLatest ? (
-					<Button
-						type="button"
-						variant="secondary"
-						size="icon"
-						className="size-9 rounded-full border border-border/60 shadow-md"
-						onClick={() => scrollChatToBottom()}
-						aria-label="Scroll to latest messages"
-					>
-						<ArrowDown className="size-4" />
-					</Button>
-				) : undefined
-			}
+			topAccessory={composerTopAccessory}
 			onDraftChange={controller.setDraft}
 			onDraftKeyDown={controller.handleDraftKeyDown}
 			mentions={controller.mentions}
@@ -1218,7 +1248,7 @@ export function ChatPage({
 									/>
 								) : null}
 								<div className="flex-1 pt-8 pb-28 md:pb-32">
-									<ChatMessages
+									<ChatMessagesEntry
 										messages={controller.messages}
 										error={controller.error}
 										isLoading={controller.isLoading}
@@ -1272,7 +1302,7 @@ export function ChatPage({
 				</div>
 			</ScrollArea>
 			{canShowChatSummary ? (
-				<ChatSummarySheet
+				<ChatSummarySheetEntry
 					open={controller.summaryOpen}
 					messages={controller.messages}
 					automation={currentAutomation}

@@ -32,18 +32,10 @@ import {
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import {
-	Empty,
-	EmptyContent,
-	EmptyDescription,
-	EmptyHeader,
-	EmptyTitle,
-} from "@workspace/ui/components/empty";
-import {
 	Popover,
 	PopoverAnchor,
 	PopoverContent,
 } from "@workspace/ui/components/popover";
-import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import { Separator } from "@workspace/ui/components/separator";
 import {
 	SidebarProvider,
@@ -57,7 +49,6 @@ import {
 	TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
-import type { UIMessage } from "ai";
 import {
 	useAction,
 	useConvex,
@@ -82,8 +73,11 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
+import {
+	AppShellContent,
+	type AppShellContentView,
+} from "@/app/app-shell-content";
 import type { AppUser, AppView, UpcomingCalendarEvent } from "@/app/app-types";
-import { HomeView, SharedView } from "@/app/home-shared-views";
 import {
 	buildCalendarEventNoteDocument,
 	buildCalendarEventSearchableText,
@@ -101,10 +95,8 @@ import type {
 	AutomationDraft,
 	AutomationListItem,
 } from "@/components/automations/automation-types";
-import { AutomationsPage } from "@/components/automations/automations-page";
-import { CreateAutomationDialog } from "@/components/automations/create-automation-dialog";
-import { ChatPage } from "@/components/chat/chat-page";
-import { OPEN_CHAT_SUMMARY_EVENT } from "@/components/chat/chat-summary-sheet";
+import { CreateAutomationDialogEntry } from "@/components/automations/create-automation-dialog-entry";
+import { OPEN_CHAT_SUMMARY_EVENT } from "@/components/chat/chat-summary-events";
 import { optimisticPatchChat } from "@/components/chat/optimistic-patch-chat";
 import { optimisticRenameChat } from "@/components/chat/optimistic-rename-chat";
 import { readDesktopInboxPanelPinnedState } from "@/components/inbox/inbox-panel-state";
@@ -113,11 +105,11 @@ import {
 	NoteActionsMenu,
 	NoteStarButton,
 } from "@/components/note/note-actions-menu";
-import { type NoteEditorActions, NotePage } from "@/components/note/note-page";
+import type { NoteEditorActions } from "@/components/note/note-page";
 import { OPEN_NOTE_COMMENTS_EVENT } from "@/components/note/note-page-events";
 import { NoteTitleEditInput } from "@/components/note/note-title-edit-input";
 import { optimisticRenameNote } from "@/components/note/optimistic-rename-note";
-import type { SettingsPage } from "@/components/settings/settings-dialog";
+import type { SettingsPage } from "@/components/settings/settings-types";
 import { AppSidebar } from "@/components/sidebar/app-sidebar";
 import { NoteTemplateSelect } from "@/components/templates/note-template-select";
 import {
@@ -171,6 +163,7 @@ const useCurrentDate = () => {
 			setCurrentDate(now);
 		};
 
+		// react-doctor-disable-next-line react-doctor/no-initialize-state
 		updateCurrentDate();
 		timeoutId = window.setTimeout(() => {
 			updateCurrentDate();
@@ -238,9 +231,11 @@ const useAppShellState = ({
 	);
 	const [isSigningOut, startSignOut] = React.useTransition();
 	const [activeWorkspaceId, setActiveWorkspaceId] =
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		React.useState<Id<"workspaces"> | null>(() => workspaces[0]?._id ?? null);
 	const resolvedActiveWorkspaceId = React.useMemo(() => {
 		if (
+			// react-doctor-disable-next-line react-doctor/no-event-handler
 			activeWorkspaceId &&
 			workspaces.some((workspace) => workspace._id === activeWorkspaceId)
 		) {
@@ -346,6 +341,7 @@ const useAppShellState = ({
 	const [isLoadingUpcomingCalendarEvents, setIsLoadingUpcomingCalendarEvents] =
 		React.useState(false);
 	const upcomingCalendarRequestIdRef = React.useRef(0);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const upcomingCalendarLoadKey = session?.user?.email
 		? `${isConvexAuthenticated ? "authenticated" : "unauthenticated"}:${session.user.email}`
 		: "anonymous";
@@ -494,8 +490,11 @@ const useAppShellState = ({
 		currentNoteId === null &&
 		normalizedRouteNoteId === undefined;
 	const hasInvalidCurrentNoteRoute =
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		currentView === "note" &&
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		currentRouteNoteId !== null &&
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		currentNoteId === null &&
 		normalizedRouteNoteId === null;
 	const listedSelectedNote =
@@ -563,6 +562,7 @@ const useAppShellState = ({
 			setIsLoadingUpcomingCalendarEvents(true);
 
 			try {
+				// react-doctor-disable-next-line react-doctor/async-defer-await
 				const result = await listUpcomingGoogleEvents({
 					workspaceId: resolvedActiveWorkspaceId,
 					...getDayWindowFromDayKey(dayKey),
@@ -659,6 +659,7 @@ const useAppShellState = ({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 		setActiveWorkspaceId(workspaces[0]?._id ?? null);
 	}, [activeWorkspaceId, workspaces]);
 
@@ -770,11 +771,13 @@ const useAppShellState = ({
 
 	React.useEffect(() => {
 		if (resolvedSelectedNote) {
+			// react-doctor-disable-next-line react-doctor/no-derived-state
 			setCurrentNoteTitle(resolvedSelectedNote.title);
 			return;
 		}
 
 		if (resolvedCurrentView === "note") {
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates
 			setCurrentNoteTitle("");
 		}
 	}, [resolvedCurrentView, resolvedSelectedNote]);
@@ -1262,6 +1265,7 @@ const useAppShellState = ({
 			!resolvedCurrentNoteId &&
 			currentRouteNoteId === null
 		) {
+			// react-doctor-disable-next-line react-doctor/no-derived-state
 			handleCreateNote({
 				autoStartCapture: shouldAutoStartNoteCapture,
 				calendarEvent: pendingCalendarEvent,
@@ -1291,11 +1295,13 @@ const useAppShellState = ({
 		const scheduledAt = new Date(scheduledAutoStartNoteCaptureAt).getTime();
 
 		if (Number.isNaN(scheduledAt)) {
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			clearScheduledAutoStart();
 			return;
 		}
 
 		if (scheduledAt <= Date.now()) {
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			triggerScheduledAutoStart();
 			return;
 		}
@@ -1625,6 +1631,8 @@ const useAppShellState = ({
 	};
 };
 
+type AppShellController = ReturnType<typeof useAppShellState>;
+
 type AppShellHeaderProps = {
 	isDesktopMac: boolean;
 	inboxOpen: boolean;
@@ -1721,6 +1729,7 @@ function AppShellHeader({
 		}
 
 		breadcrumbRenameSavedTitleRef.current = currentEditableTitle;
+		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 		setTitleValue(currentEditableTitle);
 	}, [currentEditableTitle, titleEditOpen]);
 
@@ -2210,6 +2219,65 @@ function NoteHeaderActionsMenu({
 	noteEditorActions: NoteEditorActions | null;
 	onNoteTrashed: (noteId: Id<"notes">) => void;
 }) {
+	const itemsBeforeDefaults = React.useMemo(
+		() =>
+			noteEditorActions ? (
+				<DropdownMenuItem
+					className="cursor-pointer"
+					disabled={!noteEditorActions.canCopyMarkdown}
+					onSelect={(event) => {
+						event.preventDefault();
+						noteEditorActions.copyMarkdown();
+					}}
+				>
+					<Copy />
+					Copy note content
+				</DropdownMenuItem>
+			) : null,
+		[noteEditorActions],
+	);
+	const itemsAfterDefaults = React.useMemo(
+		() =>
+			noteEditorActions ? (
+				<>
+					<DropdownMenuItem
+						className="cursor-pointer"
+						disabled={!noteEditorActions.canUndo}
+						onSelect={(event) => {
+							event.preventDefault();
+							noteEditorActions.undo();
+						}}
+					>
+						<Undo2 />
+						Undo
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						className="cursor-pointer"
+						disabled={!noteEditorActions.canRedo}
+						onSelect={(event) => {
+							event.preventDefault();
+							noteEditorActions.redo();
+						}}
+					>
+						<Redo2 />
+						Redo
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						className="cursor-pointer"
+						disabled={!noteEditorActions.canCopyMarkdown}
+						onSelect={(event) => {
+							event.preventDefault();
+							noteEditorActions.exportMarkdown();
+						}}
+					>
+						<ArrowDown />
+						Export
+					</DropdownMenuItem>
+				</>
+			) : null,
+		[noteEditorActions],
+	);
+
 	return (
 		<NoteActionsMenu
 			noteId={noteId}
@@ -2217,60 +2285,8 @@ function NoteHeaderActionsMenu({
 			align="end"
 			triggerTooltip="More actions"
 			showRename={false}
-			itemsBeforeDefaults={
-				noteEditorActions ? (
-					<DropdownMenuItem
-						className="cursor-pointer"
-						disabled={!noteEditorActions.canCopyMarkdown}
-						onSelect={(event) => {
-							event.preventDefault();
-							noteEditorActions.copyMarkdown();
-						}}
-					>
-						<Copy />
-						Copy note content
-					</DropdownMenuItem>
-				) : null
-			}
-			itemsAfterDefaults={
-				noteEditorActions ? (
-					<>
-						<DropdownMenuItem
-							className="cursor-pointer"
-							disabled={!noteEditorActions.canUndo}
-							onSelect={(event) => {
-								event.preventDefault();
-								noteEditorActions.undo();
-							}}
-						>
-							<Undo2 />
-							Undo
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							className="cursor-pointer"
-							disabled={!noteEditorActions.canRedo}
-							onSelect={(event) => {
-								event.preventDefault();
-								noteEditorActions.redo();
-							}}
-						>
-							<Redo2 />
-							Redo
-						</DropdownMenuItem>
-						<DropdownMenuItem
-							className="cursor-pointer"
-							disabled={!noteEditorActions.canCopyMarkdown}
-							onSelect={(event) => {
-								event.preventDefault();
-								noteEditorActions.exportMarkdown();
-							}}
-						>
-							<ArrowDown />
-							Export
-						</DropdownMenuItem>
-					</>
-				) : null
-			}
+			itemsBeforeDefaults={itemsBeforeDefaults}
+			itemsAfterDefaults={itemsAfterDefaults}
 		>
 			<Button
 				type="button"
@@ -2509,266 +2525,111 @@ function ChatHeaderActions({
 	);
 }
 
-const AppShellContent = React.memo(function AppShellContent({
-	isDesktopMac,
-	currentView,
-	currentDate,
-	currentDayOfMonth,
-	currentMonthLabel,
-	currentWeekdayLabel,
-	upcomingCalendarEvents,
-	upcomingCalendarStatus,
-	isLoadingUpcomingCalendarEvents,
-	notes,
-	sharedNotes,
-	currentNoteId,
-	currentNoteTitle,
-	selectedNote,
-	user,
-	onOpenNote,
-	onNoteTrashed,
-	onCreateNote,
-	onOpenCalendarEventNote,
-	onOpenCalendarSettings,
-	chatComposerId,
-	initialChatMessages,
-	chats,
-	activeStreamingChatIds,
-	currentChatId,
-	onChatPersisted,
-	onOpenChat,
-	onPrefetchChat,
-	onChatRemoved,
-	onOpenConnectionsSettings,
-	onCreateNoteFromChatResponse,
-	onNoteTitleChange,
-	onNoteEditorActionsChange,
-	onNoteCommentsOpenChange,
-	onAutoStartNoteCaptureHandled,
-	shouldAutoStartNoteCapture,
-	shouldStopNoteCaptureWhenMeetingEnds,
-	onGoHome,
-	onCreateAutomation,
-	onCreateChatAutomation,
-	automations,
-	onEditAutomation,
-	onOpenAutomation,
-	onRunAutomationNow,
-	onToggleAutomationPaused,
-	onDeleteAutomation,
+function createAppShellContentView({
+	controller,
+	handleGoHome,
+	handleNoteCommentsOpenChange,
+	handleOpenConnectionsSettings,
 }: {
-	isDesktopMac: boolean;
-	currentView: AppView;
-	currentDate: Date;
-	currentDayOfMonth: number;
-	currentMonthLabel: string;
-	currentWeekdayLabel: string;
-	upcomingCalendarEvents: UpcomingCalendarEvent[];
-	upcomingCalendarStatus: "idle" | "ready" | "not_connected" | "error";
-	isLoadingUpcomingCalendarEvents: boolean;
-	notes: Array<Doc<"notes">> | undefined;
-	sharedNotes: Array<Doc<"notes">> | undefined;
-	currentNoteId: Id<"notes"> | null;
-	currentNoteTitle: string;
-	selectedNote: Doc<"notes"> | null | undefined;
-	user: AppUser;
-	onOpenNote: (noteId: Id<"notes">) => void;
-	onNoteTrashed: (noteId: Id<"notes">) => void;
-	onCreateNote: () => void;
-	onOpenCalendarEventNote: (
-		event: UpcomingCalendarEvent,
-		options?: {
-			autoStartCapture?: boolean;
-			stopCaptureWhenMeetingEnds?: boolean;
-		},
-	) => Promise<void> | void;
-	onOpenCalendarSettings: () => void;
-	chatComposerId: string;
-	initialChatMessages: UIMessage[];
-	chats: Array<Doc<"chats">> | undefined;
-	activeStreamingChatIds: ReadonlySet<string>;
-	currentChatId: string | null;
-	onChatPersisted?: (chatId: string) => void;
-	onOpenChat: (chatId: string) => void;
-	onPrefetchChat: (chatId: string) => void;
-	onChatRemoved: (chatId: string) => void;
-	onOpenConnectionsSettings: () => void;
-	onCreateNoteFromChatResponse: (
-		title: string,
-		content: string,
-	) => Promise<"created" | undefined> | "created" | undefined;
-	onNoteTitleChange: (title: string) => void;
-	onNoteEditorActionsChange: (actions: NoteEditorActions | null) => void;
-	onNoteCommentsOpenChange: (opener: (() => void) | null) => void;
-	onAutoStartNoteCaptureHandled: () => void;
-	shouldAutoStartNoteCapture: boolean;
-	shouldStopNoteCaptureWhenMeetingEnds: boolean;
-	onGoHome: () => void;
-	onCreateAutomation: () => void;
-	onCreateChatAutomation: (chatId: string) => void;
-	automations: AutomationListItem[] | undefined;
-	onEditAutomation: (automationId: Id<"automations">) => void;
-	onOpenAutomation: (automation: AutomationListItem) => void;
-	onRunAutomationNow: (automationId: Id<"automations">) => void;
-	onToggleAutomationPaused: (automationId: Id<"automations">) => void;
-	onDeleteAutomation: (automationId: Id<"automations">) => void;
-}) {
-	const noteViewScrollRef = React.useRef<HTMLDivElement | null>(null);
-	const noteScrollResetKey =
-		currentView === "note" ? (currentNoteId ?? "new") : null;
-
-	React.useEffect(() => {
-		if (noteScrollResetKey === null) {
-			return;
-		}
-
-		noteViewScrollRef.current?.scrollTo({
-			top: 0,
-			behavior: "auto",
-		});
-	}, [noteScrollResetKey]);
-
-	if (currentView === "notFound") {
-		return <NotFoundView onGoHome={onGoHome} />;
+	controller: AppShellController;
+	handleGoHome: () => void;
+	handleNoteCommentsOpenChange: (opener: (() => void) | null) => void;
+	handleOpenConnectionsSettings: () => void;
+}): AppShellContentView {
+	if (controller.currentView === "notFound") {
+		return {
+			kind: "notFound",
+			onGoHome: handleGoHome,
+		};
 	}
 
-	if (currentView === "home") {
-		return (
-			<ScrollArea
-				className="min-h-0 flex-1"
-				viewportClassName="overscroll-contain overflow-x-hidden [&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full [&>div]:!max-w-full"
-			>
-				<HomeView
-					currentDate={currentDate}
-					currentDayOfMonth={currentDayOfMonth}
-					currentMonthLabel={currentMonthLabel}
-					currentWeekdayLabel={currentWeekdayLabel}
-					upcomingCalendarEvents={upcomingCalendarEvents}
-					upcomingCalendarStatus={upcomingCalendarStatus}
-					isLoadingUpcomingCalendarEvents={isLoadingUpcomingCalendarEvents}
-					notes={notes}
-					currentNoteId={currentNoteId}
-					currentNoteTitle={currentNoteTitle}
-					currentUser={user}
-					isDesktopMac={isDesktopMac}
-					onOpenNote={onOpenNote}
-					onNoteTrashed={onNoteTrashed}
-					onCreateNote={onCreateNote}
-					onOpenCalendarEventNote={onOpenCalendarEventNote}
-					onOpenCalendarSettings={onOpenCalendarSettings}
-				/>
-			</ScrollArea>
-		);
+	if (controller.currentView === "home") {
+		return {
+			kind: "home",
+			isDesktopMac: controller.isDesktopMac,
+			currentDate: controller.currentDate,
+			currentDayOfMonth: controller.currentDayOfMonth,
+			currentMonthLabel: controller.currentMonthLabel,
+			currentWeekdayLabel: controller.currentWeekdayLabel,
+			upcomingCalendarEvents: controller.upcomingCalendarEvents,
+			upcomingCalendarStatus: controller.upcomingCalendarStatus,
+			isLoadingUpcomingCalendarEvents:
+				controller.isLoadingUpcomingCalendarEvents,
+			notes: controller.notes,
+			currentNoteId: controller.currentNoteId,
+			currentNoteTitle: controller.currentNoteTitle,
+			user: controller.user,
+			onOpenNote: controller.openNote,
+			onNoteTrashed: controller.handleNoteTrashed,
+			onCreateNote: controller.handleQuickNote,
+			onOpenCalendarEventNote: controller.handleOpenCalendarEventNote,
+			onOpenCalendarSettings: controller.handleOpenCalendarSettings,
+		};
 	}
 
-	if (currentView === "shared") {
-		return (
-			<ScrollArea
-				className="min-h-0 flex-1"
-				viewportClassName="overscroll-contain overflow-x-hidden [&>div]:!block [&>div]:!min-w-0 [&>div]:!w-full [&>div]:!max-w-full"
-			>
-				<SharedView
-					sharedNotes={sharedNotes}
-					currentNoteId={currentNoteId}
-					currentNoteTitle={currentNoteTitle}
-					currentUser={user}
-					isDesktopMac={isDesktopMac}
-					onOpenNote={onOpenNote}
-					onNoteTrashed={onNoteTrashed}
-				/>
-			</ScrollArea>
-		);
+	if (controller.currentView === "shared") {
+		return {
+			kind: "shared",
+			isDesktopMac: controller.isDesktopMac,
+			sharedNotes: controller.sharedNotes,
+			currentNoteId: controller.currentNoteId,
+			currentNoteTitle: controller.currentNoteTitle,
+			user: controller.user,
+			onOpenNote: controller.openNote,
+			onNoteTrashed: controller.handleNoteTrashed,
+		};
 	}
 
-	if (currentView === "automation") {
-		return (
-			<ScrollArea
-				className="min-h-0 flex-1"
-				viewportClassName="overscroll-contain"
-			>
-				<AutomationsPage
-					automations={automations}
-					isDesktopMac={isDesktopMac}
-					onCreateAutomation={onCreateAutomation}
-					onDeleteAutomation={onDeleteAutomation}
-					onEditAutomation={onEditAutomation}
-					onOpenAutomation={onOpenAutomation}
-					onRunAutomationNow={onRunAutomationNow}
-					onToggleAutomationPaused={onToggleAutomationPaused}
-				/>
-			</ScrollArea>
-		);
+	if (controller.currentView === "automation") {
+		return {
+			kind: "automation",
+			automations: controller.automations,
+			isDesktopMac: controller.isDesktopMac,
+			onCreateAutomation: controller.handleCreateAutomationOpen,
+			onDeleteAutomation: controller.handleDeleteAutomation,
+			onEditAutomation: controller.handleEditAutomationOpen,
+			onOpenAutomation: controller.handleOpenAutomation,
+			onRunAutomationNow: controller.handleRunAutomationNow,
+			onToggleAutomationPaused: controller.handleToggleAutomationPaused,
+		};
 	}
 
-	if (currentView === "note") {
-		return (
-			<ScrollArea
-				className="min-h-0 flex-1"
-				viewportClassName="overscroll-contain"
-				viewportRef={noteViewScrollRef}
-			>
-				<NotePage
-					key={currentNoteId ?? "new"}
-					autoStartTranscription={shouldAutoStartNoteCapture}
-					currentUser={user}
-					isDesktopMac={isDesktopMac}
-					noteId={currentNoteId}
-					note={selectedNote}
-					externalTitle={currentNoteTitle}
-					onAutoStartTranscriptionHandled={onAutoStartNoteCaptureHandled}
-					onCommentsOpenChange={onNoteCommentsOpenChange}
-					onTitleChange={onNoteTitleChange}
-					onEditorActionsChange={onNoteEditorActionsChange}
-					scrollParentRef={noteViewScrollRef}
-					stopTranscriptionWhenMeetingEnds={
-						shouldStopNoteCaptureWhenMeetingEnds
-					}
-				/>
-			</ScrollArea>
-		);
+	if (controller.currentView === "note") {
+		return {
+			kind: "note",
+			currentNoteId: controller.currentNoteId,
+			currentNoteTitle: controller.currentNoteTitle,
+			selectedNote: controller.selectedNote,
+			user: controller.user,
+			isDesktopMac: controller.isDesktopMac,
+			onAutoStartNoteCaptureHandled:
+				controller.handleAutoStartNoteCaptureHandled,
+			onNoteCommentsOpenChange: handleNoteCommentsOpenChange,
+			onNoteEditorActionsChange: controller.setCurrentNoteEditorActions,
+			onNoteTitleChange: controller.setCurrentNoteTitle,
+			shouldAutoStartNoteCapture: controller.shouldAutoStartNoteCapture,
+			shouldStopNoteCaptureWhenMeetingEnds:
+				controller.shouldStopNoteCaptureWhenMeetingEnds,
+		};
 	}
 
-	return (
-		<ChatPage
-			key={chatComposerId}
-			chatId={chatComposerId}
-			initialMessages={initialChatMessages}
-			onChatPersisted={onChatPersisted}
-			chats={chats ?? []}
-			isChatsLoading={chats === undefined}
-			activeStreamingChatIds={activeStreamingChatIds}
-			activeChatId={currentChatId}
-			onOpenChat={onOpenChat}
-			onPrefetchChat={onPrefetchChat}
-			onChatRemoved={onChatRemoved}
-			isDesktopMac={isDesktopMac}
-			onOpenConnectionsSettings={onOpenConnectionsSettings}
-			onCreateNoteFromResponse={onCreateNoteFromChatResponse}
-			automations={automations}
-			onAddAutomation={onCreateChatAutomation}
-		/>
-	);
-});
-
-function NotFoundView({ onGoHome }: { onGoHome: () => void }) {
-	return (
-		<div className="flex flex-1 items-center justify-center px-8 py-10">
-			<Empty className="max-w-lg border-none">
-				<EmptyHeader>
-					<EmptyTitle>404 - Not Found</EmptyTitle>
-					<EmptyDescription>
-						The page you&apos;re looking for doesn&apos;t exist. Use the sidebar
-						to search or go back home.
-					</EmptyDescription>
-				</EmptyHeader>
-				<EmptyContent>
-					<Button onClick={onGoHome} size="sm">
-						Go to Home
-					</Button>
-				</EmptyContent>
-			</Empty>
-		</div>
-	);
+	return {
+		kind: "chat",
+		activeStreamingChatIds: controller.activeStreamingChatIds,
+		automations: controller.automations,
+		chatComposerId: controller.chatComposerId,
+		chats: controller.chats,
+		currentChatId: controller.currentChatId,
+		initialChatMessages: controller.initialChatMessages,
+		isDesktopMac: controller.isDesktopMac,
+		onChatPersisted: controller.handleChatPersisted,
+		onChatRemoved: controller.handleChatRemoved,
+		onCreateChatAutomation: controller.handleCreateChatAutomationOpen,
+		onCreateNoteFromChatResponse: controller.handleCreateNoteFromChatResponse,
+		onOpenChat: controller.handleOpenChat,
+		onOpenConnectionsSettings: handleOpenConnectionsSettings,
+		onPrefetchChat: controller.handlePrefetchChat,
+	};
 }
 
 export function AuthenticatedAppShell({
@@ -2799,6 +2660,12 @@ export function AuthenticatedAppShell({
 		() => controller.handleViewChange("home"),
 		[controller.handleViewChange],
 	);
+	const appShellContentView = createAppShellContentView({
+		controller,
+		handleGoHome,
+		handleNoteCommentsOpenChange,
+		handleOpenConnectionsSettings,
+	});
 
 	return (
 		<ActiveWorkspaceProvider workspaceId={controller.activeWorkspaceId}>
@@ -2862,64 +2729,9 @@ export function AuthenticatedAppShell({
 						onNewAutomation={controller.handleCreateAutomationOpen}
 						onNewChatAutomation={controller.handleCreateChatAutomationOpen}
 					/>
-					<AppShellContent
-						isDesktopMac={controller.isDesktopMac}
-						currentView={controller.currentView}
-						currentDate={controller.currentDate}
-						currentDayOfMonth={controller.currentDayOfMonth}
-						currentMonthLabel={controller.currentMonthLabel}
-						currentWeekdayLabel={controller.currentWeekdayLabel}
-						upcomingCalendarEvents={controller.upcomingCalendarEvents}
-						upcomingCalendarStatus={controller.upcomingCalendarStatus}
-						isLoadingUpcomingCalendarEvents={
-							controller.isLoadingUpcomingCalendarEvents
-						}
-						notes={controller.notes}
-						sharedNotes={controller.sharedNotes}
-						currentNoteId={controller.currentNoteId}
-						currentNoteTitle={controller.currentNoteTitle}
-						selectedNote={controller.selectedNote}
-						user={controller.user}
-						onOpenNote={controller.openNote}
-						onNoteTrashed={controller.handleNoteTrashed}
-						onCreateNote={controller.handleQuickNote}
-						onOpenCalendarEventNote={controller.handleOpenCalendarEventNote}
-						onOpenCalendarSettings={controller.handleOpenCalendarSettings}
-						chatComposerId={controller.chatComposerId}
-						initialChatMessages={controller.initialChatMessages}
-						chats={controller.chats}
-						activeStreamingChatIds={controller.activeStreamingChatIds}
-						currentChatId={controller.currentChatId}
-						onChatPersisted={controller.handleChatPersisted}
-						onOpenChat={controller.handleOpenChat}
-						onPrefetchChat={controller.handlePrefetchChat}
-						onChatRemoved={controller.handleChatRemoved}
-						onOpenConnectionsSettings={handleOpenConnectionsSettings}
-						onCreateNoteFromChatResponse={
-							controller.handleCreateNoteFromChatResponse
-						}
-						onNoteTitleChange={controller.setCurrentNoteTitle}
-						onNoteEditorActionsChange={controller.setCurrentNoteEditorActions}
-						onNoteCommentsOpenChange={handleNoteCommentsOpenChange}
-						onAutoStartNoteCaptureHandled={
-							controller.handleAutoStartNoteCaptureHandled
-						}
-						shouldAutoStartNoteCapture={controller.shouldAutoStartNoteCapture}
-						shouldStopNoteCaptureWhenMeetingEnds={
-							controller.shouldStopNoteCaptureWhenMeetingEnds
-						}
-						onGoHome={handleGoHome}
-						onCreateAutomation={controller.handleCreateAutomationOpen}
-						onCreateChatAutomation={controller.handleCreateChatAutomationOpen}
-						automations={controller.automations}
-						onEditAutomation={controller.handleEditAutomationOpen}
-						onOpenAutomation={controller.handleOpenAutomation}
-						onRunAutomationNow={controller.handleRunAutomationNow}
-						onToggleAutomationPaused={controller.handleToggleAutomationPaused}
-						onDeleteAutomation={controller.handleDeleteAutomation}
-					/>
+					<AppShellContent view={appShellContentView} />
 				</AppShellInset>
-				<CreateAutomationDialog
+				<CreateAutomationDialogEntry
 					open={controller.automationDialogOpen}
 					onOpenChange={controller.handleAutomationDialogOpenChange}
 					onCreateAutomation={controller.handleAutomationSave}

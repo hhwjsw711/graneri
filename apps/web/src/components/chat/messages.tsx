@@ -32,16 +32,7 @@ type ChatMessagesActionProps = {
 	>;
 };
 
-export function ChatMessages({
-	messages,
-	error,
-	isLoading,
-	onEditMessage,
-	onDeleteMessage,
-	onPlusAction,
-	onRegenerateMessage,
-	onOpenMention,
-}: {
+export type ChatMessagesProps = {
 	messages: UIMessage[];
 	error?: Error;
 	isLoading?: boolean;
@@ -56,7 +47,18 @@ export function ChatMessages({
 	) => Promise<"created" | undefined> | "created" | undefined;
 	onRegenerateMessage?: (messageId: string) => void;
 	onOpenMention?: (noteId: string) => void;
-}) {
+};
+
+export function ChatMessages({
+	messages,
+	error,
+	isLoading,
+	onEditMessage,
+	onDeleteMessage,
+	onPlusAction,
+	onRegenerateMessage,
+	onOpenMention,
+}: ChatMessagesProps) {
 	const [messageIdPendingDelete, setMessageIdPendingDelete] = React.useState<
 		string | null
 	>(null);

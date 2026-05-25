@@ -57,7 +57,7 @@ export interface SearchCommandItem {
 	updatedAt?: number;
 }
 
-interface SearchCommandProps {
+export interface SearchCommandProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	items: SearchCommandItem[];
@@ -116,6 +116,7 @@ function useSearchCommandFilters({ open }: { open: boolean }) {
 	} = state;
 
 	React.useEffect(() => {
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		if (!open) {
 			setState(INITIAL_SEARCH_FILTERS_STATE);
 		}

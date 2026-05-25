@@ -11,24 +11,20 @@ import { useQuery } from "convex/react";
 import { FileText, MessageCircle } from "lucide-react";
 import * as React from "react";
 import type { AutomationListItem } from "@/components/automations/automation-types";
-import { InboxSheet } from "@/components/inbox/inbox-sheet";
+import { InboxSheetEntry } from "@/components/inbox/inbox-sheet-entry";
 import { NavMain } from "@/components/nav/nav-main";
 import { NavNotes } from "@/components/nav/nav-notes";
 import { NavProjects } from "@/components/nav/nav-projects";
 import { NavStarred } from "@/components/nav/nav-starred";
 import { NavTrash } from "@/components/nav/nav-trash";
-import { RecipesDialog } from "@/components/recipes/recipes-dialog";
-import {
-	SearchCommand,
-	type SearchCommandItem,
-} from "@/components/search/search-command";
-import {
-	SettingsDialog,
-	type SettingsPage,
-} from "@/components/settings/settings-dialog";
+import { RecipesDialogEntry } from "@/components/recipes/recipes-dialog-entry";
+import type { SearchCommandItem } from "@/components/search/search-command";
+import { SearchCommandEntry } from "@/components/search/search-command-entry";
+import { SettingsDialogEntry } from "@/components/settings/settings-dialog-entry";
+import type { SettingsPage } from "@/components/settings/settings-types";
 import { NavUser } from "@/components/sidebar/nav-user";
 import { SidebarHistoryControls } from "@/components/sidebar/sidebar-history-controls";
-import { TemplatesDialog } from "@/components/templates/templates-dialog";
+import { TemplatesDialogEntry } from "@/components/templates/templates-dialog-entry";
 import { WorkspaceSwitcher } from "@/components/workspaces/workspace-switcher";
 import { useRecordingNoteId } from "@/hooks/use-transcription-session";
 import { getChatId } from "@/lib/chat";
@@ -997,7 +993,7 @@ const AppSidebarDialogs = React.memo(function AppSidebarDialogs({
 
 	return (
 		<>
-			<SearchCommand
+			<SearchCommandEntry
 				open={searchOpen}
 				onOpenChange={handleSearchOpenChange}
 				items={searchItems}
@@ -1005,7 +1001,7 @@ const AppSidebarDialogs = React.memo(function AppSidebarDialogs({
 				showKeyboardHintsFooter
 				onSelectItem={handleSearchSelectItem}
 			/>
-			<SearchCommand
+			<SearchCommandEntry
 				open={chatSearchOpen}
 				onOpenChange={handleChatSearchOpenChange}
 				items={chatSearchItems}
@@ -1017,7 +1013,7 @@ const AppSidebarDialogs = React.memo(function AppSidebarDialogs({
 				keyboardHintsSearchKind="chats"
 				onSelectItem={handleChatSearchSelectItem}
 			/>
-			<SettingsDialog
+			<SettingsDialogEntry
 				open={settingsOpen}
 				onOpenChange={onSettingsOpenChange}
 				user={user}
@@ -1025,11 +1021,11 @@ const AppSidebarDialogs = React.memo(function AppSidebarDialogs({
 				initialPage={settingsPage}
 				onPageChange={handleSettingsPageChange}
 			/>
-			<RecipesDialog
+			<RecipesDialogEntry
 				open={recipesOpen}
 				onOpenChange={handleRecipesOpenChange}
 			/>
-			<TemplatesDialog
+			<TemplatesDialogEntry
 				open={templatesOpen}
 				onOpenChange={handleTemplatesOpenChange}
 			/>
@@ -1069,7 +1065,7 @@ const AppSidebarInboxSheet = React.memo(function AppSidebarInboxSheet({
 	}, [inboxItems, onMarkInboxItemsRead]);
 
 	return (
-		<InboxSheet
+		<InboxSheetEntry
 			open={inboxOpen}
 			onOpenChange={onInboxOpenChange}
 			sidebarState={sidebarState}

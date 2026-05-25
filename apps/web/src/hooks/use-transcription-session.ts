@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { TranscriptionControllerState } from "@/lib/transcription-controller";
 import { transcriptionSessionManager } from "@/lib/transcription-session-manager";
+import type { TranscriptionControllerState } from "@/lib/transcription-session-types";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 export const useTranscriptionSession = (): TranscriptionControllerState =>

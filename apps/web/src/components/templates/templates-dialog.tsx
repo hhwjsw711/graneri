@@ -79,7 +79,7 @@ type TemplateDraft = {
 };
 type TemplateSectionDraft = TemplateDraft["sections"][number];
 
-type TemplatesDialogProps = {
+export type TemplatesDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 };

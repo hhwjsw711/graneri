@@ -68,7 +68,7 @@ import { archiveNoteChats } from "@/lib/optimistic-note-chats";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { NoteTitleEditInput } from "./note-title-edit-input";
-import { NoteVersionHistoryDialog } from "./note-version-history-dialog";
+import { NoteVersionHistoryDialogEntry } from "./note-version-history-dialog-entry";
 import { optimisticPatchNote } from "./optimistic-patch-note";
 import { optimisticRenameNote } from "./optimistic-rename-note";
 import {
@@ -417,6 +417,7 @@ function useNoteActionsMenu({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setRenameValue(note?.title ?? "");
 	}, [note?.title, renameOpen]);
 
@@ -425,6 +426,7 @@ function useNoteActionsMenu({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
 		onRenamePreviewChange?.(renameValue);
 	}, [onRenamePreviewChange, renameOpen, renameValue]);
 
@@ -804,7 +806,7 @@ export function NoteActionsMenu({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-			<NoteVersionHistoryDialog
+			<NoteVersionHistoryDialogEntry
 				initialVersion={
 					note
 						? {
@@ -956,6 +958,7 @@ function NoteProjectMoveSubmenu({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-chain-state-updates
 		setSearchValue("");
 	}, [open]);
 

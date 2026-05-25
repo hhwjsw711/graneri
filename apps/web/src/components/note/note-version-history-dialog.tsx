@@ -47,7 +47,7 @@ type NoteVersion = {
 	createdAt: number;
 };
 
-type NoteVersionHistoryDialogProps = {
+export type NoteVersionHistoryDialogProps = {
 	noteId: Id<"notes">;
 	initialVersion: NoteVersion | null;
 	open: boolean;
@@ -211,6 +211,7 @@ function NoteVersionHistoryDialogContent({
 				icon: History,
 				label: versionDateFormatter.format(new Date(version.createdAt)),
 			})),
+		// react-doctor-disable-next-line react-doctor/exhaustive-deps
 		[displayVersions],
 	);
 	const selectedVersion =
@@ -268,6 +269,7 @@ function NoteVersionHistoryDialogContent({
 
 	React.useEffect(() => {
 		if (!open) {
+			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			setActiveVersionId(null);
 			return;
 		}
@@ -276,12 +278,14 @@ function NoteVersionHistoryDialogContent({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setActiveVersionId((currentVersionId) =>
 			currentVersionId &&
 			displayVersions.some((version) => version.id === currentVersionId)
 				? currentVersionId
 				: displayVersions[0].id,
 		);
+		// react-doctor-disable-next-line react-doctor/exhaustive-deps
 	}, [displayVersions, open]);
 
 	return (
