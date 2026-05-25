@@ -2,6 +2,8 @@ import type { UIMessage } from "ai";
 import { memo, useEffect, useMemo, useState } from "react";
 import { ToolDetails } from "@/components/ai-elements/tools/tool-details";
 import { toToolPartLike } from "@/components/ai-elements/tools/tool-part-like";
+import { ToolPreview } from "@/components/ai-elements/tools/tool-preview";
+import { hasCustomToolPreview } from "@/components/ai-elements/tools/tool-preview-policy";
 import { getToolMeta } from "@/components/ai-elements/tools/tool-registry";
 import { ToolRowBase } from "@/components/ai-elements/tools/tool-row-base";
 import { getToolStatus } from "@/components/ai-elements/utils/format-tool";
@@ -40,62 +42,65 @@ export const ToolGroup = memo(function ToolGroup({
 	parts,
 }: ToolGroupProps) {
 	const [expanded, setExpanded] = useState(false);
-	const [now, setNow] = useState(() => Date.now());
+	const toolParts = useMemo(() => parts.map(toToolPartLike), [parts]);
+	const statuses = useMemo(
+		() => toolParts.map((part) => getToolStatus(part, chatStatus)),
+		[chatStatus, toolParts],
+	);
+	const isPending = statuses.some((status) => status.isPending);
+	const { completedAt, fallbackStartedAt, now } = useToolTimer(isPending);
 	const summary = useMemo(() => {
-		const toolParts = parts.map(toToolPartLike);
 		let durationMs = 0;
 		let failedCount = 0;
-		let hasLiveTimer = false;
-		let pendingCount = 0;
+		let hasRecordedDuration = false;
 
-		for (const part of toolParts) {
-			const status = getToolStatus(part, chatStatus);
+		for (const [index, part] of toolParts.entries()) {
+			const status = statuses[index];
+			if (!status) {
+				continue;
+			}
+
 			if (status.isError) {
 				failedCount += 1;
 			}
 
-			if (status.isPending) {
-				pendingCount += 1;
-				hasLiveTimer ||= getToolStartedAt(part) !== null;
-			}
-
-			durationMs += getToolDisplayDurationMs({
+			const displayDurationMs = getToolDisplayDurationMs({
+				completedAt,
+				fallbackStartedAt,
 				isPending: status.isPending,
 				now,
 				part,
 			});
+
+			if (displayDurationMs !== null) {
+				durationMs += displayDurationMs;
+				hasRecordedDuration = true;
+			}
 		}
 
+		const groupFallbackDurationMs = Math.max(
+			1,
+			(completedAt ?? now) - fallbackStartedAt,
+		);
+		const resolvedDurationMs = hasRecordedDuration
+			? Math.max(1, durationMs)
+			: groupFallbackDurationMs;
+
 		return {
-			durationLabel: durationMs > 0 ? formatElapsedTime(durationMs) : "",
+			durationLabel: formatElapsedTime(resolvedDurationMs),
 			failedCount,
-			hasLiveTimer,
-			isPending: pendingCount > 0,
 			summary: getGroupSummary({
 				failedCount,
 				totalCount: toolParts.length,
 			}),
 		};
-	}, [chatStatus, now, parts]);
-
-	useEffect(() => {
-		if (!summary.hasLiveTimer) {
-			return;
-		}
-
-		setNow(Date.now());
-		const interval = window.setInterval(() => {
-			setNow(Date.now());
-		}, 1000);
-
-		return () => window.clearInterval(interval);
-	}, [summary.hasLiveTimer]);
+	}, [completedAt, fallbackStartedAt, now, statuses, toolParts]);
 
 	return (
 		<ToolRowBase
 			shimmerLabel="Working"
 			completeLabel="Worked"
-			isAnimating={summary.isPending}
+			isAnimating={isPending}
 			detail={summary.summary}
 			expandable
 			expanded={expanded}
@@ -122,25 +127,68 @@ export const ToolGroup = memo(function ToolGroup({
 });
 
 const getToolDisplayDurationMs = ({
+	completedAt,
+	fallbackStartedAt,
 	isPending,
 	now,
 	part,
 }: {
+	completedAt: number | null;
+	fallbackStartedAt: number;
 	isPending: boolean;
 	now: number;
 	part: ReturnType<typeof toToolPartLike>;
 }) => {
 	const completedDuration = getToolDurationMs(part);
-	if (completedDuration !== null) {
+	if (completedDuration !== null && completedDuration > 0) {
 		return completedDuration;
 	}
 
-	if (!isPending) {
-		return 0;
+	const startedAt = getToolStartedAt(part) ?? fallbackStartedAt;
+
+	if (!isPending && completedAt !== null) {
+		return Math.max(1, completedAt - startedAt);
 	}
 
-	const startedAt = getToolStartedAt(part);
-	return startedAt === null ? 0 : Math.max(0, now - startedAt);
+	return isPending ? Math.max(1, now - startedAt) : null;
+};
+
+const useToolTimer = (isPending: boolean) => {
+	const [fallbackStartedAt] = useState(() => Date.now());
+	const [completedAt, setCompletedAt] = useState<number | null>(null);
+	const [now, setNow] = useState(() => Date.now());
+
+	useEffect(() => {
+		if (!isPending) {
+			return;
+		}
+
+		setNow(Date.now());
+		const interval = window.setInterval(() => {
+			setNow(Date.now());
+		}, 1000);
+
+		return () => window.clearInterval(interval);
+	}, [isPending]);
+
+	useEffect(() => {
+		if (isPending) {
+			if (completedAt !== null) {
+				setCompletedAt(null);
+			}
+			return;
+		}
+
+		if (completedAt === null) {
+			setCompletedAt(Date.now());
+		}
+	}, [completedAt, isPending]);
+
+	return {
+		completedAt,
+		fallbackStartedAt,
+		now,
+	};
 };
 
 const getToolPartKey = (part: UIMessage["parts"][number], index: number) =>
@@ -156,17 +204,33 @@ const NestedToolRow = memo(function NestedToolRow({
 	part: UIMessage["parts"][number];
 }) {
 	const toolPart = toToolPartLike(part);
+	const { isError, isPending } = getToolStatus(toolPart, chatStatus);
+	const { completedAt, fallbackStartedAt, now } = useToolTimer(isPending);
+	const durationMs = getToolDisplayDurationMs({
+		completedAt,
+		fallbackStartedAt,
+		isPending,
+		now,
+		part: toolPart,
+	});
+	const durationLabel =
+		durationMs !== null ? formatElapsedTime(Math.max(1, durationMs)) : "";
+	const hasPreview = hasCustomToolPreview({ isError, toolPart });
+	const hasDetails = Boolean(
+		hasPreview ||
+			toolPart.input ||
+			toolPart.output ||
+			toolPart.result ||
+			toolPart.errorText,
+	);
+
 	const meta = getToolMeta(toolPart);
 	if (!meta) {
 		return null;
 	}
 
-	const { isError, isPending } = getToolStatus(toolPart, chatStatus);
 	const Icon = meta.icon;
 	const title = meta.title(toolPart);
-	const hasDetails = Boolean(
-		toolPart.input || toolPart.output || toolPart.result || toolPart.errorText,
-	);
 
 	return (
 		<ToolRowBase
@@ -181,12 +245,23 @@ const NestedToolRow = memo(function NestedToolRow({
 			detail={meta.subtitle?.(toolPart)}
 			expandable={hasDetails}
 			hideChevronUntilHover
+			trailingContent={
+				durationLabel ? (
+					<span className="shrink-0 font-normal tabular-nums text-muted-foreground/60">
+						{durationLabel}
+					</span>
+				) : undefined
+			}
 		>
-			<ToolDetails
-				input={toolPart.input}
-				output={toolPart.output ?? toolPart.result}
-				errorText={toolPart.errorText}
-			/>
+			{hasPreview ? (
+				<ToolPreview isError={isError} toolPart={toolPart} />
+			) : (
+				<ToolDetails
+					input={toolPart.input}
+					output={toolPart.output ?? toolPart.result}
+					errorText={toolPart.errorText}
+				/>
+			)}
 		</ToolRowBase>
 	);
 });

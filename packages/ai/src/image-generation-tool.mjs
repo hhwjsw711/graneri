@@ -2,6 +2,7 @@ import { openai } from "@ai-sdk/openai";
 import { generateImage } from "ai";
 import { z } from "zod";
 import { defineAiTool } from "./ai-tool-definition.mjs";
+import { extractTextFromUIMessage } from "./local-path-references.mjs";
 import { toolUiMetadata } from "./tool-ui-metadata.mjs";
 
 const IMAGE_GENERATION_MODEL_ID = "gpt-image-2";
@@ -15,6 +16,14 @@ const toBlobPart = (bytes) =>
 
 export const buildImageGenerationInstruction = () =>
 	"When the user asks you to create or generate an image, use the generate_image tool. The generated file is saved as an artifact; after using the tool, briefly confirm what was created without embedding the image in markdown.";
+
+export const shouldEnableImageGeneration = (message) =>
+	Boolean(
+		message &&
+			/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
+				extractTextFromUIMessage(message),
+			),
+	);
 
 export const createConvexGeneratedImageUploader =
 	({ chatAttachmentsApi, client }) =>

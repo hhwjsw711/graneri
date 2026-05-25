@@ -32,18 +32,13 @@ import {
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
 } from "../../../packages/ai/src/chat-titles.mjs";
+import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
-import {
-	buildImageGenerationInstruction,
-	createConvexGeneratedImageUploader,
-	createImageGenerationTool,
-} from "../../../packages/ai/src/image-generation-tool.mjs";
 import {
 	buildLocalFolderSystemContext,
 	buildLocalFolderTools,
 	resolveLocalFolderRoots,
 } from "../../../packages/ai/src/local-folder-tools.mjs";
-import { extractTextFromUIMessage } from "../../../packages/ai/src/local-path-references.mjs";
 import { finalizeOpenAIToolSet } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
 	buildChatSystemPrompt,
@@ -89,11 +84,6 @@ const generateMessageId = createIdGenerator({
 const ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
 const activeChatStreamControllers = new Map<string, AbortController>();
 const AI_LATENCY_DEBUG_ENABLED = process.env.OPENGRAN_AI_LATENCY_DEBUG === "1";
-
-const shouldEnableImageGeneration = (message: UIMessage) =>
-	/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
-		extractTextFromUIMessage(message),
-	);
 
 const canUseLocalFolderTools = () => process.env.OPENGRAN_ENV_MODE === "local";
 
@@ -775,9 +765,12 @@ export const handleChatRequest = async (
 		appToolCount: Object.keys(appTools).length,
 		localFolderCount: localFolderRoots.length,
 	});
-	const imageGenerationEnabled = Boolean(
-		convexClient && shouldEnableImageGeneration(message),
-	);
+	const coreToolPolicy = buildCoreChatToolPolicy({
+		chatAttachmentsApi: api.chatAttachments,
+		convexClient,
+		message,
+		webSearchEnabled,
+	});
 	const automationContext = buildChatAutomationContext({
 		appConnections: selectedAppConnections,
 		chatId: id,
@@ -800,7 +793,7 @@ export const handleChatRequest = async (
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
+	})}${coreToolPolicy.instruction ? `\n\n${coreToolPolicy.instruction}` : ""}${
 		automationContext.instruction ? `\n\n${automationContext.instruction}` : ""
 	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
 		selectedAppSourceInstructions ? `\n\n${selectedAppSourceInstructions}` : ""
@@ -809,27 +802,7 @@ export const handleChatRequest = async (
 			? "\n\nLocal folder priority: if the user's request is about a local path, shared folder, local file, local audio, local video, local transcript, or local recording, use the local folder tools first and do not use connected app tools unless the user explicitly asks for connected app data."
 			: ""
 	}`;
-	const enabledTools: ToolSet = {};
-
-	if (webSearchEnabled) {
-		enabledTools.web_search = openai.tools.webSearch({
-			searchContextSize: "medium",
-			userLocation: {
-				type: "approximate",
-				country: "US",
-			},
-		});
-	}
-
-	if (imageGenerationEnabled && convexClient) {
-		enabledTools.generate_image = createImageGenerationTool({
-			uploadGeneratedImage: createConvexGeneratedImageUploader({
-				chatAttachmentsApi: api.chatAttachments,
-				client: convexClient,
-			}),
-		});
-	}
-
+	const enabledTools: ToolSet = { ...coreToolPolicy.enabledTools };
 	Object.assign(enabledTools, automationContext.tools);
 	Object.assign(enabledTools, appTools);
 	if (localFolderRoots.length > 0) {
@@ -926,6 +899,7 @@ export const handleChatRequest = async (
 		providerOptions,
 		instructions: systemPrompt,
 		tools: finalizedToolSet.hasTools ? tools : undefined,
+		prepareStep: coreToolPolicy.prepareStep,
 		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
 	});
 	logLatency("ai.agent_created", {

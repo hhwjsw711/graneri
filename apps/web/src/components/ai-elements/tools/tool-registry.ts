@@ -1,6 +1,7 @@
 import {
 	AudioLines,
 	Calendar,
+	ChartNoAxesColumn,
 	Database,
 	FileImage,
 	FileSearch,
@@ -67,6 +68,7 @@ const clamp = (value: string, maxLength = 54) =>
 const toolIconRegistry = {
 	"audio-lines": AudioLines,
 	calendar: Calendar,
+	chart: ChartNoAxesColumn,
 	database: Database,
 	"file-image": FileImage,
 	"file-search": FileSearch,

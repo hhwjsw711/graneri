@@ -17,18 +17,12 @@ import {
 	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
 } from "../packages/ai/src/app-source-providers.mjs";
+import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
 import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
 } from "../packages/ai/src/chat-titles.mjs";
-import {
-	buildImageGenerationInstruction,
-	createConvexGeneratedImageUploader,
-	createImageGenerationTool,
-} from "../packages/ai/src/image-generation-tool.mjs";
-import { extractTextFromUIMessage } from "../packages/ai/src/local-path-references.mjs";
-import { finalizeOpenAIToolSet } from "../packages/ai/src/openai-tool-search.mjs";
 import {
 	CHAT_SERVER_MODELS,
 	CHAT_TITLE_MODEL_ID,
@@ -37,13 +31,10 @@ import {
 	normalizeReasoningEffort,
 } from "../packages/ai/src/models.mjs";
 import {
-	buildWorkspaceToolSet,
-	type WorkspaceToolConnection,
-} from "../packages/ai/src/workspace-tool-registry.mjs";
-import {
 	parseTemplateStreamToStructuredNote,
 	validateTemplateStream,
 } from "../packages/ai/src/note-template-stream.mjs";
+import { finalizeOpenAIToolSet } from "../packages/ai/src/openai-tool-search.mjs";
 import {
 	APPLY_TEMPLATE_SYSTEM_PROMPT,
 	buildApplyTemplatePrompt,
@@ -56,6 +47,10 @@ import {
 	createDesktopRealtimeTranscriptionSession,
 	normalizeTranscriptionLanguage,
 } from "../packages/ai/src/transcription.mjs";
+import {
+	buildWorkspaceToolSet,
+	type WorkspaceToolConnection,
+} from "../packages/ai/src/workspace-tool-registry.mjs";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
@@ -110,13 +105,6 @@ const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,
 });
-const shouldEnableImageGeneration = (message: UIMessage | undefined) =>
-	Boolean(
-		message &&
-			/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
-				extractTextFromUIMessage(message),
-			),
-	);
 const structuredNoteSchema = z.object({
 	title: z.string().min(1),
 	overview: z.array(z.string()),
@@ -270,10 +258,7 @@ const getNotesContext = async ({
 	convexToken,
 	mentions,
 	workspaceId,
-}: Pick<
-	ChatRequestBody,
-	"convexToken" | "mentions" | "workspaceId"
-> & {
+}: Pick<ChatRequestBody, "convexToken" | "mentions" | "workspaceId"> & {
 	request: Request;
 }) => {
 	if (!convexToken || !workspaceId) {
@@ -609,32 +594,14 @@ export const handleChatRequest = async (request: Request) => {
 	const appTools = appsEnabled
 		? await buildWorkspaceToolSet(appConnections as WorkspaceToolConnection[])
 		: {};
-	const imageGenerationRequested = shouldEnableImageGeneration(lastUserMessage);
-	const imageGenerationEnabled = Boolean(
-		convexClient && imageGenerationRequested,
-	);
+	const coreToolPolicy = buildCoreChatToolPolicy({
+		chatAttachmentsApi: api.chatAttachments,
+		convexClient,
+		message: lastUserMessage,
+		webSearchEnabled,
+	});
 	const finalizedToolSet = finalizeOpenAIToolSet({
-		...(webSearchEnabled
-			? {
-					web_search: openai.tools.webSearch({
-						searchContextSize: "medium",
-						userLocation: {
-							type: "approximate" as const,
-							country: "US" as const,
-						},
-					}),
-				}
-			: {}),
-		...(convexClient && imageGenerationRequested
-			? {
-					generate_image: createImageGenerationTool({
-						uploadGeneratedImage: createConvexGeneratedImageUploader({
-							chatAttachmentsApi: api.chatAttachments,
-							client: convexClient,
-						}),
-					}),
-				}
-			: {}),
+		...coreToolPolicy.enabledTools,
 		...appTools,
 	});
 	const { tools } = finalizedToolSet;
@@ -650,13 +617,14 @@ export const handleChatRequest = async (request: Request) => {
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}`;
+	})}${coreToolPolicy.instruction ? `\n\n${coreToolPolicy.instruction}` : ""}`;
 	const result = streamText({
 		model: openai(selectedModel.model),
 		providerOptions,
 		system: systemPrompt,
 		messages: await convertToModelMessages(chatMessages),
 		tools: finalizedToolSet.hasTools ? tools : undefined,
+		prepareStep: coreToolPolicy.prepareStep,
 		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
 	});
 

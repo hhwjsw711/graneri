@@ -14,6 +14,13 @@ export const toolUiMetadata = {
 		complete: "Generated image",
 		subtitleKeys: ["prompt"],
 	},
+	generate_chart: {
+		groupKey: "chart",
+		icon: "chart",
+		running: "Building chart",
+		complete: "Built chart",
+		subtitleKeys: ["title", "chartType"],
+	},
 	google_calendar_list_events: {
 		icon: "calendar",
 		running: "Reading calendar",

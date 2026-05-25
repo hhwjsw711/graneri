@@ -36,17 +36,12 @@ import {
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
 } from "../../../packages/ai/src/chat-titles.mjs";
+import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
-import {
-	buildImageGenerationInstruction,
-	createConvexGeneratedImageUploader,
-	createImageGenerationTool,
-} from "../../../packages/ai/src/image-generation-tool.mjs";
 import {
 	buildLocalFolderSystemContext,
 	buildLocalFolderTools,
 } from "../../../packages/ai/src/local-folder-tools.mjs";
-import { extractTextFromUIMessage } from "../../../packages/ai/src/local-path-references.mjs";
 import {
 	CHAT_SERVER_MODELS,
 	CHAT_TITLE_MODEL_ID,
@@ -100,10 +95,6 @@ const generateMessageId = createIdGenerator({
 	size: 16,
 });
 
-const shouldEnableImageGeneration = (message) =>
-	/\b(create|draw|generate|make|render)\b[\s\S]{0,80}\b(image|picture|photo|illustration|art|graphic|logo|avatar)\b/iu.test(
-		extractTextFromUIMessage(message),
-	);
 const structuredNoteSchema = z.object({
 	title: z.string().min(1),
 	overview: z.array(z.string()),
@@ -825,9 +816,12 @@ const handleChatRequest = async ({
 		appToolCount: Object.keys(appTools).length,
 		localFolderCount: localFolderRoots.length,
 	});
-	const imageGenerationEnabled = Boolean(
-		convexClient && message && shouldEnableImageGeneration(message),
-	);
+	const coreToolPolicy = buildCoreChatToolPolicy({
+		chatAttachmentsApi: api.chatAttachments,
+		convexClient,
+		message,
+		webSearchEnabled,
+	});
 	const automationContext = buildChatAutomationContext({
 		appConnections: selectedAppConnections,
 		chatId: id,
@@ -850,7 +844,7 @@ const handleChatRequest = async ({
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}${imageGenerationEnabled ? `\n\n${buildImageGenerationInstruction()}` : ""}${
+	})}${coreToolPolicy.instruction ? `\n\n${coreToolPolicy.instruction}` : ""}${
 		automationContext.instruction ? `\n\n${automationContext.instruction}` : ""
 	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
 		selectedAppSourceInstructions ? `\n\n${selectedAppSourceInstructions}` : ""
@@ -860,27 +854,7 @@ const handleChatRequest = async ({
 			: ""
 	}`;
 	const enabledTools = {
-		...(webSearchEnabled
-			? {
-					web_search: openai.tools.webSearch({
-						searchContextSize: "medium",
-						userLocation: {
-							type: "approximate",
-							country: "US",
-						},
-					}),
-				}
-			: {}),
-		...(imageGenerationEnabled
-			? {
-					generate_image: createImageGenerationTool({
-						uploadGeneratedImage: createConvexGeneratedImageUploader({
-							chatAttachmentsApi: api.chatAttachments,
-							client: convexClient,
-						}),
-					}),
-				}
-			: {}),
+		...coreToolPolicy.enabledTools,
 		...automationContext.tools,
 		...appTools,
 		...(localFolderRoots.length > 0
@@ -900,6 +874,7 @@ const handleChatRequest = async ({
 		providerOptions,
 		instructions: systemPrompt,
 		tools: finalizedToolSet.hasTools ? tools : undefined,
+		prepareStep: coreToolPolicy.prepareStep,
 		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
 	});
 	logLatency("ai.agent_created", {

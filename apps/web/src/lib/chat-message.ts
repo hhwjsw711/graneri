@@ -24,6 +24,35 @@ export type ChatGeneratedArtifact = {
 	url: string;
 };
 
+export const parseGeneratedArtifact = (
+	value: unknown,
+): ChatGeneratedArtifact | null => {
+	if (!value || typeof value !== "object") {
+		return null;
+	}
+
+	const { filename, mediaType, url } = value as {
+		filename?: unknown;
+		mediaType?: unknown;
+		url?: unknown;
+	};
+
+	if (
+		typeof mediaType !== "string" ||
+		typeof url !== "string" ||
+		mediaType.length === 0 ||
+		url.length === 0
+	) {
+		return null;
+	}
+
+	return {
+		filename: typeof filename === "string" ? filename : undefined,
+		mediaType,
+		url,
+	};
+};
+
 const extractTextParts = (message: UIMessage) =>
 	message.parts.filter(
 		(part): part is Extract<(typeof message.parts)[number], { type: "text" }> =>
@@ -57,33 +86,11 @@ export const extractGeneratedArtifacts = (
 			return [];
 		}
 
-		const output = "output" in part ? part.output : null;
-		if (!output || typeof output !== "object") {
-			return [];
-		}
+		const artifact = parseGeneratedArtifact(
+			"output" in part ? part.output : null,
+		);
 
-		const { filename, mediaType, url } = output as {
-			filename?: unknown;
-			mediaType?: unknown;
-			url?: unknown;
-		};
-
-		if (
-			typeof mediaType !== "string" ||
-			typeof url !== "string" ||
-			mediaType.length === 0 ||
-			url.length === 0
-		) {
-			return [];
-		}
-
-		return [
-			{
-				filename: typeof filename === "string" ? filename : undefined,
-				mediaType,
-				url,
-			},
-		];
+		return artifact ? [artifact] : [];
 	});
 
 export const extractReasoningParts = (message: UIMessage) =>
