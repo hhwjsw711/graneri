@@ -3232,8 +3232,9 @@ export const NoteComposer = React.memo(function NoteComposer(
 				<div className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-3 flex justify-center">
 					<Button
 						type="button"
+						variant="outline"
 						size="sm"
-						className="pointer-events-auto px-4 shadow-lg"
+						className="pointer-events-auto px-4"
 						onClick={controller.handleGenerateNotes}
 						disabled={controller.isGeneratingNotes}
 					>
@@ -3529,8 +3530,8 @@ function NoteComposerChatPanelContent({
 					<Button
 						type="button"
 						variant="secondary"
-						size="icon"
-						className="size-9 rounded-full border border-border/60 shadow-md"
+						size="icon-lg"
+						className="rounded-full"
 						onClick={() => controller.scrollChatToBottom()}
 						aria-label="Scroll to latest messages"
 					>
@@ -3640,8 +3641,8 @@ function NoteComposerTranscriptPanelContent({
 							<Button
 								type="button"
 								variant="secondary"
-								size="icon"
-								className="size-9 rounded-full border border-border/60 shadow-md"
+								size="icon-lg"
+								className="rounded-full"
 								onClick={() => controller.scrollTranscriptToBottom()}
 								aria-label="Scroll to latest transcript"
 							>
@@ -3996,8 +3997,8 @@ function NoteTranscriptPanel({
 					<Button
 						type="button"
 						variant="secondary"
-						size="icon"
-						className="pointer-events-auto size-9 rounded-full border border-border/60 shadow-md"
+						size="icon-lg"
+						className="pointer-events-auto rounded-full"
 						onClick={() => controller.scrollTranscriptToBottom()}
 					>
 						<ArrowDown className="size-4" />

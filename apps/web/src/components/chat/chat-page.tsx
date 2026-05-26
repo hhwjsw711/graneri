@@ -1166,8 +1166,8 @@ export function ChatPage({
 				<Button
 					type="button"
 					variant="secondary"
-					size="icon"
-					className="size-9 rounded-full border border-border/60 shadow-md"
+					size="icon-lg"
+					className="rounded-full"
 					onClick={() => scrollChatToBottom()}
 					aria-label="Scroll to latest messages"
 				>
