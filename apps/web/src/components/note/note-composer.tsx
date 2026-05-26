@@ -83,6 +83,11 @@ import {
 	hasUploadingAttachments,
 } from "@/components/ai-elements/file-attachment-utils";
 import {
+	ASSISTANT_CHAT_CONTENT_CLASS,
+	CHAT_MESSAGE_MAX_WIDTH_CLASS,
+	USER_CHAT_BUBBLE_CLASS,
+} from "@/components/chat/message-layout";
+import {
 	type ChatModel,
 	ChatModelPicker,
 	type ReasoningEffort,
@@ -3950,33 +3955,39 @@ function NoteTranscriptPanel({
 							</p>
 						</div>
 					) : null}
-					{renderedTranscriptEntries.map((utterance) => (
-						<div key={utterance.id} className="flex flex-col gap-2">
-							{controller.transcriptStartedAt != null ? (
-								<div className="flex justify-center">
-									<p className="text-[11px] font-medium tabular-nums text-muted-foreground">
-										{formatTranscriptElapsed(
-											utterance.startedAt - controller.transcriptStartedAt,
-										)}
-									</p>
-								</div>
-							) : null}
+					{renderedTranscriptEntries.map((utterance) => {
+						const isUserTranscript = utterance.speaker === "you";
+						const elapsed =
+							controller.transcriptStartedAt != null
+								? formatTranscriptElapsed(
+										utterance.startedAt - controller.transcriptStartedAt,
+									)
+								: null;
+
+						return (
 							<div
+								key={utterance.id}
 								className={cn(
-									"flex w-full transition-colors",
-									utterance.speaker === "you" ? "justify-end" : "justify-start",
+									"group/message flex w-full flex-col gap-1 transition-colors",
+									isUserTranscript ? "items-end" : "items-start",
 								)}
 							>
 								<div
 									className={cn(
-										"max-w-[85%] text-sm leading-6",
-										utterance.speaker === "you"
+										CHAT_MESSAGE_MAX_WIDTH_CLASS,
+										isUserTranscript
 											? utterance.isLive
-												? "rounded-lg bg-secondary/70 px-4 py-3 text-left text-muted-foreground"
-												: "rounded-lg bg-secondary px-4 py-3 text-left text-secondary-foreground"
+												? cn(
+														USER_CHAT_BUBBLE_CLASS,
+														"bg-secondary/70 text-muted-foreground",
+													)
+												: USER_CHAT_BUBBLE_CLASS
 											: utterance.isLive
-												? "text-muted-foreground"
-												: "text-foreground",
+												? cn(
+														ASSISTANT_CHAT_CONTENT_CLASS,
+														"text-muted-foreground",
+													)
+												: ASSISTANT_CHAT_CONTENT_CLASS,
 									)}
 									style={{
 										containIntrinsicSize: "120px",
@@ -3985,9 +3996,14 @@ function NoteTranscriptPanel({
 								>
 									<p className="whitespace-pre-wrap">{utterance.text}</p>
 								</div>
+								{elapsed ? (
+									<p className="px-1 text-[11px] font-medium tabular-nums text-muted-foreground/65">
+										{elapsed}
+									</p>
+								) : null}
 							</div>
-						</div>
-					))}
+						);
+					})}
 				</div>
 			</ScrollArea>
 			{showFloatingScrollButton &&

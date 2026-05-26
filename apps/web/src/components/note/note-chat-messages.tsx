@@ -49,7 +49,7 @@ export default function NoteChatMessages({
 			viewportRef={chatViewportRef}
 		>
 			<ChatMessageListContent
-				breathingSpaceClassName="min-h-[max(112px,20vh)] w-full shrink-0"
+				breathingSpaceClassName="min-h-16 w-full shrink-0"
 				error={chatError}
 				includeSources={false}
 				isLoading={isChatLoading}
