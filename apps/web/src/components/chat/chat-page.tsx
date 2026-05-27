@@ -281,6 +281,7 @@ const useChatPageController = ({
 	);
 	const {
 		clear: clearDraft,
+		getSnapshot: getDraftSnapshot,
 		metadata: draftMetadata,
 		setMetadata: setDraftMetadata,
 		setText: setDraft,
@@ -558,7 +559,7 @@ const useChatPageController = ({
 		[contextPages],
 	);
 	const handleSubmit = React.useCallback(async () => {
-		const value = draft;
+		const value = getDraftSnapshot().text;
 
 		if (
 			(!value.trim() && attachedFiles.length === 0) ||
@@ -631,8 +632,8 @@ const useChatPageController = ({
 		activeWorkspaceId,
 		attachedFiles,
 		chatId,
-		draft,
 		editingMessageId,
+		getDraftSnapshot,
 		isLoading,
 		localFolderStorageScope,
 		mentions,

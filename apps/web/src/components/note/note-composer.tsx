@@ -466,6 +466,7 @@ const useNoteComposerController = ({
 	const draftStorageScope = noteId ? getNoteComposerDraftScope(noteId) : null;
 	const {
 		clear: clearDraft,
+		getSnapshot: getDraftSnapshot,
 		metadata: draftMetadata,
 		setMetadata: setDraftMetadata,
 		setText: setMessage,
@@ -1533,7 +1534,7 @@ const useNoteComposerController = ({
 
 	const handleSend = React.useCallback(async () => {
 		const nextMessage = getMessageTextWithoutRecipeMention(
-			message,
+			getDraftSnapshot().text,
 			selectedRecipe,
 		);
 
@@ -1617,8 +1618,8 @@ const useNoteComposerController = ({
 		isChatLoading,
 		attachedFiles,
 		clearDraft,
+		getDraftSnapshot,
 		localFolderStorageScope,
-		message,
 		openRightSidebar,
 		presentationMode,
 		readNoteContext,

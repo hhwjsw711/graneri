@@ -60,7 +60,6 @@ import { createPortal } from "react-dom";
 import { AppSourceIcon } from "@/components/app-source-icon";
 import {
 	AUTOMATION_SCHEDULE_PERIODS,
-	type AutomationAppSource,
 	type AutomationDraft,
 	type AutomationSchedulePeriod,
 	type AutomationTarget,
@@ -214,6 +213,24 @@ const getPromptMentionsFromContent = (
 	walk(content);
 	return mentions;
 };
+
+const areAutomationPromptMentionsEqual = (
+	left: AutomationPromptMention[],
+	right: AutomationPromptMention[],
+) =>
+	left.length === right.length &&
+	left.every((leftMention, index) => {
+		const rightMention = right[index];
+		return (
+			rightMention &&
+			leftMention.id === rightMention.id &&
+			leftMention.label === rightMention.label &&
+			leftMention.from === rightMention.from &&
+			leftMention.to === rightMention.to &&
+			leftMention.type === rightMention.type &&
+			leftMention.provider === rightMention.provider
+		);
+	});
 
 const getPromptDocument = (
 	prompt: string,
@@ -509,43 +526,16 @@ function useCreateAutomationDialogElement({
 		selectedConnectedAppIds,
 		selectedNoteIds,
 	} = dialogState;
-	const selectedNoteSources = React.useMemo(
-		() =>
-			selectedNoteIds.flatMap((sourceId) => {
-				const source = noteSources.find(
-					(noteSource) => noteSource.id === sourceId,
-				);
-				return source ? [source] : [];
-			}),
-		[noteSources, selectedNoteIds],
-	);
-	const selectedConnectedAppSources = React.useMemo<AutomationAppSource[]>(
-		() =>
-			selectedConnectedAppIds.flatMap((sourceId): AutomationAppSource[] => {
-				const source = connectedAppSources.find(
-					(appSource) => appSource.id === sourceId,
-				);
-				if (source) {
-					return [
-						{
-							id: source.id,
-							label: getAppSourceLabel(source.provider),
-							provider: source.provider,
-						},
-					];
-				}
-
-				return [];
-			}),
-		[connectedAppSources, selectedConnectedAppIds],
-	);
+	const promptRef = React.useRef(prompt);
+	const promptMentionsRef = React.useRef(promptMentions);
 	React.useEffect(() => {
-		updateDialogState(
-			createAutomationDialogState(
-				open ? initialAutomation : null,
-				initialTitle,
-			),
+		const nextState = createAutomationDialogState(
+			open ? initialAutomation : null,
+			initialTitle,
 		);
+		promptRef.current = nextState.prompt;
+		promptMentionsRef.current = nextState.promptMentions;
+		updateDialogState(nextState);
 	}, [initialAutomation, initialTitle, open]);
 
 	React.useEffect(() => {
@@ -619,6 +609,17 @@ function useCreateAutomationDialogElement({
 
 	const handlePromptChange = React.useCallback(
 		(value: string, mentions: AutomationPromptMention[]) => {
+			const previousMentions = promptMentionsRef.current;
+			promptRef.current = value;
+
+			if (areAutomationPromptMentionsEqual(previousMentions, mentions)) {
+				React.startTransition(() => {
+					updateDialogState({ prompt: value });
+				});
+				return;
+			}
+
+			promptMentionsRef.current = mentions;
 			const nextNoteIds = mentions.flatMap((mention) =>
 				mention.type === "note" ? [mention.id as Id<"notes">] : [],
 			);
@@ -626,12 +627,14 @@ function useCreateAutomationDialogElement({
 				mention.type === "tool" ? [mention.id] : [],
 			);
 
-			updateDialogState({
-				prompt: value,
-				promptMentions: mentions,
-				target: nextNoteIds.length > 0 ? null : target,
-				selectedNoteIds: Array.from(new Set(nextNoteIds)),
-				selectedConnectedAppIds: Array.from(new Set(nextToolIds)),
+			React.startTransition(() => {
+				updateDialogState({
+					prompt: value,
+					promptMentions: mentions,
+					target: nextNoteIds.length > 0 ? null : target,
+					selectedNoteIds: Array.from(new Set(nextNoteIds)),
+					selectedConnectedAppIds: Array.from(new Set(nextToolIds)),
+				});
 			});
 		},
 		[target],
@@ -663,16 +666,55 @@ function useCreateAutomationDialogElement({
 
 	const handleCreate = React.useCallback(async () => {
 		const trimmedTitle = title.trim();
-		const trimmedPrompt = prompt.trim();
+		const trimmedPrompt = promptRef.current.trim();
+		const promptMentionNoteIds = promptMentionsRef.current.flatMap((mention) =>
+			mention.type === "note" ? [mention.id as Id<"notes">] : [],
+		);
+		const promptMentionAppIds = promptMentionsRef.current.flatMap((mention) =>
+			mention.type === "tool" ? [mention.id] : [],
+		);
+		const effectiveSelectedNoteIds =
+			promptMentionNoteIds.length > 0
+				? Array.from(new Set(promptMentionNoteIds))
+				: selectedNoteIds;
+		const effectiveSelectedConnectedAppIds =
+			promptMentionAppIds.length > 0
+				? Array.from(new Set(promptMentionAppIds))
+				: selectedConnectedAppIds;
+		const effectiveSelectedNoteSources = effectiveSelectedNoteIds.flatMap(
+			(sourceId) => {
+				const source = noteSources.find(
+					(noteSource) => noteSource.id === sourceId,
+				);
+				return source ? [source] : [];
+			},
+		);
+		const effectiveSelectedConnectedAppSources =
+			effectiveSelectedConnectedAppIds.flatMap((sourceId) => {
+				const source = connectedAppSources.find(
+					(appSource) => appSource.id === sourceId,
+				);
+				if (!source) {
+					return [];
+				}
+
+				return [
+					{
+						id: source.id,
+						label: getAppSourceLabel(source.provider),
+						provider: source.provider,
+					},
+				];
+			});
 		const effectiveTarget =
-			selectedNoteIds.length > 0
+			effectiveSelectedNoteIds.length > 0
 				? ({
 						kind: "notes",
 						label:
-							selectedNoteSources.length === 1
-								? selectedNoteSources[0]?.title
-								: `${selectedNoteIds.length} notes`,
-						noteIds: selectedNoteIds,
+							effectiveSelectedNoteSources.length === 1
+								? effectiveSelectedNoteSources[0]?.title
+								: `${effectiveSelectedNoteIds.length} notes`,
+						noteIds: effectiveSelectedNoteIds,
 					} satisfies AutomationTarget)
 				: (target ??
 					({
@@ -693,22 +735,22 @@ function useCreateAutomationDialogElement({
 			reasoningEffort,
 			webSearchEnabled,
 			appsEnabled,
-			appSources: selectedConnectedAppSources,
+			appSources: effectiveSelectedConnectedAppSources,
 			schedulePeriod,
 			scheduledAt: scheduledAt.getTime(),
 			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 			target: effectiveTarget,
 		});
 	}, [
+		connectedAppSources,
+		noteSources,
 		onCreateAutomation,
-		prompt,
 		schedulePeriod,
 		scheduledAt,
-		selectedConnectedAppSources,
+		selectedConnectedAppIds,
 		selectedModel.model,
 		reasoningEffort,
 		selectedNoteIds,
-		selectedNoteSources,
 		target,
 		title,
 		webSearchEnabled,

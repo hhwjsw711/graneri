@@ -29,22 +29,25 @@ export const useComposerDraft = <TMetadata>(
 	metadata: TMetadata | null;
 	setText: (value: React.SetStateAction<string>) => void;
 	setMetadata: (value: TMetadata | null) => void;
+	getSnapshot: () => ComposerDraftSnapshot<TMetadata>;
 	clear: () => void;
 } => {
 	const [draft, setDraftState] = React.useState(() =>
 		readComposerDraft<TMetadata>(scopeKey),
 	);
 	const draftRef = React.useRef(draft);
+	const persistTimeoutRef = React.useRef<number | null>(null);
 
-	// react-doctor-disable-next-line react-doctor/no-derived-state
-	React.useEffect(() => {
-		const nextDraft = readComposerDraft<TMetadata>(scopeKey);
-		draftRef.current = nextDraft;
-		// react-doctor-disable-next-line react-doctor/no-derived-state
-		setDraftState(nextDraft);
-	}, [scopeKey]);
+	const cancelPendingPersist = React.useCallback(() => {
+		if (persistTimeoutRef.current === null) {
+			return;
+		}
 
-	const persist = React.useCallback(
+		window.clearTimeout(persistTimeoutRef.current);
+		persistTimeoutRef.current = null;
+	}, []);
+
+	const persistNow = React.useCallback(
 		(nextDraft: ComposerDraftSnapshot<TMetadata>) => {
 			if (!scopeKey) {
 				return;
@@ -55,10 +58,36 @@ export const useComposerDraft = <TMetadata>(
 		[scopeKey],
 	);
 
+	// react-doctor-disable-next-line react-doctor/no-derived-state
+	React.useEffect(() => {
+		cancelPendingPersist();
+		const nextDraft = readComposerDraft<TMetadata>(scopeKey);
+		draftRef.current = nextDraft;
+		// react-doctor-disable-next-line react-doctor/no-derived-state
+		setDraftState(nextDraft);
+	}, [cancelPendingPersist, scopeKey]);
+
+	const persist = React.useCallback(
+		(nextDraft: ComposerDraftSnapshot<TMetadata>) => {
+			if (!scopeKey) {
+				return;
+			}
+
+			cancelPendingPersist();
+			persistTimeoutRef.current = window.setTimeout(() => {
+				persistTimeoutRef.current = null;
+				persistNow(nextDraft);
+			}, 200);
+		},
+		[cancelPendingPersist, persistNow, scopeKey],
+	);
+
 	const setDraft = React.useCallback(
 		(nextDraft: ComposerDraftSnapshot<TMetadata>) => {
 			draftRef.current = nextDraft;
-			setDraftState(nextDraft);
+			React.startTransition(() => {
+				setDraftState(nextDraft);
+			});
 			persist(nextDraft);
 		},
 		[persist],
@@ -86,20 +115,35 @@ export const useComposerDraft = <TMetadata>(
 		[setDraft],
 	);
 
+	const getSnapshot = React.useCallback(() => draftRef.current, []);
+
 	const clear = React.useCallback(() => {
 		const nextDraft = emptyComposerDraft<TMetadata>();
+		cancelPendingPersist();
 		draftRef.current = nextDraft;
 		setDraftState(nextDraft);
 		if (scopeKey) {
 			clearComposerDraft(scopeKey);
 		}
-	}, [scopeKey]);
+	}, [cancelPendingPersist, scopeKey]);
+
+	React.useEffect(() => {
+		return () => {
+			if (persistTimeoutRef.current === null || !scopeKey) {
+				return;
+			}
+
+			cancelPendingPersist();
+			persistNow(draftRef.current);
+		};
+	}, [cancelPendingPersist, persistNow, scopeKey]);
 
 	return {
 		text: draft.text,
 		metadata: draft.metadata,
 		setText,
 		setMetadata,
+		getSnapshot,
 		clear,
 	};
 };
