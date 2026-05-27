@@ -1,28 +1,13 @@
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { validateZoomMcpConnection } from "../packages/ai/src/zoom-mcp-tools.mjs";
+import { oauthCallbackHtmlResponse } from "./oauthCallbackHtml";
 
 const jsonResponse = (body: unknown, status = 200) =>
 	new Response(JSON.stringify(body), {
 		status,
 		headers: { "Content-Type": "application/json" },
 	});
-
-const escapeHtml = (value: string) =>
-	value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
-
-const htmlResponse = (title: string, message: string, status = 200) =>
-	new Response(
-		`<!doctype html><html><head><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:40px;line-height:1.5;color:#111}main{max-width:560px}</style></head><body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body></html>`,
-		{
-			status,
-			headers: { "Content-Type": "text/html; charset=utf-8" },
-		},
-	);
 
 const getConvexSiteUrl = () => process.env.CONVEX_SITE_URL?.trim() ?? "";
 
@@ -93,7 +78,7 @@ export const handleZoomOAuthCallbackRequest = async (
 	const error = url.searchParams.get("error")?.trim();
 
 	if (error) {
-		return htmlResponse("Zoom connection failed", error, 400);
+		return oauthCallbackHtmlResponse("Zoom connection failed", error, 400);
 	}
 
 	if (!code || !state) {
@@ -106,11 +91,11 @@ export const handleZoomOAuthCallbackRequest = async (
 	);
 
 	if (!pendingState || pendingState.expiresAt < Date.now()) {
-		return htmlResponse("Zoom connection expired", "Start the Zoom connection again.", 400);
+		return oauthCallbackHtmlResponse("Zoom connection expired", "Start the Zoom connection again.", 400);
 	}
 
 	if (!pendingState.oauthClientSecret) {
-		return htmlResponse(
+		return oauthCallbackHtmlResponse(
 			"Zoom connection failed",
 			"Zoom OAuth client secret is missing.",
 			500,
@@ -119,7 +104,7 @@ export const handleZoomOAuthCallbackRequest = async (
 
 	const redirectUri = getRedirectUri();
 	if (!redirectUri.startsWith("http")) {
-		return htmlResponse("Zoom connection failed", "CONVEX_SITE_URL is not configured.", 500);
+		return oauthCallbackHtmlResponse("Zoom connection failed", "CONVEX_SITE_URL is not configured.", 500);
 	}
 
 	try {
@@ -156,12 +141,12 @@ export const handleZoomOAuthCallbackRequest = async (
 		});
 	} catch (connectionError) {
 		console.error("Failed to complete Zoom OAuth connection", connectionError);
-		return htmlResponse(
+		return oauthCallbackHtmlResponse(
 			"Zoom connection failed",
 			"OpenGran could not complete the Zoom connection.",
 			500,
 		);
 	}
 
-	return htmlResponse("Zoom connected", "You can close this window and return to OpenGran.");
+	return oauthCallbackHtmlResponse("Zoom connected", "You can close this window and return to OpenGran.");
 };

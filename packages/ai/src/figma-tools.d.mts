@@ -6,12 +6,16 @@ export type FigmaMcpToolConnection = {
 	displayName: string;
 	baseUrl: string;
 	env?: Record<string, string>;
+	oauthClientId?: string;
+	oauthAccessToken: string;
 };
 
 export type FigmaMcpConnectionInput = {
 	displayName: string;
 	baseUrl: string;
 	env?: Record<string, string>;
+	oauthClientId?: string;
+	oauthAccessToken?: string;
 };
 
 export declare const validateFigmaMcpConnection: (

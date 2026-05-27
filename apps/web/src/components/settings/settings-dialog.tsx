@@ -305,8 +305,14 @@ type PostHogConnectionFormState = {
 };
 
 type Context7ConnectionFormState = RemoteMcpConnectionFormState;
-type FigmaConnectionFormState = RemoteMcpConnectionFormState;
-type LinearConnectionFormState = RemoteMcpConnectionFormState;
+type FigmaConnectionFormState = RemoteMcpConnectionFormState & {
+	oauthClientId: string;
+	oauthClientSecret: string;
+};
+type LinearConnectionFormState = RemoteMcpConnectionFormState & {
+	oauthClientId: string;
+	oauthClientSecret: string;
+};
 
 type NotionConnectionFormState = {
 	name: string;
@@ -456,6 +462,7 @@ type FigmaConnectionSettings = {
 	status: AppConnectionStatus;
 	displayName: string;
 	endpoint: string;
+	oauthClientId?: string;
 };
 
 type LinearConnectionSettings = {
@@ -464,6 +471,7 @@ type LinearConnectionSettings = {
 	status: AppConnectionStatus;
 	displayName: string;
 	endpoint: string;
+	oauthClientId?: string;
 };
 
 type NotionConnectionSettings = {
@@ -759,12 +767,16 @@ const initialFigmaConnectionFormState: FigmaConnectionFormState = {
 	name: "Figma",
 	baseUrl: "https://mcp.figma.com/mcp",
 	envVars: [],
+	oauthClientId: "",
+	oauthClientSecret: "",
 };
 
 const initialLinearConnectionFormState: LinearConnectionFormState = {
 	name: "Linear",
 	baseUrl: "https://mcp.linear.app/mcp",
 	envVars: [],
+	oauthClientId: "",
+	oauthClientSecret: "",
 };
 
 const initialNotionConnectionFormState: NotionConnectionFormState = {
@@ -1861,6 +1873,10 @@ function RemoteHeaderMcpConnectionDialogs({
 				onAddEnvVar={controller.addFigmaEnvVar}
 				onRemoveEnvVar={controller.removeFigmaEnvVar}
 				onUpdateEnvVar={controller.updateFigmaEnvVar}
+				oauthClientId={controller.figmaFormState.oauthClientId}
+				oauthClientSecret={controller.figmaFormState.oauthClientSecret}
+				onOAuthClientIdChange={controller.setFigmaOAuthClientId}
+				onOAuthClientSecretChange={controller.setFigmaOAuthClientSecret}
 				onConnect={() => void controller.handleConnectFigma()}
 				onDisable={
 					controller.figmaConnection ? controller.handleDisableFigma : undefined
@@ -1882,6 +1898,10 @@ function RemoteHeaderMcpConnectionDialogs({
 				onAddEnvVar={controller.addLinearEnvVar}
 				onRemoveEnvVar={controller.removeLinearEnvVar}
 				onUpdateEnvVar={controller.updateLinearEnvVar}
+				oauthClientId={controller.linearFormState.oauthClientId}
+				oauthClientSecret={controller.linearFormState.oauthClientSecret}
+				onOAuthClientIdChange={controller.setLinearOAuthClientId}
+				onOAuthClientSecretChange={controller.setLinearOAuthClientSecret}
 				onConnect={() => void controller.handleConnectLinear()}
 				onDisable={
 					controller.linearConnection
@@ -2360,7 +2380,7 @@ function useConnectionsSettingsController() {
 				email: jiraFormState.email.trim(),
 				token: jiraFormState.token.trim(),
 			});
-			toast.success("Jira sync connected");
+			toast.success("Jira Sync connected");
 			handleJiraDialogOpenChange(false);
 		} catch (error) {
 			console.error("Failed to connect Jira", error);
@@ -2516,6 +2536,8 @@ function useConnectionsSettingsController() {
 						figmaConnection?.endpoint ??
 						initialFigmaConnectionFormState.baseUrl,
 					envVars: [],
+					oauthClientId: figmaConnection?.oauthClientId ?? "",
+					oauthClientSecret: "",
 				},
 			});
 		} else {
@@ -2536,19 +2558,28 @@ function useConnectionsSettingsController() {
 		}
 
 		dispatch({ type: "setIsSavingFigmaConnection", value: true });
+		const oauthWindow = createOAuthNavigationTarget();
 
 		try {
-			await connectFigma({
+			const result = await connectFigma({
 				workspaceId: activeWorkspaceId,
 				displayName: figmaFormState.name.trim(),
 				baseUrl: figmaFormState.baseUrl.trim(),
 				env: getNonEmptyEnvRecord(figmaFormState.envVars, {
-					requireValue: true,
+					requireValue: false,
 				}),
+				...(figmaFormState.oauthClientId.trim()
+					? { oauthClientId: figmaFormState.oauthClientId.trim() }
+					: {}),
+				...(figmaFormState.oauthClientSecret.trim()
+					? { oauthClientSecret: figmaFormState.oauthClientSecret.trim() }
+					: {}),
 			});
-			toast.success("Figma connected");
+			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
+			toast.success("Continue in Figma to finish connecting");
 			handleFigmaDialogOpenChange(false);
 		} catch (error) {
+			oauthWindow?.close();
 			console.error("Failed to connect Figma", error);
 			toast.error(getConnectionErrorMessage(error, "Failed to connect Figma"));
 		} finally {
@@ -2572,6 +2603,8 @@ function useConnectionsSettingsController() {
 						linearConnection?.endpoint ??
 						initialLinearConnectionFormState.baseUrl,
 					envVars: [],
+					oauthClientId: linearConnection?.oauthClientId ?? "",
+					oauthClientSecret: "",
 				},
 			});
 		} else {
@@ -2592,19 +2625,28 @@ function useConnectionsSettingsController() {
 		}
 
 		dispatch({ type: "setIsSavingLinearConnection", value: true });
+		const oauthWindow = createOAuthNavigationTarget();
 
 		try {
-			await connectLinear({
+			const result = await connectLinear({
 				workspaceId: activeWorkspaceId,
 				displayName: linearFormState.name.trim(),
 				baseUrl: linearFormState.baseUrl.trim(),
 				env: getNonEmptyEnvRecord(linearFormState.envVars, {
-					requireValue: true,
+					requireValue: false,
 				}),
+				...(linearFormState.oauthClientId.trim()
+					? { oauthClientId: linearFormState.oauthClientId.trim() }
+					: {}),
+				...(linearFormState.oauthClientSecret.trim()
+					? { oauthClientSecret: linearFormState.oauthClientSecret.trim() }
+					: {}),
 			});
-			toast.success("Linear connected");
+			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
+			toast.success("Continue in Linear to finish connecting");
 			handleLinearDialogOpenChange(false);
 		} catch (error) {
+			oauthWindow?.close();
 			console.error("Failed to connect Linear", error);
 			toast.error(getConnectionErrorMessage(error, "Failed to connect Linear"));
 		} finally {
@@ -2657,7 +2699,7 @@ function useConnectionsSettingsController() {
 
 		await disableAppConnection({
 			sourceId: jiraConnection.sourceId,
-			successMessage: "Jira sync disabled",
+			successMessage: "Jira Sync disabled",
 			onDisabled: () => handleJiraDialogOpenChange(false),
 		});
 	};
@@ -3411,7 +3453,7 @@ function useConnectionsSettingsController() {
 		},
 		{
 			icon: <AppSourceIcon provider="jira" className="size-5 shrink-0" />,
-			name: "Jira sync",
+			name: "Jira Sync",
 			buttonLabel: jiraConnection ? "Manage" : "Connect",
 			buttonVariant: "outline",
 			onButtonClick: () => handleJiraDialogOpenChange(true),
@@ -3658,6 +3700,16 @@ function useConnectionsSettingsController() {
 				type: "patchFigmaFormState",
 				value: { name },
 			}),
+		setFigmaOAuthClientId: (oauthClientId: string) =>
+			dispatch({
+				type: "patchFigmaFormState",
+				value: { oauthClientId },
+			}),
+		setFigmaOAuthClientSecret: (oauthClientSecret: string) =>
+			dispatch({
+				type: "patchFigmaFormState",
+				value: { oauthClientSecret },
+			}),
 		setLinearBaseUrl: (baseUrl: string) =>
 			dispatch({
 				type: "patchLinearFormState",
@@ -3667,6 +3719,16 @@ function useConnectionsSettingsController() {
 			dispatch({
 				type: "patchLinearFormState",
 				value: { name },
+			}),
+		setLinearOAuthClientId: (oauthClientId: string) =>
+			dispatch({
+				type: "patchLinearFormState",
+				value: { oauthClientId },
+			}),
+		setLinearOAuthClientSecret: (oauthClientSecret: string) =>
+			dispatch({
+				type: "patchLinearFormState",
+				value: { oauthClientSecret },
 			}),
 		setPostHogBaseUrl: (baseUrl: string) =>
 			dispatch({
@@ -3970,7 +4032,7 @@ function JiraDialog({
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
-					<DialogTitle>Connect Jira sync</DialogTitle>
+					<DialogTitle>Connect Jira Sync</DialogTitle>
 					<DialogDescription>
 						Enter the Jira API credentials OpenGran should use for mention sync.
 					</DialogDescription>

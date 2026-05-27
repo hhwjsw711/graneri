@@ -1,5 +1,10 @@
 import { Button } from "@workspace/ui/components/button";
 import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@workspace/ui/components/collapsible";
+import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -9,10 +14,12 @@ import {
 import { Field, FieldGroup } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
-import { Plus, X } from "lucide-react";
+import { ChevronDown, Plus, X } from "lucide-react";
 import { ConnectionDialogFooter } from "./connection-dialog-footer";
 
 const SETTINGS_LABEL_CLASSNAME = "text-xs text-muted-foreground";
+const SETTINGS_COLLAPSIBLE_TRIGGER_CLASSNAME =
+	"group w-full justify-between px-0 text-sm font-medium text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent aria-expanded:!bg-transparent aria-expanded:hover:!bg-transparent focus-visible:!bg-transparent";
 
 export type RemoteMcpConnectionFormState = {
 	name: string;
@@ -33,6 +40,10 @@ type RemoteMcpDialogProps = {
 	onAddEnvVar: () => void;
 	onRemoveEnvVar: (id: string) => void;
 	onUpdateEnvVar: (id: string, key: "key" | "value", value: string) => void;
+	oauthClientId?: string;
+	oauthClientSecret?: string;
+	onOAuthClientIdChange?: (oauthClientId: string) => void;
+	onOAuthClientSecretChange?: (oauthClientSecret: string) => void;
 	onConnect: () => void;
 	onDisable?: () => void;
 	isFormValid: boolean;
@@ -53,6 +64,10 @@ export function RemoteMcpDialog({
 	onAddEnvVar,
 	onRemoveEnvVar,
 	onUpdateEnvVar,
+	oauthClientId,
+	oauthClientSecret,
+	onOAuthClientIdChange,
+	onOAuthClientSecretChange,
 	onConnect,
 	onDisable,
 	isFormValid,
@@ -134,7 +149,7 @@ export function RemoteMcpDialog({
 											variant="ghost"
 											size="icon"
 											onClick={() => onRemoveEnvVar(envVar.id)}
-											aria-label="Remove header"
+											aria-label="Remove variable"
 										>
 											<X />
 										</Button>
@@ -143,6 +158,55 @@ export function RemoteMcpDialog({
 							</div>
 						) : null}
 					</Field>
+					{onOAuthClientIdChange && onOAuthClientSecretChange ? (
+						<Collapsible>
+							<CollapsibleTrigger asChild>
+								<Button
+									type="button"
+									variant="ghost"
+									className={SETTINGS_COLLAPSIBLE_TRIGGER_CLASSNAME}
+								>
+									Advanced settings
+									<ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+								</Button>
+							</CollapsibleTrigger>
+							<CollapsibleContent className="space-y-4 pt-4">
+								<Field>
+									<Label
+										htmlFor={`${idPrefix}-oauth-client-id`}
+										className={SETTINGS_LABEL_CLASSNAME}
+									>
+										OAuth Client ID
+									</Label>
+									<Input
+										id={`${idPrefix}-oauth-client-id`}
+										value={oauthClientId ?? ""}
+										onChange={(event) =>
+											onOAuthClientIdChange(event.target.value)
+										}
+										placeholder="OAuth Client ID"
+									/>
+								</Field>
+								<Field>
+									<Label
+										htmlFor={`${idPrefix}-oauth-client-secret`}
+										className={SETTINGS_LABEL_CLASSNAME}
+									>
+										OAuth Client Secret
+									</Label>
+									<Input
+										id={`${idPrefix}-oauth-client-secret`}
+										type="password"
+										value={oauthClientSecret ?? ""}
+										onChange={(event) =>
+											onOAuthClientSecretChange(event.target.value)
+										}
+										placeholder="OAuth Client Secret"
+									/>
+								</Field>
+							</CollapsibleContent>
+						</Collapsible>
+					) : null}
 				</FieldGroup>
 				<ConnectionDialogFooter
 					onCancel={() => onOpenChange(false)}

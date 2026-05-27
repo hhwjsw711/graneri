@@ -28,6 +28,7 @@ import type * as mcpOAuth from "../mcpOAuth.js";
 import type * as noteComments from "../noteComments.js";
 import type * as notes from "../notes.js";
 import type * as notificationPreferences from "../notificationPreferences.js";
+import type * as oauthCallbackHtml from "../oauthCallbackHtml.js";
 import type * as onboarding from "../onboarding.js";
 import type * as projects from "../projects.js";
 import type * as recipes from "../recipes.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   noteComments: typeof noteComments;
   notes: typeof notes;
   notificationPreferences: typeof notificationPreferences;
+  oauthCallbackHtml: typeof oauthCallbackHtml;
   onboarding: typeof onboarding;
   projects: typeof projects;
   recipes: typeof recipes;

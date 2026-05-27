@@ -15,15 +15,10 @@ import {
 	validateContext7McpConnection,
 } from "../packages/ai/src/context7-tools.mjs";
 import {
-	DEFAULT_FIGMA_MCP_ENDPOINT,
-	validateFigmaMcpConnection,
-} from "../packages/ai/src/figma-tools.mjs";
-import {
 	DEFAULT_JIRA_MCP_ENDPOINT,
 } from "../packages/ai/src/jira-mcp-tools.mjs";
 import {
 	DEFAULT_LINEAR_MCP_ENDPOINT,
-	validateLinearMcpConnection,
 } from "../packages/ai/src/linear-tools.mjs";
 import {
 	refreshMcpSdkOAuthToken,
@@ -80,7 +75,7 @@ const mcpOAuthStartResultValidator = v.object({
 });
 
 const remoteHeaderMcpConnectionResultValidator = <
-	TProvider extends "context7" | "figma" | "linear",
+	TProvider extends "context7",
 >(
 	provider: TProvider,
 ) =>
@@ -133,7 +128,7 @@ type McpOAuthStartResult = {
 };
 
 type RemoteHeaderMcpConnectionResult<
-	TProvider extends "context7" | "figma" | "linear",
+	TProvider extends "context7",
 > = {
 	sourceId: string;
 	provider: TProvider;
@@ -144,6 +139,8 @@ type RemoteHeaderMcpConnectionResult<
 
 const ZOOM_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const MCP_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const FIGMA_MCP_CLIENT_REVIEW_MESSAGE =
+	"Figma only allows MCP clients listed in the Figma MCP Catalog to use the hosted remote server. OpenGran needs Figma remote MCP access approval before this connection can be started.";
 
 const getConvexSiteUrl = () => {
 	const siteUrl = process.env.CONVEX_SITE_URL?.trim();
@@ -164,7 +161,7 @@ const getZoomOAuthRedirectUri = () =>
 const createMcpOAuthState = () => randomBytes(32).toString("hex");
 
 const getMcpOAuthRedirectUri = (
-	provider: "jira-mcp" | "notion" | "posthog",
+	provider: "figma" | "jira-mcp" | "linear" | "notion" | "posthog",
 ) =>
 	`${getConvexSiteUrl()}/api/oauth/${provider}/callback`;
 
@@ -512,7 +509,7 @@ const refreshMcpTokensForWorkspace = async (
 	ctx: ActionCtx,
 	ownerTokenIdentifier: string,
 	workspaceId: Id<"workspaces">,
-	provider: "jira-mcp" | "notion" | "posthog",
+	provider: "figma" | "jira-mcp" | "linear" | "notion" | "posthog",
 ) => {
 	const refreshSkewMs = 2 * 60 * 1000;
 	const connections = await ctx.runQuery(
@@ -522,6 +519,10 @@ const refreshMcpTokensForWorkspace = async (
 	const displayName =
 		provider === "jira-mcp"
 			? "Jira"
+			: provider === "figma"
+				? "Figma"
+				: provider === "linear"
+					? "Linear"
 			: provider === "posthog"
 				? "PostHog"
 				: "Notion";
@@ -535,7 +536,10 @@ const refreshMcpTokensForWorkspace = async (
 			)
 			.map(async (connection) => {
 				const tokens =
-					provider === "jira-mcp" || provider === "posthog"
+					provider === "jira-mcp" ||
+					provider === "posthog" ||
+					provider === "figma" ||
+					provider === "linear"
 						? await refreshMcpSdkOAuthToken({
 								baseUrl: connection.baseUrl,
 								redirectUri: getMcpOAuthRedirectUri(provider),
@@ -704,6 +708,93 @@ const sanitizeRemoteMcpEnv = (env?: Record<string, string>) =>
 			.filter(([key, value]) => key.length > 0 && value.length > 0),
 	);
 
+const startRemoteMcpOAuthConnection = async ({
+	ctx,
+	args,
+	provider,
+	label,
+	defaultEndpoint,
+	errorCode,
+	errorMessage,
+}: {
+	ctx: ActionCtx;
+	args: {
+		workspaceId: Id<"workspaces">;
+		displayName: string;
+		baseUrl: string;
+		env?: Record<string, string>;
+		oauthClientId?: string;
+		oauthClientSecret?: string;
+	};
+	provider: "figma" | "jira-mcp" | "linear" | "posthog";
+	label: string;
+	defaultEndpoint: string;
+	errorCode: string;
+	errorMessage: string;
+}): Promise<McpOAuthStartResult> => {
+	const identity = await requireIdentity(ctx);
+	const redirectUri = getMcpOAuthRedirectUri(provider);
+	const baseUrl = normalizeRemoteMcpEndpoint(
+		args.baseUrl.trim() || defaultEndpoint,
+		{ provider, label },
+	);
+	const displayName = args.displayName.trim() || label;
+	const env = sanitizeRemoteMcpEnv(args.env);
+	const requestedOAuthClientId = args.oauthClientId?.trim() || undefined;
+	const requestedOAuthClientSecret =
+		args.oauthClientSecret?.trim() || undefined;
+
+	if (!redirectUri.startsWith("http")) {
+		throw new ConvexError({
+			code: errorCode,
+			message: `${label} OAuth is not configured.`,
+		});
+	}
+
+	let client: { clientId: string; clientSecret?: string };
+	let oauthStart: Awaited<ReturnType<typeof startMcpSdkOAuth>>;
+	try {
+		client = requestedOAuthClientId
+			? {
+					clientId: requestedOAuthClientId,
+					...(requestedOAuthClientSecret
+						? { clientSecret: requestedOAuthClientSecret }
+						: {}),
+				}
+			: { clientId: "" };
+		oauthStart = await startMcpSdkOAuth({
+			baseUrl,
+			redirectUri,
+			client: client.clientId ? client : undefined,
+			createState: createMcpOAuthState,
+		});
+		client = oauthStart.client;
+	} catch (error) {
+		console.error(`Failed to prepare ${label} MCP OAuth connection`, error);
+
+		throw new ConvexError({
+			code: errorCode,
+			message: errorMessage,
+		});
+	}
+
+	await ctx.runMutation(internal.appConnections.createMcpOAuthState, {
+		provider,
+		ownerTokenIdentifier: identity.tokenIdentifier,
+		workspaceId: args.workspaceId,
+		displayName,
+		baseUrl,
+		...(Object.keys(env).length > 0 ? { env } : {}),
+		oauthClientId: client.clientId,
+		...(client.clientSecret ? { oauthClientSecret: client.clientSecret } : {}),
+		codeVerifier: oauthStart.codeVerifier,
+		state: oauthStart.state,
+		expiresAt: Date.now() + MCP_OAUTH_STATE_TTL_MS,
+	});
+
+	return { authorizationUrl: oauthStart.authorizationUrl };
+};
+
 const remoteHeaderMcpConfigs = {
 	context7: {
 		defaultEndpoint: DEFAULT_CONTEXT7_MCP_ENDPOINT,
@@ -713,24 +804,6 @@ const remoteHeaderMcpConfigs = {
 		label: "Context7",
 		validateConnection: validateContext7McpConnection,
 		upsert: internal.appConnections.upsertContext7,
-	},
-	figma: {
-		defaultEndpoint: DEFAULT_FIGMA_MCP_ENDPOINT,
-		defaultName: "Figma",
-		errorCode: "FIGMA_MCP_CONNECTION_FAILED",
-		failedMessage: "Failed to connect Figma MCP.",
-		label: "Figma",
-		validateConnection: validateFigmaMcpConnection,
-		upsert: internal.appConnections.upsertFigma,
-	},
-	linear: {
-		defaultEndpoint: DEFAULT_LINEAR_MCP_ENDPOINT,
-		defaultName: "Linear",
-		errorCode: "LINEAR_MCP_CONNECTION_FAILED",
-		failedMessage: "Failed to connect Linear MCP.",
-		label: "Linear",
-		validateConnection: validateLinearMcpConnection,
-		upsert: internal.appConnections.upsertLinear,
 	},
 } as const;
 
@@ -1044,13 +1117,16 @@ export const connectFigma = action({
 		displayName: v.string(),
 		baseUrl: v.string(),
 		env: v.optional(v.record(v.string(), v.string())),
+		oauthClientId: v.optional(v.string()),
+		oauthClientSecret: v.optional(v.string()),
 	},
-	returns: remoteHeaderMcpConnectionResultValidator("figma"),
-	handler: async (
-		ctx,
-		args,
-	): Promise<RemoteHeaderMcpConnectionResult<"figma">> =>
-		await connectRemoteHeaderMcp(ctx, args, "figma"),
+	returns: mcpOAuthStartResultValidator,
+	handler: async (): Promise<McpOAuthStartResult> => {
+		throw new ConvexError({
+			code: "FIGMA_MCP_CLIENT_REVIEW_REQUIRED",
+			message: FIGMA_MCP_CLIENT_REVIEW_MESSAGE,
+		});
+	},
 });
 
 export const connectLinear = action({
@@ -1059,13 +1135,20 @@ export const connectLinear = action({
 		displayName: v.string(),
 		baseUrl: v.string(),
 		env: v.optional(v.record(v.string(), v.string())),
+		oauthClientId: v.optional(v.string()),
+		oauthClientSecret: v.optional(v.string()),
 	},
-	returns: remoteHeaderMcpConnectionResultValidator("linear"),
-	handler: async (
-		ctx,
-		args,
-	): Promise<RemoteHeaderMcpConnectionResult<"linear">> =>
-		await connectRemoteHeaderMcp(ctx, args, "linear"),
+	returns: mcpOAuthStartResultValidator,
+	handler: async (ctx, args): Promise<McpOAuthStartResult> =>
+		await startRemoteMcpOAuthConnection({
+			ctx,
+			args,
+			provider: "linear",
+			label: "Linear",
+			defaultEndpoint: DEFAULT_LINEAR_MCP_ENDPOINT,
+			errorCode: "LINEAR_MCP_OAUTH_NOT_CONFIGURED",
+			errorMessage: "Failed to start Linear OAuth.",
+		}),
 });
 
 export const connectPostHog = action({
@@ -1301,6 +1384,12 @@ export const getSelectedForChatWithFreshTokens = action({
 				ctx,
 				identity.tokenIdentifier,
 				args.workspaceId,
+				"figma",
+			),
+			refreshMcpTokensForWorkspace(
+				ctx,
+				identity.tokenIdentifier,
+				args.workspaceId,
 				"jira-mcp",
 			),
 			refreshMcpTokensForWorkspace(
@@ -1314,6 +1403,12 @@ export const getSelectedForChatWithFreshTokens = action({
 				identity.tokenIdentifier,
 				args.workspaceId,
 				"posthog",
+			),
+			refreshMcpTokensForWorkspace(
+				ctx,
+				identity.tokenIdentifier,
+				args.workspaceId,
+				"linear",
 			),
 			refreshZoomTokensForWorkspace(
 				ctx,
@@ -1345,6 +1440,12 @@ export const getSelectedForChatInternalWithFreshTokens = internalAction({
 				ctx,
 				args.ownerTokenIdentifier,
 				args.workspaceId,
+				"figma",
+			),
+			refreshMcpTokensForWorkspace(
+				ctx,
+				args.ownerTokenIdentifier,
+				args.workspaceId,
 				"jira-mcp",
 			),
 			refreshMcpTokensForWorkspace(
@@ -1358,6 +1459,12 @@ export const getSelectedForChatInternalWithFreshTokens = internalAction({
 				args.ownerTokenIdentifier,
 				args.workspaceId,
 				"posthog",
+			),
+			refreshMcpTokensForWorkspace(
+				ctx,
+				args.ownerTokenIdentifier,
+				args.workspaceId,
+				"linear",
 			),
 			refreshZoomTokensForWorkspace(
 				ctx,

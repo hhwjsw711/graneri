@@ -72,6 +72,24 @@ http.route({
 });
 
 http.route({
+	path: "/api/oauth/figma/callback",
+	method: "GET",
+	handler: httpAction(
+		async (ctx, request) =>
+			await handleMcpOAuthCallbackRequest(ctx, request, "figma"),
+	),
+});
+
+http.route({
+	path: "/api/oauth/linear/callback",
+	method: "GET",
+	handler: httpAction(
+		async (ctx, request) =>
+			await handleMcpOAuthCallbackRequest(ctx, request, "linear"),
+	),
+});
+
+http.route({
 	path: "/api/oauth/notion/callback",
 	method: "GET",
 	handler: httpAction(

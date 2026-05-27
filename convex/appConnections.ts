@@ -111,6 +111,7 @@ const figmaConnectionSettingsValidator = v.object({
 	status: appConnectionStatusValidator,
 	displayName: v.string(),
 	endpoint: v.string(),
+	oauthClientId: v.optional(v.string()),
 });
 
 const linearConnectionSettingsValidator = v.object({
@@ -119,6 +120,7 @@ const linearConnectionSettingsValidator = v.object({
 	status: appConnectionStatusValidator,
 	displayName: v.string(),
 	endpoint: v.string(),
+	oauthClientId: v.optional(v.string()),
 });
 
 const yandexCalendarCredentialsValidator = v.union(
@@ -224,6 +226,8 @@ const figmaChatToolConnectionValidator = v.object({
 	displayName: v.string(),
 	baseUrl: v.string(),
 	env: v.optional(v.record(v.string(), v.string())),
+	oauthClientId: v.optional(v.string()),
+	oauthAccessToken: v.string(),
 });
 
 const linearChatToolConnectionValidator = v.object({
@@ -232,6 +236,8 @@ const linearChatToolConnectionValidator = v.object({
 	displayName: v.string(),
 	baseUrl: v.string(),
 	env: v.optional(v.record(v.string(), v.string())),
+	oauthClientId: v.optional(v.string()),
+	oauthAccessToken: v.string(),
 });
 
 export const chatToolConnectionValidator = v.union(
@@ -273,6 +279,8 @@ const zoomOAuthConnectionValidator = v.object({
 });
 
 const mcpOAuthProviderValidator = v.union(
+	figmaProviderValidator,
+	linearProviderValidator,
 	v.literal("notion"),
 	v.literal("posthog"),
 	v.literal("zoom"),
@@ -371,6 +379,7 @@ type FigmaConnectionSettings = {
 	status: "connected" | "disconnected";
 	displayName: string;
 	endpoint: string;
+	oauthClientId?: string;
 };
 
 type LinearConnectionSettings = {
@@ -379,13 +388,11 @@ type LinearConnectionSettings = {
 	status: "connected" | "disconnected";
 	displayName: string;
 	endpoint: string;
+	oauthClientId?: string;
 };
 
-type RemoteHeaderMcpProvider = "context7" | "figma" | "linear";
-type RemoteHeaderMcpConnectionSettings =
-	| Context7ConnectionSettings
-	| FigmaConnectionSettings
-	| LinearConnectionSettings;
+type RemoteHeaderMcpProvider = "context7";
+type RemoteHeaderMcpConnectionSettings = Context7ConnectionSettings;
 
 type ConnectionActivitySnapshot = {
 	lastWebhookReceivedAt?: number;
@@ -476,6 +483,8 @@ export type ChatToolConnection =
 			displayName: string;
 			baseUrl: string;
 			env?: Record<string, string>;
+			oauthClientId?: string;
+			oauthAccessToken: string;
 	  }
 	| {
 			sourceId: string;
@@ -483,6 +492,8 @@ export type ChatToolConnection =
 			displayName: string;
 			baseUrl: string;
 			env?: Record<string, string>;
+			oauthClientId?: string;
+			oauthAccessToken: string;
 	  };
 
 const requireIdentity = async (ctx: QueryCtx | MutationCtx) => {
@@ -828,7 +839,9 @@ const toChatToolConnection = (
 	}
 
 	if (
-		(connection.provider === "jira-mcp" ||
+		(connection.provider === "figma" ||
+			connection.provider === "jira-mcp" ||
+			connection.provider === "linear" ||
 			connection.provider === "posthog") &&
 		connection.baseUrl &&
 		connection.token
@@ -884,26 +897,6 @@ const toChatToolConnection = (
 		};
 	}
 
-	if (connection.provider === "figma" && connection.baseUrl) {
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "figma",
-			displayName: connection.displayName,
-			baseUrl: connection.baseUrl,
-			...parseConnectionEnv(connection),
-		};
-	}
-
-	if (connection.provider === "linear" && connection.baseUrl) {
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "linear",
-			displayName: connection.displayName,
-			baseUrl: connection.baseUrl,
-			...parseConnectionEnv(connection),
-		};
-	}
-
 	return null;
 };
 
@@ -949,6 +942,14 @@ export const listSources = query({
 		const sources: AppConnectionSource[] = [];
 
 		for (const connection of connections) {
+			if (
+				(connection.provider === "figma" ||
+					connection.provider === "linear") &&
+				!connection.token
+			) {
+				continue;
+			}
+
 			if (
 				connection.provider !== "yandex-calendar" &&
 				connection.provider !== "yandex-tracker" &&
@@ -1099,7 +1100,7 @@ export const getJiraMcp = query({
 			args.workspaceId,
 		);
 
-		if (!connection?.baseUrl) {
+		if (!connection?.baseUrl || !connection.token) {
 			return null;
 		}
 
@@ -1179,7 +1180,7 @@ export const getPostHog = query({
 			args.workspaceId,
 		);
 
-		if (!connection?.baseUrl) {
+		if (!connection?.baseUrl || !connection.token) {
 			return null;
 		}
 
@@ -1326,6 +1327,7 @@ export const getFigma = query({
 			status: connection.status,
 			displayName: connection.displayName,
 			endpoint: connection.baseUrl,
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 		};
 	},
 });
@@ -1358,6 +1360,7 @@ export const getLinear = query({
 			status: connection.status,
 			displayName: connection.displayName,
 			endpoint: connection.baseUrl,
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 		};
 	},
 });
@@ -2010,7 +2013,7 @@ export const upsertJira = internalMutation({
 			);
 			const patch: Partial<Doc<"appConnections">> = {
 				status: "connected",
-				displayName: "Jira sync",
+				displayName: "Jira Sync",
 				baseUrl,
 				email,
 				token,
@@ -2028,7 +2031,7 @@ export const upsertJira = internalMutation({
 				sourceId: toAppSourceId(existingConnection._id),
 				provider: "jira" as const,
 				status: "connected" as const,
-				displayName: "Jira sync",
+				displayName: "Jira Sync",
 				baseUrl,
 				email,
 				webhookSecret,
@@ -2048,7 +2051,7 @@ export const upsertJira = internalMutation({
 			workspaceId: args.workspaceId,
 			provider: "jira",
 			status: "connected",
-			displayName: "Jira sync",
+			displayName: "Jira Sync",
 			baseUrl,
 			email,
 			token,
@@ -2062,7 +2065,7 @@ export const upsertJira = internalMutation({
 			sourceId: toAppSourceId(id),
 			provider: "jira" as const,
 			status: "connected" as const,
-			displayName: "Jira sync",
+			displayName: "Jira Sync",
 			baseUrl,
 			email,
 			webhookSecret,
@@ -2413,8 +2416,6 @@ export const upsertZoom = internalMutation({
 
 const remoteHeaderMcpDefaults = {
 	context7: "Context7",
-	figma: "Figma",
-	linear: "Linear",
 } satisfies Record<RemoteHeaderMcpProvider, string>;
 
 const toRemoteHeaderMcpConnectionSettings = (
@@ -2486,6 +2487,103 @@ const upsertRemoteHeaderMcpConnection = async (
 	return toRemoteHeaderMcpConnectionSettings(id, provider, displayName, baseUrl);
 };
 
+const upsertMcpOAuthConnection = async <
+	TProvider extends "figma" | "linear",
+>(
+	ctx: MutationCtx,
+	args: {
+		ownerTokenIdentifier: string;
+		workspaceId: Id<"workspaces">;
+		displayName: string;
+		baseUrl: string;
+		env?: Record<string, string>;
+		oauthClientId: string;
+		oauthClientSecret?: string;
+		oauthAccessToken: string;
+		oauthRefreshToken?: string;
+		tokenExpiresAt?: number;
+	},
+	provider: TProvider,
+): Promise<
+	TProvider extends "figma" ? FigmaConnectionSettings : LinearConnectionSettings
+> => {
+	await requireOwnedWorkspace(ctx, args.ownerTokenIdentifier, args.workspaceId);
+	const now = Date.now();
+	const defaultDisplayName = provider === "figma" ? "Figma" : "Linear";
+	const displayName = args.displayName.trim() || defaultDisplayName;
+	const baseUrl = args.baseUrl.trim();
+	const envJson = args.env ? JSON.stringify(args.env) : undefined;
+	const oauthClientId = args.oauthClientId.trim();
+	const oauthClientSecret = args.oauthClientSecret?.trim() || undefined;
+	const oauthRefreshToken = args.oauthRefreshToken?.trim() || undefined;
+	const existingConnection =
+		provider === "figma"
+			? await getOwnedFigmaConnection(
+					ctx,
+					args.ownerTokenIdentifier,
+					args.workspaceId,
+				)
+			: await getOwnedLinearConnection(
+					ctx,
+					args.ownerTokenIdentifier,
+					args.workspaceId,
+				);
+
+	if (existingConnection) {
+		await ctx.db.patch(existingConnection._id, {
+			status: "connected",
+			displayName,
+			baseUrl,
+			envJson,
+			accountId: oauthClientId,
+			oauthClientSecret,
+			token: args.oauthAccessToken,
+			...(oauthRefreshToken ? { oauthRefreshToken } : {}),
+			tokenExpiresAt: args.tokenExpiresAt,
+			updatedAt: now,
+		});
+
+		return {
+			sourceId: toAppSourceId(existingConnection._id),
+			provider,
+			status: "connected" as const,
+			displayName,
+			endpoint: baseUrl,
+			oauthClientId,
+		} as TProvider extends "figma"
+			? FigmaConnectionSettings
+			: LinearConnectionSettings;
+	}
+
+	const id = await ctx.db.insert("appConnections", {
+		ownerTokenIdentifier: args.ownerTokenIdentifier,
+		workspaceId: args.workspaceId,
+		provider,
+		status: "connected",
+		displayName,
+		baseUrl,
+		...(envJson ? { envJson } : {}),
+		accountId: oauthClientId,
+		...(oauthClientSecret ? { oauthClientSecret } : {}),
+		token: args.oauthAccessToken,
+		...(oauthRefreshToken ? { oauthRefreshToken } : {}),
+		...(args.tokenExpiresAt ? { tokenExpiresAt: args.tokenExpiresAt } : {}),
+		createdAt: now,
+		updatedAt: now,
+	});
+
+	return {
+		sourceId: toAppSourceId(id),
+		provider,
+		status: "connected" as const,
+		displayName,
+		endpoint: baseUrl,
+		oauthClientId,
+	} as TProvider extends "figma"
+		? FigmaConnectionSettings
+		: LinearConnectionSettings;
+};
+
 export const upsertContext7 = internalMutation({
 	args: {
 		ownerTokenIdentifier: v.string(),
@@ -2510,14 +2608,15 @@ export const upsertFigma = internalMutation({
 		displayName: v.string(),
 		baseUrl: v.string(),
 		env: v.optional(v.record(v.string(), v.string())),
+		oauthClientId: v.string(),
+		oauthClientSecret: v.optional(v.string()),
+		oauthAccessToken: v.string(),
+		oauthRefreshToken: v.optional(v.string()),
+		tokenExpiresAt: v.optional(v.number()),
 	},
 	returns: figmaConnectionSettingsValidator,
 	handler: async (ctx, args): Promise<FigmaConnectionSettings> =>
-		(await upsertRemoteHeaderMcpConnection(
-			ctx,
-			args,
-			"figma",
-		)) as FigmaConnectionSettings,
+		await upsertMcpOAuthConnection(ctx, args, "figma"),
 });
 
 export const upsertLinear = internalMutation({
@@ -2527,14 +2626,15 @@ export const upsertLinear = internalMutation({
 		displayName: v.string(),
 		baseUrl: v.string(),
 		env: v.optional(v.record(v.string(), v.string())),
+		oauthClientId: v.string(),
+		oauthClientSecret: v.optional(v.string()),
+		oauthAccessToken: v.string(),
+		oauthRefreshToken: v.optional(v.string()),
+		tokenExpiresAt: v.optional(v.number()),
 	},
 	returns: linearConnectionSettingsValidator,
 	handler: async (ctx, args): Promise<LinearConnectionSettings> =>
-		(await upsertRemoteHeaderMcpConnection(
-			ctx,
-			args,
-			"linear",
-		)) as LinearConnectionSettings,
+		await upsertMcpOAuthConnection(ctx, args, "linear"),
 });
 
 const removeExpiredMcpOAuthStates = async (ctx: MutationCtx, now: number) => {
@@ -2578,11 +2678,15 @@ export const createMcpOAuthState = internalMutation({
 			workspaceId: args.workspaceId,
 			displayName:
 				args.displayName.trim() ||
-				(args.provider === "posthog"
-					? "PostHog"
-					: args.provider === "zoom"
-						? "Zoom"
-						: "Notion"),
+				(args.provider === "figma"
+					? "Figma"
+					: args.provider === "linear"
+						? "Linear"
+						: args.provider === "posthog"
+							? "PostHog"
+							: args.provider === "zoom"
+								? "Zoom"
+								: "Notion"),
 			baseUrl: args.baseUrl.trim(),
 			...(args.env ? { envJson: JSON.stringify(args.env) } : {}),
 			oauthClientId: args.oauthClientId.trim(),

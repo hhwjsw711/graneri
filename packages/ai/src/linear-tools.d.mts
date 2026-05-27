@@ -6,12 +6,16 @@ export type LinearMcpToolConnection = {
 	displayName: string;
 	baseUrl: string;
 	env?: Record<string, string>;
+	oauthClientId?: string;
+	oauthAccessToken: string;
 };
 
 export type LinearMcpConnectionInput = {
 	displayName: string;
 	baseUrl: string;
 	env?: Record<string, string>;
+	oauthClientId?: string;
+	oauthAccessToken?: string;
 };
 
 export declare const validateLinearMcpConnection: (

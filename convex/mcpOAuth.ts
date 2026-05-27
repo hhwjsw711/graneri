@@ -2,8 +2,9 @@ import type { OAuthTokens } from "@ai-sdk/mcp";
 import { validateRemoteMcpConnection } from "../packages/ai/src/remote-mcp-tools.mjs";
 import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
+import { oauthCallbackHtmlResponse } from "./oauthCallbackHtml";
 
-type McpOAuthProvider = "jira-mcp" | "notion" | "posthog";
+type McpOAuthProvider = "figma" | "jira-mcp" | "linear" | "notion" | "posthog";
 
 type McpSdkOAuthClient = {
 	clientId: string;
@@ -21,10 +22,18 @@ type ProviderConfig = {
 };
 
 const PROVIDER_CONFIG: Record<McpOAuthProvider, ProviderConfig> = {
+	figma: { displayName: "Figma" },
 	"jira-mcp": { displayName: "Jira" },
+	linear: { displayName: "Linear" },
 	notion: { displayName: "Notion" },
 	posthog: { displayName: "PostHog" },
 };
+
+const usesMcpSdkOAuth = (provider: McpOAuthProvider) =>
+	provider === "figma" ||
+	provider === "jira-mcp" ||
+	provider === "linear" ||
+	provider === "posthog";
 
 const ensureUrlCanParse = () => {
 	if (typeof URL.canParse === "function") {
@@ -52,22 +61,6 @@ const jsonResponse = (body: unknown, status = 200) =>
 		status,
 		headers: { "Content-Type": "application/json" },
 	});
-
-const escapeHtml = (value: string) =>
-	value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;");
-
-const htmlResponse = (title: string, message: string, status = 200) =>
-	new Response(
-		`<!doctype html><html><head><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:40px;line-height:1.5;color:#111}main{max-width:560px}</style></head><body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body></html>`,
-		{
-			status,
-			headers: { "Content-Type": "text/html; charset=utf-8" },
-		},
-	);
 
 const getConvexSiteUrl = () => process.env.CONVEX_SITE_URL?.trim() ?? "";
 
@@ -368,7 +361,7 @@ export const handleMcpOAuthCallbackRequest = async (
 	const errorDescription = url.searchParams.get("error_description")?.trim();
 
 	if (error) {
-		return htmlResponse(
+		return oauthCallbackHtmlResponse(
 			`${displayName} connection failed`,
 			errorDescription || error,
 			400,
@@ -388,7 +381,7 @@ export const handleMcpOAuthCallbackRequest = async (
 	);
 
 	if (!pendingState || pendingState.expiresAt < Date.now()) {
-		return htmlResponse(
+		return oauthCallbackHtmlResponse(
 			`${displayName} connection expired`,
 			`Start the ${displayName} connection again.`,
 			400,
@@ -397,7 +390,7 @@ export const handleMcpOAuthCallbackRequest = async (
 
 	const redirectUri = getRedirectUri(provider);
 	if (!redirectUri.startsWith("http")) {
-		return htmlResponse(
+		return oauthCallbackHtmlResponse(
 			`${displayName} connection failed`,
 			"CONVEX_SITE_URL is not configured.",
 			500,
@@ -406,11 +399,9 @@ export const handleMcpOAuthCallbackRequest = async (
 
 	if (
 		!pendingState.codeVerifier ||
-		(provider !== "jira-mcp" &&
-			provider !== "posthog" &&
-			!pendingState.oauthTokenEndpoint)
+		(!usesMcpSdkOAuth(provider) && !pendingState.oauthTokenEndpoint)
 	) {
-		return htmlResponse(
+		return oauthCallbackHtmlResponse(
 			`${displayName} connection failed`,
 			`${displayName} OAuth state is incomplete.`,
 			500,
@@ -424,7 +415,7 @@ export const handleMcpOAuthCallbackRequest = async (
 		}
 		const tokenEndpoint = pendingState.oauthTokenEndpoint;
 		const tokens = await (async () => {
-			if (provider === "jira-mcp" || provider === "posthog") {
+			if (usesMcpSdkOAuth(provider)) {
 				return await exchangeMcpSdkOAuthCode({
 					baseUrl: pendingState.baseUrl,
 					redirectUri,
@@ -471,11 +462,15 @@ export const handleMcpOAuthCallbackRequest = async (
 		});
 
 		const mutation =
-			provider === "jira-mcp"
-				? internal.appConnections.upsertJiraMcp
-				: provider === "posthog"
-					? internal.appConnections.upsertPostHog
-					: internal.appConnections.upsertNotion;
+			provider === "figma"
+				? internal.appConnections.upsertFigma
+				: provider === "jira-mcp"
+					? internal.appConnections.upsertJiraMcp
+					: provider === "linear"
+						? internal.appConnections.upsertLinear
+						: provider === "posthog"
+							? internal.appConnections.upsertPostHog
+							: internal.appConnections.upsertNotion;
 
 		await ctx.runMutation(mutation, {
 			ownerTokenIdentifier: pendingState.ownerTokenIdentifier,
@@ -495,14 +490,14 @@ export const handleMcpOAuthCallbackRequest = async (
 		});
 	} catch (connectionError) {
 		console.error(`Failed to complete ${displayName} OAuth connection`, connectionError);
-		return htmlResponse(
+		return oauthCallbackHtmlResponse(
 			`${displayName} connection failed`,
 			`OpenGran could not complete the ${displayName} connection.`,
 			500,
 		);
 	}
 
-	return htmlResponse(
+	return oauthCallbackHtmlResponse(
 		`${displayName} connected`,
 		"You can close this window and return to OpenGran.",
 	);

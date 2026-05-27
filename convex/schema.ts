@@ -632,7 +632,9 @@ export default defineSchema({
 		]),
 	mcpOAuthStates: defineTable({
 		provider: v.union(
+			v.literal("figma"),
 			v.literal("jira-mcp"),
+			v.literal("linear"),
 			v.literal("notion"),
 			v.literal("posthog"),
 			v.literal("zoom"),
