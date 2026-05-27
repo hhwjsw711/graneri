@@ -45,6 +45,12 @@ export const getMentionProvider = (provider: unknown) =>
 	isChatAppSourceProvider(provider) ? provider : null;
 
 const INLINE_TOOL_ICON_DATA_URIS: Record<ChatAppSourceProvider, string> = {
+	context7:
+		"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' aria-hidden='true' viewBox='0 0 32 32' fill='none' stroke='none'%3E%3Crect width='32' height='32' rx='7' fill='%230F172A'/%3E%3Cpath d='M9 8.5h14v3H12v9h11v3H9v-15Z' fill='%23F8FAFC'/%3E%3Cpath d='M14 14h9v3h-9v-3Z' fill='%2338BDF8'/%3E%3C/svg%3E",
+	figma:
+		"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' aria-hidden='true' viewBox='0 0 32 32' fill='none' stroke='none'%3E%3Crect width='32' height='32' rx='7' fill='%23181818'/%3E%3Ccircle cx='13' cy='10' r='4' fill='%23F24E1E'/%3E%3Ccircle cx='19' cy='10' r='4' fill='%23FF7262'/%3E%3Ccircle cx='13' cy='16' r='4' fill='%23A259FF'/%3E%3Ccircle cx='19' cy='16' r='4' fill='%231ABCFE'/%3E%3Ccircle cx='13' cy='22' r='4' fill='%230ACF83'/%3E%3C/svg%3E",
+	linear:
+		"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' aria-hidden='true' viewBox='0 0 32 32' fill='none' stroke='none'%3E%3Crect width='32' height='32' rx='7' fill='%235E6AD2'/%3E%3Cpath d='M7 19.8 19.8 7H25L12.2 19.8H7Zm0 5.2L25 7v5.2L12.2 25H7Zm8.2 0L25 15.2V20l-5 5h-4.8Z' fill='white'/%3E%3C/svg%3E",
 	"google-calendar":
 		"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' aria-hidden='true' viewBox='0 0 48 48' fill='none' stroke='none'%3E%3Crect width='22' height='22' x='13' y='13' fill='%23fff'/%3E%3Cpolygon fill='%231e88e5' points='25.68,20.92 26.69,22.36 28.27,21.21 28.27,29.56 30,29.56 30,18.62 28.56,18.62'/%3E%3Cpath fill='%231e88e5' d='M22.94,23.75c0.63-0.57,1.01-1.37,1.01-2.25c0-1.75-1.53-3.17-3.42-3.17 c-1.6,0-2.97,1.01-3.33,2.45l1.66,0.42c0.17-0.66,0.87-1.15,1.67-1.15c0.94,0,1.71,0.65,1.71,1.44 c0,0.79-0.77,1.44-1.71,1.44h-1v1.73h1c1.08,0,1.99,0.75,1.99,1.64c0,0.9-0.87,1.64-1.93,1.64 c-0.96,0-1.78-0.61-1.91-1.42L17,26.8c0.26,1.64,1.81,2.87,3.6,2.87c2.01,0,3.64-1.51,3.64-3.37 C24.24,25.28,23.74,24.36,22.94,23.75z'/%3E%3Cpolygon fill='%23fbc02d' points='34,42 14,42 13,38 14,34 34,34 35,38'/%3E%3Cpolygon fill='%234caf50' points='38,35 42,34 42,14 38,13 34,14 34,34'/%3E%3Cpath fill='%231e88e5' d='M34,14l1-4l-1-4H9C7.34,6,6,7.34,6,9v25l4,1l4-1V14H34z'/%3E%3Cpolygon fill='%23e53935' points='34,34 34,42 42,34'/%3E%3Cpath fill='%231565c0' d='M39,6h-5v8h8V9C42,7.34,40.66,6,39,6z'/%3E%3Cpath fill='%231565c0' d='M9,42h5v-8H6v5C6,40.66,7.34,42,9,42z'/%3E%3C/svg%3E",
 	"google-drive":

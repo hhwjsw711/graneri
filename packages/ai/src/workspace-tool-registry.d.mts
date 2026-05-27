@@ -1,5 +1,8 @@
 import type { ToolSet } from "ai";
+import type { Context7McpToolConnection } from "./context7-tools.mjs";
+import type { FigmaMcpToolConnection } from "./figma-tools.mjs";
 import type { JiraMcpToolConnection } from "./jira-mcp-tools.mjs";
+import type { LinearMcpToolConnection } from "./linear-tools.mjs";
 import type { NotionMcpToolConnection } from "./notion-tools.mjs";
 import type { PostHogMcpToolConnection } from "./posthog-tools.mjs";
 import type { YandexTrackerToolConnection } from "./yandex-tracker-tools.mjs";
@@ -30,7 +33,10 @@ export type GoogleDriveToolConnection = {
 };
 
 export type WorkspaceToolConnection =
+	| Context7McpToolConnection
+	| FigmaMcpToolConnection
 	| JiraMcpToolConnection
+	| LinearMcpToolConnection
 	| NotionMcpToolConnection
 	| PostHogMcpToolConnection
 	| YandexTrackerToolConnection

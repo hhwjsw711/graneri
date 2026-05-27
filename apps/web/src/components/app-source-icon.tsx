@@ -3,7 +3,10 @@ import type { ChatAppSourceProvider } from "@/lib/chat-source-display";
 
 const GoogleCalendarLogo = Icons.googleCalendarLogo;
 const GoogleDriveLogo = Icons.googleDriveLogo;
+const Context7Logo = Icons.context7Logo;
+const FigmaLogo = Icons.figmaLogo;
 const JiraLogo = Icons.jiraLogo;
+const LinearLogo = Icons.linearLogo;
 const NotionLogo = Icons.notionLogo;
 const PlaneLogo = Icons.planeLogo;
 const ZoomLogo = Icons.zoomLogo;
@@ -18,6 +21,12 @@ export function AppSourceIcon({
 	className?: string;
 }) {
 	switch (provider) {
+		case "context7":
+			return <Context7Logo className={className} />;
+		case "figma":
+			return <FigmaLogo className={className} />;
+		case "linear":
+			return <LinearLogo className={className} />;
 		case "google-calendar":
 			return <GoogleCalendarLogo className={className} />;
 		case "google-drive":

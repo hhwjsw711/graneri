@@ -105,6 +105,11 @@ import { toast } from "sonner";
 import { AppSourceIcon } from "@/components/app-source-icon";
 import { writeTextToClipboard } from "@/components/note/share-note";
 import { AppearanceSettings } from "@/components/settings/appearance-settings";
+import { ConnectionDialogFooter } from "@/components/settings/connection-dialog-footer";
+import {
+	type RemoteMcpConnectionFormState,
+	RemoteMcpDialog,
+} from "@/components/settings/remote-mcp-dialog";
 import { SettingsSwitchRow } from "@/components/settings/settings-switch-row";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { useLinkedAccounts } from "@/hooks/use-linked-accounts";
@@ -299,6 +304,10 @@ type PostHogConnectionFormState = {
 	oauthClientSecret: string;
 };
 
+type Context7ConnectionFormState = RemoteMcpConnectionFormState;
+type FigmaConnectionFormState = RemoteMcpConnectionFormState;
+type LinearConnectionFormState = RemoteMcpConnectionFormState;
+
 type NotionConnectionFormState = {
 	name: string;
 	baseUrl: string;
@@ -433,6 +442,30 @@ type PostHogConnectionSettings = {
 	oauthClientId?: string;
 };
 
+type Context7ConnectionSettings = {
+	sourceId: string;
+	provider: "context7";
+	status: AppConnectionStatus;
+	displayName: string;
+	endpoint: string;
+};
+
+type FigmaConnectionSettings = {
+	sourceId: string;
+	provider: "figma";
+	status: AppConnectionStatus;
+	displayName: string;
+	endpoint: string;
+};
+
+type LinearConnectionSettings = {
+	sourceId: string;
+	provider: "linear";
+	status: AppConnectionStatus;
+	displayName: string;
+	endpoint: string;
+};
+
 type NotionConnectionSettings = {
 	sourceId: string;
 	provider: "notion";
@@ -454,6 +487,9 @@ type ZoomConnectionSettings = {
 type StableConnectionSettings = {
 	yandexTracker: YandexTrackerConnectionSettings | null;
 	yandexCalendar: YandexCalendarConnectionSettings | null;
+	context7: Context7ConnectionSettings | null;
+	figma: FigmaConnectionSettings | null;
+	linear: LinearConnectionSettings | null;
 	jira: JiraConnectionSettings | null;
 	jiraMcp: JiraMcpConnectionSettings | null;
 	posthog: PostHogConnectionSettings | null;
@@ -470,12 +506,18 @@ type ConnectionsSettingsState = {
 	isYandexTrackerDialogOpen: boolean;
 	isJiraDialogOpen: boolean;
 	isJiraMcpDialogOpen: boolean;
+	isContext7DialogOpen: boolean;
+	isFigmaDialogOpen: boolean;
+	isLinearDialogOpen: boolean;
 	isPostHogDialogOpen: boolean;
 	isNotionDialogOpen: boolean;
 	isZoomDialogOpen: boolean;
 	isSavingYandexTrackerConnection: boolean;
 	isSavingJiraConnection: boolean;
 	isSavingJiraMcpConnection: boolean;
+	isSavingContext7Connection: boolean;
+	isSavingFigmaConnection: boolean;
+	isSavingLinearConnection: boolean;
 	isDisablingConnection: boolean;
 	isSavingPostHogConnection: boolean;
 	isSavingNotionConnection: boolean;
@@ -483,6 +525,9 @@ type ConnectionsSettingsState = {
 	yandexTrackerFormState: YandexTrackerConnectionFormState;
 	jiraFormState: JiraConnectionFormState;
 	jiraMcpFormState: JiraMcpConnectionFormState;
+	context7FormState: Context7ConnectionFormState;
+	figmaFormState: FigmaConnectionFormState;
+	linearFormState: LinearConnectionFormState;
 	posthogFormState: PostHogConnectionFormState;
 	notionFormState: NotionConnectionFormState;
 	zoomFormState: ZoomConnectionFormState;
@@ -499,6 +544,18 @@ type ConnectionsSettingsAction =
 	  }
 	| {
 			type: "setIsJiraMcpDialogOpen";
+			value: boolean;
+	  }
+	| {
+			type: "setIsContext7DialogOpen";
+			value: boolean;
+	  }
+	| {
+			type: "setIsFigmaDialogOpen";
+			value: boolean;
+	  }
+	| {
+			type: "setIsLinearDialogOpen";
 			value: boolean;
 	  }
 	| {
@@ -523,6 +580,18 @@ type ConnectionsSettingsAction =
 	  }
 	| {
 			type: "setIsSavingJiraMcpConnection";
+			value: boolean;
+	  }
+	| {
+			type: "setIsSavingContext7Connection";
+			value: boolean;
+	  }
+	| {
+			type: "setIsSavingFigmaConnection";
+			value: boolean;
+	  }
+	| {
+			type: "setIsSavingLinearConnection";
 			value: boolean;
 	  }
 	| {
@@ -564,6 +633,30 @@ type ConnectionsSettingsAction =
 	| {
 			type: "patchJiraMcpFormState";
 			value: Partial<JiraMcpConnectionFormState>;
+	  }
+	| {
+			type: "setContext7FormState";
+			value: Context7ConnectionFormState;
+	  }
+	| {
+			type: "patchContext7FormState";
+			value: Partial<Context7ConnectionFormState>;
+	  }
+	| {
+			type: "setFigmaFormState";
+			value: FigmaConnectionFormState;
+	  }
+	| {
+			type: "patchFigmaFormState";
+			value: Partial<FigmaConnectionFormState>;
+	  }
+	| {
+			type: "setLinearFormState";
+			value: LinearConnectionFormState;
+	  }
+	| {
+			type: "patchLinearFormState";
+			value: Partial<LinearConnectionFormState>;
 	  }
 	| {
 			type: "setPostHogFormState";
@@ -656,6 +749,24 @@ const initialPostHogConnectionFormState: PostHogConnectionFormState = {
 	oauthClientSecret: "",
 };
 
+const initialContext7ConnectionFormState: Context7ConnectionFormState = {
+	name: "Context7",
+	baseUrl: "https://mcp.context7.com/mcp",
+	envVars: [],
+};
+
+const initialFigmaConnectionFormState: FigmaConnectionFormState = {
+	name: "Figma",
+	baseUrl: "https://mcp.figma.com/mcp",
+	envVars: [],
+};
+
+const initialLinearConnectionFormState: LinearConnectionFormState = {
+	name: "Linear",
+	baseUrl: "https://mcp.linear.app/mcp",
+	envVars: [],
+};
+
 const initialNotionConnectionFormState: NotionConnectionFormState = {
 	name: "Notion",
 	baseUrl: "https://mcp.notion.com/mcp",
@@ -686,12 +797,18 @@ const initialConnectionsSettingsState: ConnectionsSettingsState = {
 	isYandexTrackerDialogOpen: false,
 	isJiraDialogOpen: false,
 	isJiraMcpDialogOpen: false,
+	isContext7DialogOpen: false,
+	isFigmaDialogOpen: false,
+	isLinearDialogOpen: false,
 	isPostHogDialogOpen: false,
 	isNotionDialogOpen: false,
 	isZoomDialogOpen: false,
 	isSavingYandexTrackerConnection: false,
 	isSavingJiraConnection: false,
 	isSavingJiraMcpConnection: false,
+	isSavingContext7Connection: false,
+	isSavingFigmaConnection: false,
+	isSavingLinearConnection: false,
 	isDisablingConnection: false,
 	isSavingPostHogConnection: false,
 	isSavingNotionConnection: false,
@@ -699,6 +816,9 @@ const initialConnectionsSettingsState: ConnectionsSettingsState = {
 	yandexTrackerFormState: initialYandexTrackerConnectionFormState,
 	jiraFormState: initialJiraConnectionFormState,
 	jiraMcpFormState: initialJiraMcpConnectionFormState,
+	context7FormState: initialContext7ConnectionFormState,
+	figmaFormState: initialFigmaConnectionFormState,
+	linearFormState: initialLinearConnectionFormState,
 	posthogFormState: initialPostHogConnectionFormState,
 	notionFormState: initialNotionConnectionFormState,
 	zoomFormState: initialZoomConnectionFormState,
@@ -755,6 +875,12 @@ const connectionsSettingsReducer = (
 			return { ...state, isJiraDialogOpen: action.value };
 		case "setIsJiraMcpDialogOpen":
 			return { ...state, isJiraMcpDialogOpen: action.value };
+		case "setIsContext7DialogOpen":
+			return { ...state, isContext7DialogOpen: action.value };
+		case "setIsFigmaDialogOpen":
+			return { ...state, isFigmaDialogOpen: action.value };
+		case "setIsLinearDialogOpen":
+			return { ...state, isLinearDialogOpen: action.value };
 		case "setIsPostHogDialogOpen":
 			return { ...state, isPostHogDialogOpen: action.value };
 		case "setIsNotionDialogOpen":
@@ -767,6 +893,12 @@ const connectionsSettingsReducer = (
 			return { ...state, isSavingJiraConnection: action.value };
 		case "setIsSavingJiraMcpConnection":
 			return { ...state, isSavingJiraMcpConnection: action.value };
+		case "setIsSavingContext7Connection":
+			return { ...state, isSavingContext7Connection: action.value };
+		case "setIsSavingFigmaConnection":
+			return { ...state, isSavingFigmaConnection: action.value };
+		case "setIsSavingLinearConnection":
+			return { ...state, isSavingLinearConnection: action.value };
 		case "setIsDisablingConnection":
 			return { ...state, isDisablingConnection: action.value };
 		case "setIsSavingPostHogConnection":
@@ -802,6 +934,36 @@ const connectionsSettingsReducer = (
 				...state,
 				jiraMcpFormState: {
 					...state.jiraMcpFormState,
+					...action.value,
+				},
+			};
+		case "setContext7FormState":
+			return { ...state, context7FormState: action.value };
+		case "patchContext7FormState":
+			return {
+				...state,
+				context7FormState: {
+					...state.context7FormState,
+					...action.value,
+				},
+			};
+		case "setFigmaFormState":
+			return { ...state, figmaFormState: action.value };
+		case "patchFigmaFormState":
+			return {
+				...state,
+				figmaFormState: {
+					...state.figmaFormState,
+					...action.value,
+				},
+			};
+		case "setLinearFormState":
+			return { ...state, linearFormState: action.value };
+		case "patchLinearFormState":
+			return {
+				...state,
+				linearFormState: {
+					...state.linearFormState,
 					...action.value,
 				},
 			};
@@ -1523,107 +1685,9 @@ function useYandexCalendarConnectionDialog({
 }
 
 function ConnectionsSettings() {
-	const {
-		activeWorkspaceId,
-		handleConnectYandexCalendar,
-		handleConnectJira,
-		handleConnectJiraMcp,
-		handleConnectNotion,
-		handleConnectPostHog,
-		handleCopyJiraWebhookUrl,
-		handleConnectZoom,
-		handleConnectYandexTracker,
-		handleJiraDialogOpenChange,
-		handleJiraMcpDialogOpenChange,
-		handleDisableJiraMcp,
-		handleDisableJiraSync,
-		handleDisableNotion,
-		handleDisablePostHog,
-		handleDisableYandexCalendar,
-		handleDisableYandexTracker,
-		handleDisableZoom,
-		handleNotionDialogOpenChange,
-		handlePostHogDialogOpenChange,
-		handleYandexCalendarDialogOpenChange,
-		handleYandexTrackerDialogOpenChange,
-		handleZoomDialogOpenChange,
-		isJiraDialogOpen,
-		isJiraFormValid,
-		isJiraMcpDialogOpen,
-		isJiraMcpFormValid,
-		isDisablingConnection,
-		isNotionDialogOpen,
-		isNotionFormValid,
-		isPostHogDialogOpen,
-		isPostHogFormValid,
-		isZoomDialogOpen,
-		isZoomFormValid,
-		isSavingYandexCalendarConnection,
-		isYandexCalendarDialogOpen,
-		isYandexCalendarFormValid,
-		isSavingJiraConnection,
-		isSavingJiraMcpConnection,
-		isSavingNotionConnection,
-		isSavingPostHogConnection,
-		isSavingYandexTrackerConnection,
-		isSavingZoomConnection,
-		isYandexTrackerDialogOpen,
-		isYandexTrackerFormValid,
-		jiraConnection,
-		jiraFormState,
-		jiraMcpConnection,
-		jiraMcpFormState,
-		jiraWebhookUrl,
-		notionConnection,
-		notionFormState,
-		posthogConnection,
-		posthogFormState,
-		yandexCalendarConnection,
-		yandexTrackerConnection,
-		zoomConnection,
-		setJiraBaseUrl,
-		setJiraEmail,
-		setJiraMcpBaseUrl,
-		setJiraMcpName,
-		setJiraMcpOAuthClientId,
-		setJiraMcpOAuthClientSecret,
-		setJiraToken,
-		setNotionBaseUrl,
-		setNotionName,
-		setNotionOAuthClientId,
-		setNotionOAuthClientSecret,
-		setPostHogName,
-		setPostHogBaseUrl,
-		setPostHogOAuthClientId,
-		setPostHogOAuthClientSecret,
-		setZoomBaseUrl,
-		setZoomName,
-		setZoomOAuthClientId,
-		setZoomOAuthClientSecret,
-		addNotionEnvVar,
-		addPostHogEnvVar,
-		addJiraMcpEnvVar,
-		addZoomEnvVar,
-		removeNotionEnvVar,
-		removePostHogEnvVar,
-		removeJiraMcpEnvVar,
-		removeZoomEnvVar,
-		updateNotionEnvVar,
-		updatePostHogEnvVar,
-		updateJiraMcpEnvVar,
-		updateZoomEnvVar,
-		setYandexCalendarEmail,
-		setYandexCalendarPassword,
-		setYandexTrackerOrgId,
-		setYandexTrackerOrgType,
-		setYandexTrackerToken,
-		toolConnections,
-		yandexCalendarFormState,
-		yandexTrackerFormState,
-		zoomFormState,
-	} = useConnectionsSettingsController();
+	const controller = useConnectionsSettingsController();
 
-	if (!activeWorkspaceId) {
+	if (!controller.activeWorkspaceId) {
 		return (
 			<div className="py-4 text-sm text-muted-foreground">
 				Select a workspace to manage workspace-specific tool connections.
@@ -1633,137 +1697,274 @@ function ConnectionsSettings() {
 
 	return (
 		<div className="py-4">
-			<ToolConnectionsSection connections={toolConnections} />
+			<ToolConnectionsSection connections={controller.toolConnections} />
+			<ConnectionSettingsDialogs controller={controller} />
+		</div>
+	);
+}
+
+type ConnectionsSettingsController = ReturnType<
+	typeof useConnectionsSettingsController
+>;
+
+function ConnectionSettingsDialogs({
+	controller,
+}: {
+	controller: ConnectionsSettingsController;
+}) {
+	return (
+		<>
+			<CalendarTrackerDialogs controller={controller} />
+			<JiraConnectionDialogs controller={controller} />
+			<RemoteHeaderMcpConnectionDialogs controller={controller} />
+			<OAuthMcpConnectionDialogs controller={controller} />
+		</>
+	);
+}
+
+function CalendarTrackerDialogs({
+	controller,
+}: {
+	controller: ConnectionsSettingsController;
+}) {
+	return (
+		<>
 			<YandexCalendarDialog
-				open={isYandexCalendarDialogOpen}
-				onOpenChange={handleYandexCalendarDialogOpenChange}
-				formState={yandexCalendarFormState}
-				onEmailChange={setYandexCalendarEmail}
-				onPasswordChange={setYandexCalendarPassword}
-				onConnect={() => {
-					void handleConnectYandexCalendar();
-				}}
+				open={controller.isYandexCalendarDialogOpen}
+				onOpenChange={controller.handleYandexCalendarDialogOpenChange}
+				formState={controller.yandexCalendarFormState}
+				onEmailChange={controller.setYandexCalendarEmail}
+				onPasswordChange={controller.setYandexCalendarPassword}
+				onConnect={() => void controller.handleConnectYandexCalendar()}
 				onDisable={
-					yandexCalendarConnection ? handleDisableYandexCalendar : undefined
+					controller.yandexCalendarConnection
+						? controller.handleDisableYandexCalendar
+						: undefined
 				}
-				isFormValid={isYandexCalendarFormValid}
-				isSaving={isSavingYandexCalendarConnection}
-				isDisabling={isDisablingConnection}
+				isFormValid={controller.isYandexCalendarFormValid}
+				isSaving={controller.isSavingYandexCalendarConnection}
+				isDisabling={controller.isDisablingConnection}
 			/>
 			<YandexTrackerDialog
-				open={isYandexTrackerDialogOpen}
-				onOpenChange={handleYandexTrackerDialogOpenChange}
-				formState={yandexTrackerFormState}
-				onOrgTypeChange={setYandexTrackerOrgType}
-				onOrgIdChange={setYandexTrackerOrgId}
-				onTokenChange={setYandexTrackerToken}
-				onConnect={() => {
-					void handleConnectYandexTracker();
-				}}
+				open={controller.isYandexTrackerDialogOpen}
+				onOpenChange={controller.handleYandexTrackerDialogOpenChange}
+				formState={controller.yandexTrackerFormState}
+				onOrgTypeChange={controller.setYandexTrackerOrgType}
+				onOrgIdChange={controller.setYandexTrackerOrgId}
+				onTokenChange={controller.setYandexTrackerToken}
+				onConnect={() => void controller.handleConnectYandexTracker()}
 				onDisable={
-					yandexTrackerConnection ? handleDisableYandexTracker : undefined
+					controller.yandexTrackerConnection
+						? controller.handleDisableYandexTracker
+						: undefined
 				}
-				isFormValid={isYandexTrackerFormValid}
-				isSaving={isSavingYandexTrackerConnection}
-				isDisabling={isDisablingConnection}
+				isFormValid={controller.isYandexTrackerFormValid}
+				isSaving={controller.isSavingYandexTrackerConnection}
+				isDisabling={controller.isDisablingConnection}
 			/>
+		</>
+	);
+}
+
+function JiraConnectionDialogs({
+	controller,
+}: {
+	controller: ConnectionsSettingsController;
+}) {
+	return (
+		<>
 			<JiraDialog
-				open={isJiraDialogOpen}
-				onOpenChange={handleJiraDialogOpenChange}
-				formState={jiraFormState}
-				onBaseUrlChange={setJiraBaseUrl}
-				onEmailChange={setJiraEmail}
-				onTokenChange={setJiraToken}
-				onConnect={() => {
-					void handleConnectJira();
-				}}
-				isFormValid={isJiraFormValid}
-				isSaving={isSavingJiraConnection}
-				isDisabling={isDisablingConnection}
-				onDisable={jiraConnection ? handleDisableJiraSync : undefined}
-				onCopyWebhookUrl={() => {
-					void handleCopyJiraWebhookUrl();
-				}}
-				showSyncSettings={Boolean(jiraConnection)}
-				webhookUrl={jiraWebhookUrl}
+				open={controller.isJiraDialogOpen}
+				onOpenChange={controller.handleJiraDialogOpenChange}
+				formState={controller.jiraFormState}
+				onBaseUrlChange={controller.setJiraBaseUrl}
+				onEmailChange={controller.setJiraEmail}
+				onTokenChange={controller.setJiraToken}
+				onConnect={() => void controller.handleConnectJira()}
+				isFormValid={controller.isJiraFormValid}
+				isSaving={controller.isSavingJiraConnection}
+				isDisabling={controller.isDisablingConnection}
+				onDisable={
+					controller.jiraConnection
+						? controller.handleDisableJiraSync
+						: undefined
+				}
+				onCopyWebhookUrl={() => void controller.handleCopyJiraWebhookUrl()}
+				showSyncSettings={Boolean(controller.jiraConnection)}
+				webhookUrl={controller.jiraWebhookUrl}
 			/>
 			<JiraMcpDialog
-				open={isJiraMcpDialogOpen}
-				onOpenChange={handleJiraMcpDialogOpenChange}
-				formState={jiraMcpFormState}
-				onNameChange={setJiraMcpName}
-				onBaseUrlChange={setJiraMcpBaseUrl}
-				onAddEnvVar={addJiraMcpEnvVar}
-				onRemoveEnvVar={removeJiraMcpEnvVar}
-				onUpdateEnvVar={updateJiraMcpEnvVar}
-				onOAuthClientIdChange={setJiraMcpOAuthClientId}
-				onOAuthClientSecretChange={setJiraMcpOAuthClientSecret}
-				onConnect={() => {
-					void handleConnectJiraMcp();
-				}}
-				isFormValid={isJiraMcpFormValid}
-				isSaving={isSavingJiraMcpConnection}
-				isDisabling={isDisablingConnection}
-				onDisable={jiraMcpConnection ? handleDisableJiraMcp : undefined}
+				open={controller.isJiraMcpDialogOpen}
+				onOpenChange={controller.handleJiraMcpDialogOpenChange}
+				formState={controller.jiraMcpFormState}
+				onNameChange={controller.setJiraMcpName}
+				onBaseUrlChange={controller.setJiraMcpBaseUrl}
+				onAddEnvVar={controller.addJiraMcpEnvVar}
+				onRemoveEnvVar={controller.removeJiraMcpEnvVar}
+				onUpdateEnvVar={controller.updateJiraMcpEnvVar}
+				onOAuthClientIdChange={controller.setJiraMcpOAuthClientId}
+				onOAuthClientSecretChange={controller.setJiraMcpOAuthClientSecret}
+				onConnect={() => void controller.handleConnectJiraMcp()}
+				isFormValid={controller.isJiraMcpFormValid}
+				isSaving={controller.isSavingJiraMcpConnection}
+				isDisabling={controller.isDisablingConnection}
+				onDisable={
+					controller.jiraMcpConnection
+						? controller.handleDisableJiraMcp
+						: undefined
+				}
 			/>
+		</>
+	);
+}
+
+function RemoteHeaderMcpConnectionDialogs({
+	controller,
+}: {
+	controller: ConnectionsSettingsController;
+}) {
+	return (
+		<>
+			<RemoteMcpDialog
+				open={controller.isContext7DialogOpen}
+				onOpenChange={controller.handleContext7DialogOpenChange}
+				idPrefix="context7-mcp"
+				title="Connect Context7"
+				description="Enter the Context7 MCP connection details OpenGran should use for library documentation."
+				keyPlaceholder="CONTEXT7_API_KEY"
+				formState={controller.context7FormState}
+				onNameChange={controller.setContext7Name}
+				onBaseUrlChange={controller.setContext7BaseUrl}
+				onAddEnvVar={controller.addContext7EnvVar}
+				onRemoveEnvVar={controller.removeContext7EnvVar}
+				onUpdateEnvVar={controller.updateContext7EnvVar}
+				onConnect={() => void controller.handleConnectContext7()}
+				onDisable={
+					controller.context7Connection
+						? controller.handleDisableContext7
+						: undefined
+				}
+				isFormValid={controller.isContext7FormValid}
+				isSaving={controller.isSavingContext7Connection}
+				isDisabling={controller.isDisablingConnection}
+			/>
+			<RemoteMcpDialog
+				open={controller.isFigmaDialogOpen}
+				onOpenChange={controller.handleFigmaDialogOpenChange}
+				idPrefix="figma-mcp"
+				title="Connect Figma"
+				description="Enter the Figma MCP connection details OpenGran should use for design context."
+				keyPlaceholder="Authorization"
+				formState={controller.figmaFormState}
+				onNameChange={controller.setFigmaName}
+				onBaseUrlChange={controller.setFigmaBaseUrl}
+				onAddEnvVar={controller.addFigmaEnvVar}
+				onRemoveEnvVar={controller.removeFigmaEnvVar}
+				onUpdateEnvVar={controller.updateFigmaEnvVar}
+				onConnect={() => void controller.handleConnectFigma()}
+				onDisable={
+					controller.figmaConnection ? controller.handleDisableFigma : undefined
+				}
+				isFormValid={controller.isFigmaFormValid}
+				isSaving={controller.isSavingFigmaConnection}
+				isDisabling={controller.isDisablingConnection}
+			/>
+			<RemoteMcpDialog
+				open={controller.isLinearDialogOpen}
+				onOpenChange={controller.handleLinearDialogOpenChange}
+				idPrefix="linear-mcp"
+				title="Connect Linear"
+				description="Enter the Linear MCP connection details OpenGran should use for issue and project context."
+				keyPlaceholder="Authorization"
+				formState={controller.linearFormState}
+				onNameChange={controller.setLinearName}
+				onBaseUrlChange={controller.setLinearBaseUrl}
+				onAddEnvVar={controller.addLinearEnvVar}
+				onRemoveEnvVar={controller.removeLinearEnvVar}
+				onUpdateEnvVar={controller.updateLinearEnvVar}
+				onConnect={() => void controller.handleConnectLinear()}
+				onDisable={
+					controller.linearConnection
+						? controller.handleDisableLinear
+						: undefined
+				}
+				isFormValid={controller.isLinearFormValid}
+				isSaving={controller.isSavingLinearConnection}
+				isDisabling={controller.isDisablingConnection}
+			/>
+		</>
+	);
+}
+
+function OAuthMcpConnectionDialogs({
+	controller,
+}: {
+	controller: ConnectionsSettingsController;
+}) {
+	return (
+		<>
 			<PostHogDialog
-				open={isPostHogDialogOpen}
-				onOpenChange={handlePostHogDialogOpenChange}
-				formState={posthogFormState}
-				onNameChange={setPostHogName}
-				onBaseUrlChange={setPostHogBaseUrl}
-				onAddEnvVar={addPostHogEnvVar}
-				onRemoveEnvVar={removePostHogEnvVar}
-				onUpdateEnvVar={updatePostHogEnvVar}
-				onOAuthClientIdChange={setPostHogOAuthClientId}
-				onOAuthClientSecretChange={setPostHogOAuthClientSecret}
-				onConnect={() => {
-					void handleConnectPostHog();
-				}}
-				onDisable={posthogConnection ? handleDisablePostHog : undefined}
-				isFormValid={isPostHogFormValid}
-				isSaving={isSavingPostHogConnection}
-				isDisabling={isDisablingConnection}
+				open={controller.isPostHogDialogOpen}
+				onOpenChange={controller.handlePostHogDialogOpenChange}
+				formState={controller.posthogFormState}
+				onNameChange={controller.setPostHogName}
+				onBaseUrlChange={controller.setPostHogBaseUrl}
+				onAddEnvVar={controller.addPostHogEnvVar}
+				onRemoveEnvVar={controller.removePostHogEnvVar}
+				onUpdateEnvVar={controller.updatePostHogEnvVar}
+				onOAuthClientIdChange={controller.setPostHogOAuthClientId}
+				onOAuthClientSecretChange={controller.setPostHogOAuthClientSecret}
+				onConnect={() => void controller.handleConnectPostHog()}
+				onDisable={
+					controller.posthogConnection
+						? controller.handleDisablePostHog
+						: undefined
+				}
+				isFormValid={controller.isPostHogFormValid}
+				isSaving={controller.isSavingPostHogConnection}
+				isDisabling={controller.isDisablingConnection}
 			/>
 			<NotionDialog
-				open={isNotionDialogOpen}
-				onOpenChange={handleNotionDialogOpenChange}
-				formState={notionFormState}
-				onNameChange={setNotionName}
-				onBaseUrlChange={setNotionBaseUrl}
-				onAddEnvVar={addNotionEnvVar}
-				onRemoveEnvVar={removeNotionEnvVar}
-				onUpdateEnvVar={updateNotionEnvVar}
-				onOAuthClientIdChange={setNotionOAuthClientId}
-				onOAuthClientSecretChange={setNotionOAuthClientSecret}
-				onConnect={() => {
-					void handleConnectNotion();
-				}}
-				onDisable={notionConnection ? handleDisableNotion : undefined}
-				isFormValid={isNotionFormValid}
-				isSaving={isSavingNotionConnection}
-				isDisabling={isDisablingConnection}
+				open={controller.isNotionDialogOpen}
+				onOpenChange={controller.handleNotionDialogOpenChange}
+				formState={controller.notionFormState}
+				onNameChange={controller.setNotionName}
+				onBaseUrlChange={controller.setNotionBaseUrl}
+				onAddEnvVar={controller.addNotionEnvVar}
+				onRemoveEnvVar={controller.removeNotionEnvVar}
+				onUpdateEnvVar={controller.updateNotionEnvVar}
+				onOAuthClientIdChange={controller.setNotionOAuthClientId}
+				onOAuthClientSecretChange={controller.setNotionOAuthClientSecret}
+				onConnect={() => void controller.handleConnectNotion()}
+				onDisable={
+					controller.notionConnection
+						? controller.handleDisableNotion
+						: undefined
+				}
+				isFormValid={controller.isNotionFormValid}
+				isSaving={controller.isSavingNotionConnection}
+				isDisabling={controller.isDisablingConnection}
 			/>
 			<ZoomDialog
-				open={isZoomDialogOpen}
-				onOpenChange={handleZoomDialogOpenChange}
-				formState={zoomFormState}
-				onNameChange={setZoomName}
-				onBaseUrlChange={setZoomBaseUrl}
-				onAddEnvVar={addZoomEnvVar}
-				onRemoveEnvVar={removeZoomEnvVar}
-				onUpdateEnvVar={updateZoomEnvVar}
-				onOAuthClientIdChange={setZoomOAuthClientId}
-				onOAuthClientSecretChange={setZoomOAuthClientSecret}
-				onConnect={() => {
-					void handleConnectZoom();
-				}}
-				onDisable={zoomConnection ? handleDisableZoom : undefined}
-				isFormValid={isZoomFormValid}
-				isSaving={isSavingZoomConnection}
-				isDisabling={isDisablingConnection}
+				open={controller.isZoomDialogOpen}
+				onOpenChange={controller.handleZoomDialogOpenChange}
+				formState={controller.zoomFormState}
+				onNameChange={controller.setZoomName}
+				onBaseUrlChange={controller.setZoomBaseUrl}
+				onAddEnvVar={controller.addZoomEnvVar}
+				onRemoveEnvVar={controller.removeZoomEnvVar}
+				onUpdateEnvVar={controller.updateZoomEnvVar}
+				onOAuthClientIdChange={controller.setZoomOAuthClientId}
+				onOAuthClientSecretChange={controller.setZoomOAuthClientSecret}
+				onConnect={() => void controller.handleConnectZoom()}
+				onDisable={
+					controller.zoomConnection ? controller.handleDisableZoom : undefined
+				}
+				isFormValid={controller.isZoomFormValid}
+				isSaving={controller.isSavingZoomConnection}
+				isDisabling={controller.isDisablingConnection}
 			/>
-		</div>
+		</>
 	);
 }
 
@@ -1800,6 +2001,18 @@ function useConnectionsSettingsController() {
 		api.appConnections.getPostHog,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
+	const context7ConnectionResult = useQuery(
+		api.appConnections.getContext7,
+		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
+	);
+	const figmaConnectionResult = useQuery(
+		api.appConnections.getFigma,
+		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
+	);
+	const linearConnectionResult = useQuery(
+		api.appConnections.getLinear,
+		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
+	);
 	const notionConnectionResult = useQuery(
 		api.appConnections.getNotion,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
@@ -1831,6 +2044,18 @@ function useConnectionsSettingsController() {
 		posthogConnectionResult === undefined
 			? (stableConnectionSettings?.posthog ?? null)
 			: posthogConnectionResult;
+	const context7Connection =
+		context7ConnectionResult === undefined
+			? (stableConnectionSettings?.context7 ?? null)
+			: context7ConnectionResult;
+	const figmaConnection =
+		figmaConnectionResult === undefined
+			? (stableConnectionSettings?.figma ?? null)
+			: figmaConnectionResult;
+	const linearConnection =
+		linearConnectionResult === undefined
+			? (stableConnectionSettings?.linear ?? null)
+			: linearConnectionResult;
 	const notionConnection =
 		notionConnectionResult === undefined
 			? (stableConnectionSettings?.notion ?? null)
@@ -1844,6 +2069,9 @@ function useConnectionsSettingsController() {
 	);
 	const connectJira = useAction(api.appConnectionActions.connectJira);
 	const connectJiraMcp = useAction(api.appConnectionActions.connectJiraMcp);
+	const connectContext7 = useAction(api.appConnectionActions.connectContext7);
+	const connectFigma = useAction(api.appConnectionActions.connectFigma);
+	const connectLinear = useAction(api.appConnectionActions.connectLinear);
 	const connectPostHog = useAction(api.appConnectionActions.connectPostHog);
 	const connectNotion = useAction(api.appConnectionActions.connectNotion);
 	const connectZoom = useAction(api.appConnectionActions.connectZoom);
@@ -1867,12 +2095,18 @@ function useConnectionsSettingsController() {
 		isYandexTrackerDialogOpen,
 		isJiraDialogOpen,
 		isJiraMcpDialogOpen,
+		isContext7DialogOpen,
+		isFigmaDialogOpen,
+		isLinearDialogOpen,
 		isPostHogDialogOpen,
 		isNotionDialogOpen,
 		isZoomDialogOpen,
 		isSavingYandexTrackerConnection,
 		isSavingJiraConnection,
 		isSavingJiraMcpConnection,
+		isSavingContext7Connection,
+		isSavingFigmaConnection,
+		isSavingLinearConnection,
 		isDisablingConnection,
 		isSavingPostHogConnection,
 		isSavingNotionConnection,
@@ -1880,6 +2114,9 @@ function useConnectionsSettingsController() {
 		yandexTrackerFormState,
 		jiraFormState,
 		jiraMcpFormState,
+		context7FormState,
+		figmaFormState,
+		linearFormState,
 		posthogFormState,
 		notionFormState,
 		zoomFormState,
@@ -1915,6 +2152,9 @@ function useConnectionsSettingsController() {
 			yandexCalendar: null,
 			jira: null,
 			jiraMcp: null,
+			context7: null,
+			figma: null,
+			linear: null,
 			posthog: null,
 			notion: null,
 			zoom: null,
@@ -1937,6 +2177,18 @@ function useConnectionsSettingsController() {
 				jiraMcpConnectionResult === undefined
 					? previous.jiraMcp
 					: jiraMcpConnectionResult,
+			context7:
+				context7ConnectionResult === undefined
+					? previous.context7
+					: context7ConnectionResult,
+			figma:
+				figmaConnectionResult === undefined
+					? previous.figma
+					: figmaConnectionResult,
+			linear:
+				linearConnectionResult === undefined
+					? previous.linear
+					: linearConnectionResult,
 			posthog:
 				posthogConnectionResult === undefined
 					? previous.posthog
@@ -1951,8 +2203,11 @@ function useConnectionsSettingsController() {
 					: zoomConnectionResult,
 		});
 	}, [
+		context7ConnectionResult,
+		figmaConnectionResult,
 		jiraConnectionResult,
 		jiraMcpConnectionResult,
+		linearConnectionResult,
 		notionConnectionResult,
 		posthogConnectionResult,
 		stableConnectionSettingsKey,
@@ -2191,6 +2446,176 @@ function useConnectionsSettingsController() {
 		jiraMcpFormState.name.trim().length > 0 &&
 		jiraMcpFormState.baseUrl.trim().length > 0;
 
+	const handleContext7DialogOpenChange = (open: boolean) => {
+		dispatch({ type: "setIsContext7DialogOpen", value: open });
+
+		if (open) {
+			dispatch({
+				type: "setContext7FormState",
+				value: {
+					name: context7Connection?.displayName ?? "Context7",
+					baseUrl:
+						context7Connection?.endpoint ??
+						initialContext7ConnectionFormState.baseUrl,
+					envVars: [],
+				},
+			});
+		} else {
+			dispatch({
+				type: "setContext7FormState",
+				value: initialContext7ConnectionFormState,
+			});
+		}
+	};
+
+	const handleConnectContext7 = async () => {
+		if (
+			!activeWorkspaceId ||
+			!context7FormState.name.trim() ||
+			!context7FormState.baseUrl.trim()
+		) {
+			return;
+		}
+
+		dispatch({ type: "setIsSavingContext7Connection", value: true });
+
+		try {
+			await connectContext7({
+				workspaceId: activeWorkspaceId,
+				displayName: context7FormState.name.trim(),
+				baseUrl: context7FormState.baseUrl.trim(),
+				env: getNonEmptyEnvRecord(context7FormState.envVars, {
+					requireValue: true,
+				}),
+			});
+			toast.success("Context7 connected");
+			handleContext7DialogOpenChange(false);
+		} catch (error) {
+			console.error("Failed to connect Context7", error);
+			toast.error(
+				getConnectionErrorMessage(error, "Failed to connect Context7"),
+			);
+		} finally {
+			dispatch({ type: "setIsSavingContext7Connection", value: false });
+		}
+	};
+
+	const isContext7FormValid =
+		context7FormState.name.trim().length > 0 &&
+		context7FormState.baseUrl.trim().length > 0;
+
+	const handleFigmaDialogOpenChange = (open: boolean) => {
+		dispatch({ type: "setIsFigmaDialogOpen", value: open });
+
+		if (open) {
+			dispatch({
+				type: "setFigmaFormState",
+				value: {
+					name: figmaConnection?.displayName ?? "Figma",
+					baseUrl:
+						figmaConnection?.endpoint ??
+						initialFigmaConnectionFormState.baseUrl,
+					envVars: [],
+				},
+			});
+		} else {
+			dispatch({
+				type: "setFigmaFormState",
+				value: initialFigmaConnectionFormState,
+			});
+		}
+	};
+
+	const handleConnectFigma = async () => {
+		if (
+			!activeWorkspaceId ||
+			!figmaFormState.name.trim() ||
+			!figmaFormState.baseUrl.trim()
+		) {
+			return;
+		}
+
+		dispatch({ type: "setIsSavingFigmaConnection", value: true });
+
+		try {
+			await connectFigma({
+				workspaceId: activeWorkspaceId,
+				displayName: figmaFormState.name.trim(),
+				baseUrl: figmaFormState.baseUrl.trim(),
+				env: getNonEmptyEnvRecord(figmaFormState.envVars, {
+					requireValue: true,
+				}),
+			});
+			toast.success("Figma connected");
+			handleFigmaDialogOpenChange(false);
+		} catch (error) {
+			console.error("Failed to connect Figma", error);
+			toast.error(getConnectionErrorMessage(error, "Failed to connect Figma"));
+		} finally {
+			dispatch({ type: "setIsSavingFigmaConnection", value: false });
+		}
+	};
+
+	const isFigmaFormValid =
+		figmaFormState.name.trim().length > 0 &&
+		figmaFormState.baseUrl.trim().length > 0;
+
+	const handleLinearDialogOpenChange = (open: boolean) => {
+		dispatch({ type: "setIsLinearDialogOpen", value: open });
+
+		if (open) {
+			dispatch({
+				type: "setLinearFormState",
+				value: {
+					name: linearConnection?.displayName ?? "Linear",
+					baseUrl:
+						linearConnection?.endpoint ??
+						initialLinearConnectionFormState.baseUrl,
+					envVars: [],
+				},
+			});
+		} else {
+			dispatch({
+				type: "setLinearFormState",
+				value: initialLinearConnectionFormState,
+			});
+		}
+	};
+
+	const handleConnectLinear = async () => {
+		if (
+			!activeWorkspaceId ||
+			!linearFormState.name.trim() ||
+			!linearFormState.baseUrl.trim()
+		) {
+			return;
+		}
+
+		dispatch({ type: "setIsSavingLinearConnection", value: true });
+
+		try {
+			await connectLinear({
+				workspaceId: activeWorkspaceId,
+				displayName: linearFormState.name.trim(),
+				baseUrl: linearFormState.baseUrl.trim(),
+				env: getNonEmptyEnvRecord(linearFormState.envVars, {
+					requireValue: true,
+				}),
+			});
+			toast.success("Linear connected");
+			handleLinearDialogOpenChange(false);
+		} catch (error) {
+			console.error("Failed to connect Linear", error);
+			toast.error(getConnectionErrorMessage(error, "Failed to connect Linear"));
+		} finally {
+			dispatch({ type: "setIsSavingLinearConnection", value: false });
+		}
+	};
+
+	const isLinearFormValid =
+		linearFormState.name.trim().length > 0 &&
+		linearFormState.baseUrl.trim().length > 0;
+
 	const disableAppConnection = async ({
 		sourceId,
 		successMessage,
@@ -2286,6 +2711,42 @@ function useConnectionsSettingsController() {
 		});
 	};
 
+	const handleDisableContext7 = async () => {
+		if (!context7Connection) {
+			return;
+		}
+
+		await disableAppConnection({
+			sourceId: context7Connection.sourceId,
+			successMessage: "Context7 disabled",
+			onDisabled: () => handleContext7DialogOpenChange(false),
+		});
+	};
+
+	const handleDisableFigma = async () => {
+		if (!figmaConnection) {
+			return;
+		}
+
+		await disableAppConnection({
+			sourceId: figmaConnection.sourceId,
+			successMessage: "Figma disabled",
+			onDisabled: () => handleFigmaDialogOpenChange(false),
+		});
+	};
+
+	const handleDisableLinear = async () => {
+		if (!linearConnection) {
+			return;
+		}
+
+		await disableAppConnection({
+			sourceId: linearConnection.sourceId,
+			successMessage: "Linear disabled",
+			onDisabled: () => handleLinearDialogOpenChange(false),
+		});
+	};
+
 	const handleDisableNotion = async () => {
 		if (!notionConnection) {
 			return;
@@ -2353,6 +2814,101 @@ function useConnectionsSettingsController() {
 		dispatch({
 			type: "patchJiraMcpFormState",
 			value: { oauthClientSecret },
+		});
+
+	const addContext7EnvVar = () =>
+		dispatch({
+			type: "patchContext7FormState",
+			value: {
+				envVars: [
+					...context7FormState.envVars,
+					{ id: crypto.randomUUID(), key: "", value: "" },
+				],
+			},
+		});
+
+	const removeContext7EnvVar = (id: string) =>
+		dispatch({
+			type: "patchContext7FormState",
+			value: {
+				envVars: context7FormState.envVars.filter((envVar) => envVar.id !== id),
+			},
+		});
+
+	const updateContext7EnvVar = (
+		id: string,
+		key: "key" | "value",
+		value: string,
+	) =>
+		dispatch({
+			type: "patchContext7FormState",
+			value: {
+				envVars: context7FormState.envVars.map((envVar) =>
+					envVar.id === id ? { ...envVar, [key]: value } : envVar,
+				),
+			},
+		});
+
+	const addFigmaEnvVar = () =>
+		dispatch({
+			type: "patchFigmaFormState",
+			value: {
+				envVars: [
+					...figmaFormState.envVars,
+					{ id: crypto.randomUUID(), key: "", value: "" },
+				],
+			},
+		});
+
+	const removeFigmaEnvVar = (id: string) =>
+		dispatch({
+			type: "patchFigmaFormState",
+			value: {
+				envVars: figmaFormState.envVars.filter((envVar) => envVar.id !== id),
+			},
+		});
+
+	const updateFigmaEnvVar = (id: string, key: "key" | "value", value: string) =>
+		dispatch({
+			type: "patchFigmaFormState",
+			value: {
+				envVars: figmaFormState.envVars.map((envVar) =>
+					envVar.id === id ? { ...envVar, [key]: value } : envVar,
+				),
+			},
+		});
+
+	const addLinearEnvVar = () =>
+		dispatch({
+			type: "patchLinearFormState",
+			value: {
+				envVars: [
+					...linearFormState.envVars,
+					{ id: crypto.randomUUID(), key: "", value: "" },
+				],
+			},
+		});
+
+	const removeLinearEnvVar = (id: string) =>
+		dispatch({
+			type: "patchLinearFormState",
+			value: {
+				envVars: linearFormState.envVars.filter((envVar) => envVar.id !== id),
+			},
+		});
+
+	const updateLinearEnvVar = (
+		id: string,
+		key: "key" | "value",
+		value: string,
+	) =>
+		dispatch({
+			type: "patchLinearFormState",
+			value: {
+				envVars: linearFormState.envVars.map((envVar) =>
+					envVar.id === id ? { ...envVar, [key]: value } : envVar,
+				),
+			},
 		});
 
 	const handlePostHogDialogOpenChange = (open: boolean) => {
@@ -2868,6 +3424,39 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handlePostHogDialogOpenChange(true),
 		},
 		{
+			icon: <AppSourceIcon provider="context7" className="size-5 shrink-0" />,
+			name: "Context7",
+			buttonLabel: context7Connection ? "Manage" : "Connect",
+			buttonVariant: "outline",
+			buttonDisabled: isSavingContext7Connection || !session?.user,
+			buttonIcon: isSavingContext7Connection ? (
+				<LoaderCircle className="animate-spin" />
+			) : null,
+			onButtonClick: () => handleContext7DialogOpenChange(true),
+		},
+		{
+			icon: <AppSourceIcon provider="figma" className="size-5 shrink-0" />,
+			name: "Figma",
+			buttonLabel: figmaConnection ? "Manage" : "Connect",
+			buttonVariant: "outline",
+			buttonDisabled: isSavingFigmaConnection || !session?.user,
+			buttonIcon: isSavingFigmaConnection ? (
+				<LoaderCircle className="animate-spin" />
+			) : null,
+			onButtonClick: () => handleFigmaDialogOpenChange(true),
+		},
+		{
+			icon: <AppSourceIcon provider="linear" className="size-5 shrink-0" />,
+			name: "Linear",
+			buttonLabel: linearConnection ? "Manage" : "Connect",
+			buttonVariant: "outline",
+			buttonDisabled: isSavingLinearConnection || !session?.user,
+			buttonIcon: isSavingLinearConnection ? (
+				<LoaderCircle className="animate-spin" />
+			) : null,
+			onButtonClick: () => handleLinearDialogOpenChange(true),
+		},
+		{
 			icon: <AppSourceIcon provider="notion" className="size-5 shrink-0" />,
 			name: "Notion",
 			buttonLabel: notionConnection ? "Manage" : "Connect",
@@ -2925,12 +3514,18 @@ function useConnectionsSettingsController() {
 		...yandexCalendarDialog,
 		handleConnectJira,
 		handleConnectJiraMcp,
+		handleConnectContext7,
+		handleConnectFigma,
+		handleConnectLinear,
 		handleConnectNotion,
 		handleConnectPostHog,
 		handleConnectZoom,
 		handleCopyJiraWebhookUrl,
 		handleConnectYandexTracker,
 		handleDisableJiraMcp,
+		handleDisableContext7,
+		handleDisableFigma,
+		handleDisableLinear,
 		handleDisableJiraSync,
 		handleDisableNotion,
 		handleDisablePostHog,
@@ -2939,20 +3534,32 @@ function useConnectionsSettingsController() {
 		handleDisableZoom,
 		handleJiraDialogOpenChange,
 		handleJiraMcpDialogOpenChange,
+		handleContext7DialogOpenChange,
+		handleFigmaDialogOpenChange,
+		handleLinearDialogOpenChange,
 		handleNotionDialogOpenChange,
 		handleOpenJiraWebhookSettings,
 		handlePostHogDialogOpenChange,
 		handleYandexTrackerDialogOpenChange,
 		handleZoomDialogOpenChange,
 		addPostHogEnvVar,
+		addContext7EnvVar,
+		addFigmaEnvVar,
+		addLinearEnvVar,
 		addJiraMcpEnvVar,
 		addNotionEnvVar,
 		addZoomEnvVar,
 		removePostHogEnvVar,
+		removeContext7EnvVar,
+		removeFigmaEnvVar,
+		removeLinearEnvVar,
 		removeJiraMcpEnvVar,
 		removeNotionEnvVar,
 		removeZoomEnvVar,
 		updatePostHogEnvVar,
+		updateContext7EnvVar,
+		updateFigmaEnvVar,
+		updateLinearEnvVar,
 		updateJiraMcpEnvVar,
 		updateNotionEnvVar,
 		updateZoomEnvVar,
@@ -2960,6 +3567,12 @@ function useConnectionsSettingsController() {
 		isJiraFormValid,
 		isJiraMcpDialogOpen,
 		isJiraMcpFormValid,
+		isContext7DialogOpen,
+		isContext7FormValid,
+		isFigmaDialogOpen,
+		isFigmaFormValid,
+		isLinearDialogOpen,
+		isLinearFormValid,
 		isDisablingConnection,
 		isNotionDialogOpen,
 		isNotionFormValid,
@@ -2968,6 +3581,9 @@ function useConnectionsSettingsController() {
 		isPreparingJiraMentionSync,
 		isSavingJiraConnection,
 		isSavingJiraMcpConnection,
+		isSavingContext7Connection,
+		isSavingFigmaConnection,
+		isSavingLinearConnection,
 		isSavingNotionConnection,
 		isSavingPostHogConnection,
 		isSavingYandexTrackerConnection,
@@ -2980,6 +3596,12 @@ function useConnectionsSettingsController() {
 		jiraFormState,
 		jiraMcpConnection,
 		jiraMcpFormState,
+		context7Connection,
+		context7FormState,
+		figmaConnection,
+		figmaFormState,
+		linearConnection,
+		linearFormState,
 		jiraWebhookUrl,
 		notionConnection,
 		notionFormState,
@@ -3016,6 +3638,36 @@ function useConnectionsSettingsController() {
 			}),
 		setJiraMcpOAuthClientId,
 		setJiraMcpOAuthClientSecret,
+		setContext7BaseUrl: (baseUrl: string) =>
+			dispatch({
+				type: "patchContext7FormState",
+				value: { baseUrl },
+			}),
+		setContext7Name: (name: string) =>
+			dispatch({
+				type: "patchContext7FormState",
+				value: { name },
+			}),
+		setFigmaBaseUrl: (baseUrl: string) =>
+			dispatch({
+				type: "patchFigmaFormState",
+				value: { baseUrl },
+			}),
+		setFigmaName: (name: string) =>
+			dispatch({
+				type: "patchFigmaFormState",
+				value: { name },
+			}),
+		setLinearBaseUrl: (baseUrl: string) =>
+			dispatch({
+				type: "patchLinearFormState",
+				value: { baseUrl },
+			}),
+		setLinearName: (name: string) =>
+			dispatch({
+				type: "patchLinearFormState",
+				value: { name },
+			}),
 		setPostHogBaseUrl: (baseUrl: string) =>
 			dispatch({
 				type: "patchPostHogFormState",
@@ -3170,70 +3822,6 @@ function ToolConnectionRow({
 				{buttonIcon}
 				{buttonLabel}
 			</Button>
-		</div>
-	);
-}
-
-function ConnectionDialogFooter({
-	onCancel,
-	onConnect,
-	onDisable,
-	isFormValid,
-	isSaving,
-	isDisabling,
-}: {
-	onCancel: () => void;
-	onConnect: () => void;
-	onDisable?: () => void;
-	isFormValid: boolean;
-	isSaving: boolean;
-	isDisabling: boolean;
-}) {
-	return (
-		<div className="flex items-center justify-between gap-2 pt-2">
-			{onDisable ? (
-				<Button
-					type="button"
-					variant="destructive"
-					onClick={onDisable}
-					disabled={isSaving || isDisabling}
-				>
-					{isDisabling ? (
-						<>
-							<LoaderCircle className="animate-spin" />
-							Disabling
-						</>
-					) : (
-						"Disable"
-					)}
-				</Button>
-			) : (
-				<span />
-			)}
-			<div className="flex justify-end gap-2">
-				<Button
-					type="button"
-					variant="ghost"
-					onClick={onCancel}
-					disabled={isSaving || isDisabling}
-				>
-					Cancel
-				</Button>
-				<Button
-					type="button"
-					onClick={onConnect}
-					disabled={!isFormValid || isSaving || isDisabling}
-				>
-					{isSaving ? (
-						<>
-							<LoaderCircle className="animate-spin" />
-							Connecting
-						</>
-					) : (
-						"Connect"
-					)}
-				</Button>
-			</div>
 		</div>
 	);
 }

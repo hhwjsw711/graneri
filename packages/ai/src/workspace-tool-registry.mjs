@@ -1,7 +1,10 @@
 import { listYandexUpcomingEvents } from "../../../convex/yandexCalendar.ts";
+import { buildContext7Tools } from "./context7-tools.mjs";
+import { buildFigmaTools } from "./figma-tools.mjs";
 import { buildGoogleCalendarTools } from "./google-calendar-tools.mjs";
 import { buildGoogleDriveTools } from "./google-drive-tools.mjs";
 import { buildJiraMcpTools } from "./jira-mcp-tools.mjs";
+import { buildLinearTools } from "./linear-tools.mjs";
 import { buildNotionTools } from "./notion-tools.mjs";
 import { buildPostHogTools } from "./posthog-tools.mjs";
 import { buildYandexCalendarTools } from "./yandex-calendar-tools.mjs";
@@ -127,6 +130,18 @@ export const buildWorkspaceToolSet = async (connections, adapters = {}) => {
 
 		if (connection.provider === "zoom") {
 			Object.assign(tools, await buildZoomMcpTools(connection));
+		}
+
+		if (connection.provider === "context7") {
+			Object.assign(tools, await buildContext7Tools(connection));
+		}
+
+		if (connection.provider === "figma") {
+			Object.assign(tools, await buildFigmaTools(connection));
+		}
+
+		if (connection.provider === "linear") {
+			Object.assign(tools, await buildLinearTools(connection));
 		}
 	}
 

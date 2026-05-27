@@ -39,6 +39,9 @@ const automationAppSourceProviderValidator = v.union(
 	v.literal("posthog"),
 	v.literal("notion"),
 	v.literal("zoom"),
+	v.literal("context7"),
+	v.literal("figma"),
+	v.literal("linear"),
 );
 
 const automationAppSourceValidator = v.object({
@@ -59,7 +62,10 @@ type AutomationAppSource = {
 		| "jira-mcp"
 		| "posthog"
 		| "notion"
-		| "zoom";
+		| "zoom"
+		| "context7"
+		| "figma"
+		| "linear";
 };
 
 const automationListItemValidator = v.object({

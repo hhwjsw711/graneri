@@ -11,8 +11,20 @@ import {
 	type ChatToolConnection,
 } from "./appConnections";
 import {
+	DEFAULT_CONTEXT7_MCP_ENDPOINT,
+	validateContext7McpConnection,
+} from "../packages/ai/src/context7-tools.mjs";
+import {
+	DEFAULT_FIGMA_MCP_ENDPOINT,
+	validateFigmaMcpConnection,
+} from "../packages/ai/src/figma-tools.mjs";
+import {
 	DEFAULT_JIRA_MCP_ENDPOINT,
 } from "../packages/ai/src/jira-mcp-tools.mjs";
+import {
+	DEFAULT_LINEAR_MCP_ENDPOINT,
+	validateLinearMcpConnection,
+} from "../packages/ai/src/linear-tools.mjs";
 import {
 	refreshMcpSdkOAuthToken,
 	startMcpSdkOAuth,
@@ -67,6 +79,19 @@ const mcpOAuthStartResultValidator = v.object({
 	authorizationUrl: v.string(),
 });
 
+const remoteHeaderMcpConnectionResultValidator = <
+	TProvider extends "context7" | "figma" | "linear",
+>(
+	provider: TProvider,
+) =>
+	v.object({
+		sourceId: v.string(),
+		provider: v.literal(provider),
+		status: v.union(v.literal("connected"), v.literal("disconnected")),
+		displayName: v.string(),
+		endpoint: v.string(),
+	});
+
 type YandexTrackerConnectionResult = {
 	sourceId: string;
 	provider: "yandex-tracker";
@@ -105,6 +130,16 @@ type ZoomOAuthStartResult = {
 
 type McpOAuthStartResult = {
 	authorizationUrl: string;
+};
+
+type RemoteHeaderMcpConnectionResult<
+	TProvider extends "context7" | "figma" | "linear",
+> = {
+	sourceId: string;
+	provider: TProvider;
+	status: "connected" | "disconnected";
+	displayName: string;
+	endpoint: string;
 };
 
 const ZOOM_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -599,7 +634,16 @@ const normalizeRemoteMcpEndpoint = (
 	{
 		provider,
 		label,
-	}: { provider: "jira-mcp" | "notion" | "posthog"; label: string },
+	}: {
+		provider:
+			| "context7"
+			| "figma"
+			| "jira-mcp"
+			| "linear"
+			| "notion"
+			| "posthog";
+		label: string;
+	},
 ) => {
 	const trimmedValue = value.trim();
 
@@ -651,6 +695,96 @@ const requireIdentity = async (ctx: ActionCtx) => {
 	}
 
 	return identity;
+};
+
+const sanitizeRemoteMcpEnv = (env?: Record<string, string>) =>
+	Object.fromEntries(
+		Object.entries(env ?? {})
+			.map(([key, value]) => [key.trim(), value] as const)
+			.filter(([key, value]) => key.length > 0 && value.length > 0),
+	);
+
+const remoteHeaderMcpConfigs = {
+	context7: {
+		defaultEndpoint: DEFAULT_CONTEXT7_MCP_ENDPOINT,
+		defaultName: "Context7",
+		errorCode: "CONTEXT7_MCP_CONNECTION_FAILED",
+		failedMessage: "Failed to connect Context7 MCP.",
+		label: "Context7",
+		validateConnection: validateContext7McpConnection,
+		upsert: internal.appConnections.upsertContext7,
+	},
+	figma: {
+		defaultEndpoint: DEFAULT_FIGMA_MCP_ENDPOINT,
+		defaultName: "Figma",
+		errorCode: "FIGMA_MCP_CONNECTION_FAILED",
+		failedMessage: "Failed to connect Figma MCP.",
+		label: "Figma",
+		validateConnection: validateFigmaMcpConnection,
+		upsert: internal.appConnections.upsertFigma,
+	},
+	linear: {
+		defaultEndpoint: DEFAULT_LINEAR_MCP_ENDPOINT,
+		defaultName: "Linear",
+		errorCode: "LINEAR_MCP_CONNECTION_FAILED",
+		failedMessage: "Failed to connect Linear MCP.",
+		label: "Linear",
+		validateConnection: validateLinearMcpConnection,
+		upsert: internal.appConnections.upsertLinear,
+	},
+} as const;
+
+const connectRemoteHeaderMcp = async <
+	TProvider extends keyof typeof remoteHeaderMcpConfigs,
+>(
+	ctx: ActionCtx,
+	args: {
+		workspaceId: Id<"workspaces">;
+		displayName: string;
+		baseUrl: string;
+		env?: Record<string, string>;
+	},
+	provider: TProvider,
+): Promise<RemoteHeaderMcpConnectionResult<TProvider>> => {
+	const config = remoteHeaderMcpConfigs[provider];
+	const identity = await requireIdentity(ctx);
+	const baseUrl = normalizeRemoteMcpEndpoint(
+		args.baseUrl.trim() || config.defaultEndpoint,
+		{
+			provider,
+			label: config.label,
+		},
+	);
+	const displayName = args.displayName.trim() || config.defaultName;
+	const env = sanitizeRemoteMcpEnv(args.env);
+	const envArgs = Object.keys(env).length > 0 ? { env } : {};
+
+	await ctx.runQuery(internal.appConnections.assertWorkspaceAccess, {
+		ownerTokenIdentifier: identity.tokenIdentifier,
+		workspaceId: args.workspaceId,
+	});
+
+	try {
+		await config.validateConnection({
+			baseUrl,
+			displayName,
+			...envArgs,
+		});
+	} catch (error) {
+		console.error(`Failed to validate ${config.label} MCP connection`, error);
+		throw new ConvexError({
+			code: config.errorCode,
+			message: config.failedMessage,
+		});
+	}
+
+	return (await ctx.runMutation(config.upsert, {
+		ownerTokenIdentifier: identity.tokenIdentifier,
+		workspaceId: args.workspaceId,
+		displayName,
+		baseUrl,
+		...envArgs,
+	})) as RemoteHeaderMcpConnectionResult<TProvider>;
 };
 
 export const connectYandexTracker = action({
@@ -887,6 +1021,51 @@ export const connectJiraMcp = action({
 
 		return { authorizationUrl: oauthStart.authorizationUrl };
 	},
+});
+
+export const connectContext7 = action({
+	args: {
+		workspaceId: v.id("workspaces"),
+		displayName: v.string(),
+		baseUrl: v.string(),
+		env: v.optional(v.record(v.string(), v.string())),
+	},
+	returns: remoteHeaderMcpConnectionResultValidator("context7"),
+	handler: async (
+		ctx,
+		args,
+	): Promise<RemoteHeaderMcpConnectionResult<"context7">> =>
+		await connectRemoteHeaderMcp(ctx, args, "context7"),
+});
+
+export const connectFigma = action({
+	args: {
+		workspaceId: v.id("workspaces"),
+		displayName: v.string(),
+		baseUrl: v.string(),
+		env: v.optional(v.record(v.string(), v.string())),
+	},
+	returns: remoteHeaderMcpConnectionResultValidator("figma"),
+	handler: async (
+		ctx,
+		args,
+	): Promise<RemoteHeaderMcpConnectionResult<"figma">> =>
+		await connectRemoteHeaderMcp(ctx, args, "figma"),
+});
+
+export const connectLinear = action({
+	args: {
+		workspaceId: v.id("workspaces"),
+		displayName: v.string(),
+		baseUrl: v.string(),
+		env: v.optional(v.record(v.string(), v.string())),
+	},
+	returns: remoteHeaderMcpConnectionResultValidator("linear"),
+	handler: async (
+		ctx,
+		args,
+	): Promise<RemoteHeaderMcpConnectionResult<"linear">> =>
+		await connectRemoteHeaderMcp(ctx, args, "linear"),
 });
 
 export const connectPostHog = action({

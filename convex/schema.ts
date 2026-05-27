@@ -29,6 +29,9 @@ const appConnectionProviderValidator = v.union(
 	v.literal("posthog"),
 	v.literal("notion"),
 	v.literal("zoom"),
+	v.literal("context7"),
+	v.literal("figma"),
+	v.literal("linear"),
 );
 
 const automationAppSourceProviderValidator = v.union(

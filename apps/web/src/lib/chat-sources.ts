@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { remoteMcpToolPrefixes } from "../../../../packages/ai/src/app-source-providers.mjs";
 
 export type ToolSource = {
 	href: string;
@@ -31,6 +32,8 @@ const tryParseJson = (value: unknown): unknown => {
 
 const collectToolSources = (message: UIMessage): ToolSource[] => {
 	const sources: ToolSource[] = [];
+	const isRemoteMcpToolName = (toolName: string) =>
+		remoteMcpToolPrefixes.some(({ prefix }) => toolName.startsWith(prefix));
 
 	const addSourcesFromToolOutput = (toolName: string, output: unknown) => {
 		if (!output || typeof output !== "object") {
@@ -43,9 +46,7 @@ const collectToolSources = (message: UIMessage): ToolSource[] => {
 			toolName !== "yandex_tracker_get_issue" &&
 			toolName !== "jira_search" &&
 			toolName !== "jira_get_issue" &&
-			!toolName.startsWith("jira_") &&
-			!toolName.startsWith("notion_") &&
-			!toolName.startsWith("posthog_")
+			!isRemoteMcpToolName(toolName)
 		) {
 			return;
 		}
