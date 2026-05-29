@@ -50,12 +50,14 @@ import {
 	isLatestNoteSaveRequest,
 } from "@/lib/note-snapshot";
 import {
+	requestEnhancedStructuredNote,
+	requestTemplateStructuredNote,
+} from "@/lib/note-template-application";
+import {
 	isEnhancedNoteTemplate,
 	type NoteTemplate,
 } from "@/lib/note-templates";
 import {
-	type StructuredNote,
-	type StructuredNoteBody,
 	structuredNoteToDocument,
 	structuredNoteToSearchableText,
 } from "@/lib/structured-note";
@@ -871,35 +873,6 @@ const useNotePageController = ({
 		editor.chain().focus("start").run();
 	}, [editor]);
 
-	const requestStructuredNote = React.useCallback(
-		async (body: {
-			title: string;
-			rawNotes?: string;
-			transcript?: string;
-			noteText?: string;
-		}) => {
-			const response = await fetch("/api/enhance-note", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify(body),
-			});
-
-			const payload = (await response.json().catch(() => ({}))) as {
-				error?: string;
-				note?: StructuredNote;
-			};
-
-			if (!response.ok || !payload.note) {
-				throw new Error(payload.error || "Failed to enhance note.");
-			}
-
-			return payload.note;
-		},
-		[],
-	);
-
 	const applyTemplate = React.useCallback(
 		async (template: NoteTemplate) => {
 			if (!editor || !noteId) {
@@ -950,7 +923,7 @@ const useNotePageController = ({
 				});
 
 				if (isEnhancedNoteTemplate(template)) {
-					const enhancedNote = await requestStructuredNote({
+					const enhancedNote = await requestEnhancedStructuredNote({
 						title,
 						noteText: serializedText,
 					});
@@ -975,109 +948,18 @@ const useNotePageController = ({
 				setContent(EMPTY_DOCUMENT_STRING);
 				setSearchableText("");
 
-				const response = await fetch("/api/apply-template", {
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Accept: "application/x-ndjson",
-					},
-					body: JSON.stringify({
-						title,
-						noteText: serializedText,
-						template,
-					}),
-				});
-
-				if (!response.ok) {
-					const errorText = await response.text().catch(() => "");
-					throw new Error(errorText || "Failed to apply template.");
-				}
-
-				const stream = response.body;
-				if (!stream) {
-					throw new Error("Template rewrite stream is not available.");
-				}
-
-				const reader = stream.getReader();
-				const decoder = new TextDecoder();
-				let finalNote: StructuredNoteBody | null = null;
-				let responseError: string | null = null;
-				let bufferedResponse = "";
-				let streamedText = "";
-
-				const handleEvent = (rawLine: string) => {
-					const line = rawLine.trim();
-					if (!line) {
-						return;
-					}
-
-					const payload = JSON.parse(line) as
-						| {
-								type: "text-delta";
-								delta?: string;
-						  }
-						| {
-								type: "final-note";
-								note?: StructuredNoteBody;
-						  }
-						| {
-								type: "error";
-								error?: string;
-						  };
-
-					if (payload.type === "text-delta") {
-						const delta = payload.delta ?? "";
-						streamedText += delta;
+				const finalNote = await requestTemplateStructuredNote({
+					title,
+					noteText: serializedText,
+					template,
+					onMarkdown: (streamedMarkdown) => {
 						setTemplateApplyState({
 							isRunning: true,
 							templateName: template.name,
-							streamedMarkdown: streamedText,
+							streamedMarkdown,
 						});
-						return;
-					}
-
-					if (payload.type === "final-note") {
-						finalNote = payload.note ?? null;
-						return;
-					}
-
-					responseError = payload.error ?? "Failed to apply template.";
-				};
-
-				const readResponseChunk = async (): Promise<void> => {
-					const { done, value } = await reader.read();
-					bufferedResponse += decoder.decode(value ?? new Uint8Array(), {
-						stream: !done,
-					});
-
-					const lines = bufferedResponse.split("\n");
-					bufferedResponse = lines.pop() ?? "";
-					for (const nextLine of lines) {
-						handleEvent(nextLine);
-					}
-
-					if (done) {
-						return;
-					}
-
-					await readResponseChunk();
-				};
-
-				await readResponseChunk();
-
-				if (bufferedResponse.trim()) {
-					handleEvent(bufferedResponse);
-				}
-
-				if (responseError) {
-					throw new Error(responseError);
-				}
-
-				if (!finalNote) {
-					throw new Error(
-						"Template rewrite finished without a validated structured note.",
-					);
-				}
+					},
+				});
 
 				const nextDocument = structuredNoteToDocument(finalNote);
 				const nextContent = JSON.stringify(nextDocument);
@@ -1121,7 +1003,6 @@ const useNotePageController = ({
 			content,
 			editor,
 			noteId,
-			requestStructuredNote,
 			setEditorDocument,
 			setNoteTemplate,
 			shouldPreserveStructuredNoteTitle,
@@ -1206,7 +1087,7 @@ const useNotePageController = ({
 					return;
 				}
 
-				const enhancedNote = await requestStructuredNote({
+				const enhancedNote = await requestEnhancedStructuredNote({
 					title,
 					rawNotes: searchableText,
 					transcript,
@@ -1254,7 +1135,6 @@ const useNotePageController = ({
 			noteId,
 			editor,
 			flushSave,
-			requestStructuredNote,
 			searchableText,
 			setEditorDocument,
 			setNoteTemplate,
