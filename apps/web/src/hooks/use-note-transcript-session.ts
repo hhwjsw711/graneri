@@ -3,16 +3,17 @@ import {
 	onDesktopMeetingDetectionState,
 } from "@workspace/platform/desktop";
 import * as React from "react";
+import { useNoteTranscriptScope } from "@/hooks/use-note-transcript-scope";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
-import { useTranscriptSessionRepository } from "@/hooks/use-transcript-session-repository";
-import { useTranscriptionSession } from "@/hooks/use-transcription-session";
+import {
+	createStoredTranscriptText,
+	createVisibleTranscriptView,
+	sortTranscriptUtterances,
+} from "@/lib/note-transcript-session-view";
 import {
 	createEmptyLiveTranscriptState,
 	createLiveTranscriptEntries,
 	createSystemAudioCaptureStatus,
-	createTranscriptBlocksText,
-	createTranscriptDisplayEntries,
-	createTranscriptExportText,
 	createTranscriptRecoveryStatus,
 	type LiveTranscriptState,
 	type TranscriptUtterance,
@@ -23,35 +24,6 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 
 const granolaIdleStopMs = 15 * 60 * 1000;
 const granolaIdleCheckIntervalMs = 15 * 1000;
-
-const getScopedNoteId = (scopeKey: string): Id<"notes"> | null => {
-	if (!scopeKey.startsWith("note:")) {
-		return null;
-	}
-
-	const scopedNoteId = scopeKey.slice("note:".length);
-	if (!scopedNoteId || scopedNoteId === "draft") {
-		return null;
-	}
-
-	return scopedNoteId as Id<"notes">;
-};
-
-const getInitialCaptureScopeKey = ({
-	noteId,
-	isListening,
-	scopeKey,
-}: {
-	noteId: Id<"notes"> | null;
-	isListening: boolean;
-	scopeKey: string | null;
-}) => {
-	if (isListening && scopeKey?.startsWith("note:")) {
-		return scopeKey;
-	}
-
-	return noteId ? `note:${noteId}` : "note:draft";
-};
 
 type UseNoteTranscriptSessionArgs = {
 	autoStartTranscription?: boolean;
@@ -92,31 +64,7 @@ export const useNoteTranscriptSession = ({
 		isAtBottom: isTranscriptViewportAtBottom,
 		scrollToBottom: scrollTranscriptToBottom,
 	} = useStickyScrollToBottom();
-	const transcriptionSession = useTranscriptionSession() ?? {
-		autoStartKey: null,
-		error: null,
-		isAvailable: false,
-		isConnecting: false,
-		isListening: false,
-		liveTranscript: createEmptyLiveTranscriptState(),
-		phase: "idle" as const,
-		recoveryStatus: createTranscriptRecoveryStatus(),
-		scopeKey: null,
-		systemAudioStatus: createSystemAudioCaptureStatus(),
-		utterances: [],
-	};
-	const initialCaptureScopeKey = React.useMemo(
-		() =>
-			getInitialCaptureScopeKey({
-				// react-doctor-disable-next-line react-doctor/no-event-handler
-				noteId,
-				isListening: transcriptionSession.isListening,
-				scopeKey: transcriptionSession.scopeKey,
-			}),
-		[noteId, transcriptionSession.isListening, transcriptionSession.scopeKey],
-	);
 	const previousSpeechListeningRef = React.useRef(false);
-	const previousTranscriptDraftKeyRef = React.useRef(initialCaptureScopeKey);
 	const lastQueuedAutoStartKeyRef = React.useRef<string | null>(null);
 	const hasHandledAutoStartRef = React.useRef(false);
 	const shouldStopWhenMeetingEndsRef = React.useRef(false);
@@ -141,52 +89,25 @@ export const useNoteTranscriptSession = ({
 	const queuedTranscriptUtterancesRef = React.useRef<TranscriptUtterance[]>([]);
 	const sessionSystemAudioModePersistedRef =
 		React.useRef<Id<"transcriptSessions"> | null>(null);
-	const resolvedCaptureScopeKey = noteId ? `note:${noteId}` : "note:draft";
-	const [captureScopeKey, setCaptureScopeKey] = React.useState(
-		initialCaptureScopeKey,
-	);
-	const currentNoteScopeKey = resolvedCaptureScopeKey;
-	const captureScopeNoteId = React.useMemo(
-		() => getScopedNoteId(captureScopeKey),
-		[captureScopeKey],
-	);
-	const captureTranscriptDraftKey = captureScopeKey;
-	const isScopedTranscriptionSession =
-		transcriptionSession.isListening &&
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		transcriptionSession.scopeKey === captureScopeKey;
-	const isViewingCaptureScope = resolvedCaptureScopeKey === captureScopeKey;
-	const reusesCaptureTranscriptSessionRepository =
-		noteId !== null && noteId === captureScopeNoteId;
-	const captureTranscriptSessionRepository = useTranscriptSessionRepository(
+	const {
+		captureScopeKey,
 		captureScopeNoteId,
-		{
-			shouldAutoLoadLatestTranscriptSession:
-				isScopedTranscriptionSession ||
-				(isViewingCaptureScope && shouldLoadStoredTranscriptHistory),
-		},
-	);
-	const currentNoteTranscriptSessionRepository = useTranscriptSessionRepository(
-		reusesCaptureTranscriptSessionRepository ? null : noteId,
-		{
-			shouldAutoLoadLatestTranscriptSession:
-				!reusesCaptureTranscriptSessionRepository &&
-				!isViewingCaptureScope &&
-				shouldLoadStoredTranscriptHistory,
-		},
-	);
-	const effectiveCurrentNoteTranscriptSessionRepository =
-		reusesCaptureTranscriptSessionRepository
-			? captureTranscriptSessionRepository
-			: currentNoteTranscriptSessionRepository;
-	const isSpeechListening = isScopedTranscriptionSession
-		? transcriptionSession.isListening
-		: false;
-	const isCurrentNoteTranscriptionSession =
-		transcriptionSession.scopeKey === resolvedCaptureScopeKey;
-	const isCurrentNoteSpeechListening = isCurrentNoteTranscriptionSession
-		? transcriptionSession.isListening
-		: false;
+		captureTranscriptDraftKey,
+		captureTranscriptSessionRepository,
+		currentNoteScopeKey,
+		effectiveCurrentNoteTranscriptSessionRepository,
+		isCurrentNoteSpeechListening,
+		isScopedTranscriptionSession,
+		isSpeechListening,
+		isViewingCaptureScope,
+		resolvedCaptureScopeKey,
+		setCaptureScopeKey,
+		transcriptionSession,
+	} = useNoteTranscriptScope({
+		noteId,
+		shouldLoadStoredTranscriptHistory,
+	});
+	const previousTranscriptDraftKeyRef = React.useRef(captureTranscriptDraftKey);
 	const systemAudioStatus = isScopedTranscriptionSession
 		? transcriptionSession.systemAudioStatus
 		: createSystemAudioCaptureStatus();
@@ -202,18 +123,7 @@ export const useNoteTranscriptSession = ({
 	);
 
 	const orderedTranscriptUtterances = React.useMemo(
-		() =>
-			transcriptUtterances.slice().sort((left, right) => {
-				if (left.startedAt !== right.startedAt) {
-					return left.startedAt - right.startedAt;
-				}
-
-				if (left.endedAt !== right.endedAt) {
-					return left.endedAt - right.endedAt;
-				}
-
-				return left.id.localeCompare(right.id);
-			}),
+		() => sortTranscriptUtterances(transcriptUtterances),
 		[transcriptUtterances],
 	);
 
@@ -238,81 +148,37 @@ export const useNoteTranscriptSession = ({
 		: currentNoteLatestTranscriptSessionSummary;
 	const currentNoteStoredTranscript = React.useMemo(
 		() =>
-			currentNoteLatestTranscriptSession
-				? createTranscriptText(currentNoteLatestTranscriptSession.utterances) ||
-					currentNoteLatestTranscriptSession.finalTranscript
-				: (currentNoteLatestTranscriptSessionSummary?.finalTranscript ?? ""),
+			createStoredTranscriptText({
+				session: currentNoteLatestTranscriptSession,
+				summary: currentNoteLatestTranscriptSessionSummary,
+			}),
 		[
 			currentNoteLatestTranscriptSession,
-			currentNoteLatestTranscriptSessionSummary?.finalTranscript,
+			currentNoteLatestTranscriptSessionSummary,
 		],
 	);
-	const visibleOrderedTranscriptUtterances = React.useMemo(
-		() =>
-			isViewingCaptureScope
-				? orderedTranscriptUtterances
-				: (currentNoteLatestTranscriptSession?.utterances ?? []),
-		[
-			currentNoteLatestTranscriptSession?.utterances,
-			isViewingCaptureScope,
-			orderedTranscriptUtterances,
-		],
-	);
-	const visibleLiveTranscript = React.useMemo<LiveTranscriptState>(
-		() =>
-			isViewingCaptureScope ? liveTranscript : createEmptyLiveTranscriptState(),
-		[isViewingCaptureScope, liveTranscript],
-	);
-	const visibleLiveTranscriptEntries = React.useMemo(
-		() => createLiveTranscriptEntries(visibleLiveTranscript),
-		[visibleLiveTranscript],
-	);
-	const visibleDisplayTranscriptEntries = React.useMemo(
-		() =>
-			createTranscriptDisplayEntries({
-				liveTranscript: visibleLiveTranscript,
-				utterances: visibleOrderedTranscriptUtterances,
-			}),
-		[visibleLiveTranscript, visibleOrderedTranscriptUtterances],
-	);
-	const visibleTranscriptStartedAt = React.useMemo(() => {
-		const committedStartedAt =
-			visibleOrderedTranscriptUtterances[0]?.startedAt ?? null;
-		const liveStartedAt = visibleLiveTranscriptEntries.reduce<number | null>(
-			(currentValue, entry) => {
-				if (entry.startedAt == null) {
-					return currentValue;
-				}
-
-				return currentValue == null
-					? entry.startedAt
-					: Math.min(currentValue, entry.startedAt);
-			},
-			null,
-		);
-
-		return (
-			committedStartedAt ??
-			liveStartedAt ??
-			(isViewingCaptureScope ? listeningStartedAtRef.current : null) ??
-			null
-		);
-	}, [
-		isViewingCaptureScope,
+	const {
+		visibleDisplayTranscriptEntries,
+		visibleExportTranscript,
+		visibleFullTranscript,
 		visibleLiveTranscriptEntries,
 		visibleOrderedTranscriptUtterances,
-	]);
-	const visibleFullTranscript = React.useMemo(
-		() => createTranscriptBlocksText(visibleDisplayTranscriptEntries),
-		[visibleDisplayTranscriptEntries],
-	);
-	const visibleExportTranscript = React.useMemo(
+		visibleTranscriptStartedAt,
+	} = React.useMemo(
 		() =>
-			createTranscriptExportText({
-				entries: visibleDisplayTranscriptEntries,
-				startedAt: visibleTranscriptStartedAt,
+			createVisibleTranscriptView({
+				currentNoteLatestTranscriptSession,
+				isViewingCaptureScope,
+				listeningStartedAt: listeningStartedAtRef.current,
+				liveTranscript,
+				orderedTranscriptUtterances,
 			}),
-		[visibleDisplayTranscriptEntries, visibleTranscriptStartedAt],
+		[
+			currentNoteLatestTranscriptSession,
+			isViewingCaptureScope,
+			liveTranscript,
+			orderedTranscriptUtterances,
+		],
 	);
 	const isTranscriptSessionReady = isViewingCaptureScope
 		? previousTranscriptDraftKeyRef.current === captureTranscriptDraftKey &&
@@ -347,7 +213,7 @@ export const useNoteTranscriptSession = ({
 				? currentScopeKey
 				: resolvedCaptureScopeKey,
 		);
-	}, [isSpeechListening, resolvedCaptureScopeKey]);
+	}, [isSpeechListening, resolvedCaptureScopeKey, setCaptureScopeKey]);
 
 	React.useEffect(() => {
 		if (

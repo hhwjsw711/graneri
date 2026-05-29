@@ -27,6 +27,10 @@ type TranscriptSessionSnapshot = {
 
 type TranscriptSessionSummary = Omit<TranscriptSessionSnapshot, "utterances">;
 
+export type TranscriptSessionRepository = ReturnType<
+	typeof useTranscriptSessionRepository
+>;
+
 const toTranscriptUtteranceInput = (
 	utterance: TranscriptUtterance,
 	source: "live" | "refined",
