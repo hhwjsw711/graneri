@@ -33,6 +33,7 @@ import {
 	createDesktopNavigationState,
 	getDefaultDesktopNavigation,
 } from "./desktop-navigation-state.mjs";
+import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
 import { createDesktopUpdater } from "./desktop-updater.mjs";
@@ -203,6 +204,7 @@ const isLikelySystemAudioPermissionError = (error) => {
 
 let mainWindow = null;
 let localServer = null;
+let desktopShell = null;
 let desktopTray = null;
 let desktopUpdater = null;
 let isQuitting = false;
@@ -217,7 +219,6 @@ const desktopStorage = createDesktopStorage({
 	transcriptDraftsDirPath,
 });
 let systemAudioPermissionState = "prompt";
-let cachedDockIconImage;
 let latestTranscriptionSessionState = createInitialTranscriptionSessionState();
 const desktopRealtimeTransportSessions = new Map();
 const captureEventListeners = {
@@ -254,79 +255,20 @@ const isUpdaterAvailable = () =>
 	app.isPackaged === true &&
 	process.env.OPENGRAN_DISABLE_UPDATER !== "1";
 
-const getDockIconImage = () => {
-	if (cachedDockIconImage !== undefined) {
-		return cachedDockIconImage;
-	}
-
-	const icon = nativeImage.createFromPath(dockIconPath);
-	if (icon.isEmpty()) {
-		console.warn(`Dock icon is missing or invalid at ${dockIconPath}.`);
-		cachedDockIconImage = null;
-		return cachedDockIconImage;
-	}
-
-	cachedDockIconImage = icon;
-	return cachedDockIconImage;
-};
-
 const applyDockIcon = () => {
-	if (process.platform !== "darwin") {
-		return;
-	}
-
-	const icon = getDockIconImage();
-	if (!icon) {
-		return;
-	}
-
-	app.dock?.setIcon(icon);
+	desktopShell?.applyDockIcon();
 };
-
 const ensureDockVisible = () => {
-	if (process.platform !== "darwin") {
-		return;
-	}
-
-	app.dock?.show();
-	applyDockIcon();
+	desktopShell?.ensureDockVisible();
 };
-
 const ensureAppActive = () => {
-	if (process.platform !== "darwin") {
-		return;
-	}
-
-	app.show();
-	app.focus({ steal: true });
+	desktopShell?.ensureAppActive();
 };
-
-const ensureDockHidden = () => {
-	if (process.platform !== "darwin") {
-		return;
-	}
-
-	app.dock?.hide();
-};
-
 const hideMainWindow = () => {
-	if (!mainWindow || mainWindow.isDestroyed()) {
-		return;
-	}
-
-	mainWindow.hide();
+	desktopShell?.hideMainWindow();
 };
-
-const hideApp = ({ hideDock = false } = {}) => {
-	hideMainWindow();
-
-	if (process.platform === "darwin") {
-		app.hide();
-	}
-
-	if (hideDock) {
-		ensureDockHidden();
-	}
+const hideApp = (options) => {
+	desktopShell?.hideApp(options);
 };
 
 const getConvexUrl = () => {
@@ -1062,6 +1004,12 @@ desktopNavigationState = createDesktopNavigationState({
 	lastNavigationPath,
 	resolveRendererUrl,
 	userDataPath: app.getPath("userData"),
+});
+
+desktopShell = createDesktopShell({
+	app,
+	dockIconPath,
+	getMainWindow: () => mainWindow,
 });
 
 const rememberRendererNavigation = async (urlString) => {
@@ -3352,10 +3300,7 @@ const promptToConfirmQuitCompletely = async () => {
 	isPromptingForQuitConfirmation = true;
 
 	try {
-		const parentWindow =
-			mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
-				? mainWindow
-				: undefined;
+		const parentWindow = desktopShell?.getVisibleMainWindow();
 		const dialogOptions = {
 			type: "question",
 			buttons: ["Cancel", "Quit"],
@@ -3386,10 +3331,7 @@ const showUpdateMessageBox = async ({
 	defaultId = 0,
 	cancelId = defaultId,
 }) => {
-	const parentWindow =
-		mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
-			? mainWindow
-			: undefined;
+	const parentWindow = desktopShell?.getVisibleMainWindow();
 	const dialogOptions = {
 		type,
 		buttons,
@@ -3408,10 +3350,7 @@ const showUpdateMessageBox = async ({
 };
 
 const showAboutMessageBox = async () => {
-	const parentWindow =
-		mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()
-			? mainWindow
-			: undefined;
+	const parentWindow = desktopShell?.getVisibleMainWindow();
 	const version = app.getVersion();
 	const currentYear = new Date().getFullYear();
 	const dialogOptions = {
