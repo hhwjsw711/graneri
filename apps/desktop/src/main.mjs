@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -29,6 +29,10 @@ import {
 	summarizeTranscriptConfidence,
 } from "../../../packages/ai/src/transcription.mjs";
 import { getDesktopAuthClient } from "./auth-client.mjs";
+import {
+	createDesktopNavigationState,
+	getDefaultDesktopNavigation,
+} from "./desktop-navigation-state.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
 import { createDesktopUpdater } from "./desktop-updater.mjs";
@@ -94,11 +98,6 @@ const minimumWindowSize = {
 const defaultWindowSize = {
 	width: 1200,
 	height: 840,
-};
-const defaultLastNavigation = {
-	hash: "",
-	pathname: "/home",
-	search: "",
 };
 const getMainWindowBackgroundColor = () => {
 	if (process.platform === "darwin") {
@@ -246,7 +245,7 @@ let transcriptionPendingSystemAudioAttachPromise = null;
 let transcriptionPendingStartPromise = null;
 let transcriptionPendingStopPromise = null;
 let currentTranscriptionSessionCorrelationId = null;
-let lastNavigation = { ...defaultLastNavigation };
+let desktopNavigationState = null;
 const areDesktopTestHooksEnabled =
 	app.isPackaged !== true || process.env.OPENGRAN_ENABLE_TEST_HOOKS === "1";
 
@@ -1059,120 +1058,14 @@ const resolveRendererUrl = async () => {
 	return (await ensureLocalServer()).origin;
 };
 
-const normalizeRestorableNavigation = ({
-	pathname = "/home",
-	search = "",
-} = {}) => {
-	if (typeof pathname !== "string") {
-		return null;
-	}
-
-	if (!["/home", "/chat", "/note", "/shared"].includes(pathname)) {
-		return null;
-	}
-
-	const params = new URLSearchParams(typeof search === "string" ? search : "");
-
-	if (pathname === "/note") {
-		const noteId = params.get("noteId")?.trim();
-
-		if (!noteId) {
-			return null;
-		}
-
-		return {
-			hash: "",
-			pathname,
-			search: `?noteId=${encodeURIComponent(noteId)}`,
-		};
-	}
-
-	if (pathname === "/chat") {
-		const chatId = params.get("chatId")?.trim();
-
-		return {
-			hash: "",
-			pathname,
-			search: chatId ? `?chatId=${encodeURIComponent(chatId)}` : "",
-		};
-	}
-
-	return {
-		hash: "",
-		pathname,
-		search: "",
-	};
-};
-
-const loadLastNavigation = async () => {
-	try {
-		const raw = await readFile(lastNavigationPath, "utf8");
-		const parsed = JSON.parse(raw);
-
-		lastNavigation = normalizeRestorableNavigation(parsed) ?? {
-			...defaultLastNavigation,
-		};
-	} catch (error) {
-		if (
-			error &&
-			typeof error === "object" &&
-			"code" in error &&
-			error.code === "ENOENT"
-		) {
-			lastNavigation = { ...defaultLastNavigation };
-			return;
-		}
-
-		console.warn("Failed to read last navigation.", error);
-		lastNavigation = { ...defaultLastNavigation };
-	}
-};
-
-const saveLastNavigation = async () => {
-	try {
-		await mkdir(app.getPath("userData"), { recursive: true });
-		await writeFile(
-			lastNavigationPath,
-			JSON.stringify(lastNavigation, null, 2),
-			"utf8",
-		);
-	} catch (error) {
-		console.warn("Failed to save last navigation.", error);
-	}
-};
+desktopNavigationState = createDesktopNavigationState({
+	lastNavigationPath,
+	resolveRendererUrl,
+	userDataPath: app.getPath("userData"),
+});
 
 const rememberRendererNavigation = async (urlString) => {
-	try {
-		const rendererUrl = new URL(await resolveRendererUrl());
-		const nextUrl = new URL(urlString);
-
-		if (nextUrl.origin !== rendererUrl.origin) {
-			return;
-		}
-
-		const normalizedNavigation = normalizeRestorableNavigation({
-			hash: nextUrl.hash,
-			pathname: nextUrl.pathname,
-			search: nextUrl.search,
-		});
-
-		if (!normalizedNavigation) {
-			return;
-		}
-
-		if (
-			lastNavigation.pathname === normalizedNavigation.pathname &&
-			lastNavigation.search === normalizedNavigation.search &&
-			lastNavigation.hash === normalizedNavigation.hash
-		) {
-			return;
-		}
-
-		lastNavigation = normalizedNavigation;
-		await saveLastNavigation();
-	} catch (error) {
-		console.warn("Failed to remember renderer navigation.", error);
-	}
+	await desktopNavigationState?.remember(urlString);
 };
 
 const parseDesktopRealtimeTransportEvent = ({ event, speaker }) => {
@@ -2585,7 +2478,9 @@ const showMainWindow = async (options = {}) => {
 
 	if (!mainWindow) {
 		const targetUrl = await getNavigationUrl(
-			hasExplicitNavigation ? options : lastNavigation,
+			hasExplicitNavigation
+				? options
+				: (desktopNavigationState?.get() ?? getDefaultDesktopNavigation()),
 		);
 		await createMainWindow(targetUrl);
 	} else if (hasExplicitNavigation) {
@@ -2723,7 +2618,11 @@ const handleDesktopAuthCallback = async (callbackUrl) => {
 };
 
 const createMainWindow = async (targetUrl) => {
-	const navigationUrl = targetUrl ?? (await getNavigationUrl(lastNavigation));
+	const navigationUrl =
+		targetUrl ??
+		(await getNavigationUrl(
+			desktopNavigationState?.get() ?? getDefaultDesktopNavigation(),
+		));
 	const isMac = process.platform === "darwin";
 
 	mainWindow = new BrowserWindow({
@@ -3565,8 +3464,8 @@ const handleDesktopSignOut = async () => {
 			body: JSON.stringify({}),
 			throw: true,
 		});
-		lastNavigation = { ...defaultLastNavigation };
-		await saveLastNavigation();
+		await desktopNavigationState?.reset();
+		const defaultLastNavigation = getDefaultDesktopNavigation();
 
 		if (!mainWindow || mainWindow.isDestroyed()) {
 			await showMainWindow(defaultLastNavigation);
@@ -3737,7 +3636,7 @@ if (!singleInstanceLock) {
 		applyDockIcon();
 
 		await desktopTray?.loadSettings();
-		await loadLastNavigation();
+		await desktopNavigationState?.load();
 		await ensureLocalServer();
 		await createMainWindow();
 		await startMicrophoneActivityMonitor().catch((error) => {

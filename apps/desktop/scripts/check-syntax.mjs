@@ -5,6 +5,7 @@ const files = [
 	"src/main.mjs",
 	"src/meeting-source.mjs",
 	"src/meeting-detection.mjs",
+	"src/desktop-navigation-state.mjs",
 	"src/desktop-storage.mjs",
 	"src/desktop-tray.mjs",
 	"src/desktop-updater.mjs",
