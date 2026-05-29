@@ -260,6 +260,7 @@ type ChatComposerProps = {
 	useCompactLayout: boolean;
 	draft: string;
 	editingMessageId?: string | null;
+	placeholder: string;
 	topAccessory?: React.ReactNode;
 	onDraftChange: (value: string) => void;
 	onDraftKeyDown: (event: KeyboardEvent) => void;
@@ -291,6 +292,7 @@ export function ChatComposer({
 	useCompactLayout,
 	draft,
 	editingMessageId,
+	placeholder,
 	topAccessory,
 	onDraftChange,
 	onDraftKeyDown,
@@ -384,6 +386,7 @@ export function ChatComposer({
 				<ChatComposerTextEditor
 					draft={draft}
 					editingMessageId={editingMessageId}
+					placeholder={placeholder}
 					onCancelEdit={onCancelEdit}
 					onDraftChange={onDraftChange}
 					onDraftKeyDown={onDraftKeyDown}
@@ -434,6 +437,7 @@ export function ChatComposer({
 function ChatComposerTextEditor({
 	draft,
 	editingMessageId,
+	placeholder,
 	onCancelEdit,
 	onDraftChange,
 	onDraftKeyDown,
@@ -445,6 +449,7 @@ function ChatComposerTextEditor({
 }: {
 	draft: string;
 	editingMessageId?: string | null;
+	placeholder: string;
 	onCancelEdit?: () => void;
 	onDraftChange: (value: string) => void;
 	onDraftKeyDown: (event: KeyboardEvent) => void;
@@ -457,6 +462,8 @@ function ChatComposerTextEditor({
 	const promptRef = React.useRef<HTMLDivElement | null>(null);
 	const noteMentionRangeRef = React.useRef<NoteMentionRange | null>(null);
 	const composerEditorRef = React.useRef<Editor | null>(null);
+	const placeholderRef = React.useRef(placeholder);
+	const previousPlaceholderRef = React.useRef(placeholder);
 	const mentionPopoverOpenRef = React.useRef(false);
 	const allMentionDocumentsRef = React.useRef(mentionableDocuments);
 	const allAppSourcesRef = React.useRef(appSources);
@@ -501,6 +508,7 @@ function ChatComposerTextEditor({
 	visibleMentionDocumentsRef.current = visibleMentionDocuments;
 	visibleMentionItemsRef.current = visibleMentionItems;
 	mentionsRef.current = mentions;
+	placeholderRef.current = placeholder;
 	selectedMentionIndexRef.current = selectedMentionIndex;
 
 	const selectMentionIndex = React.useCallback((index: number) => {
@@ -716,7 +724,7 @@ function ChatComposerTextEditor({
 				},
 			}),
 			Placeholder.configure({
-				placeholder: "Ask anything. @ to use tools or mention notes",
+				placeholder: () => placeholderRef.current,
 			}),
 		],
 		content: getDraftDocument(draft, mentions),
@@ -765,6 +773,21 @@ function ChatComposerTextEditor({
 			}
 		},
 	});
+
+	React.useEffect(() => {
+		if (!composerEditor) {
+			return;
+		}
+
+		if (previousPlaceholderRef.current === placeholder) {
+			return;
+		}
+
+		previousPlaceholderRef.current = placeholder;
+		composerEditor.view.dispatch(
+			composerEditor.state.tr.setMeta("addToHistory", false),
+		);
+	}, [composerEditor, placeholder]);
 
 	// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 	React.useEffect(() => {

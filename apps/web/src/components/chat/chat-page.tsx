@@ -1181,6 +1181,11 @@ export function ChatPage({
 		<ChatComposer
 			useCompactLayout={shouldShowActiveChatSurface}
 			draft={controller.draft}
+			placeholder={
+				controller.hasMessages
+					? "Ask for follow-up"
+					: "Ask anything. @ to use tools or mention notes"
+			}
 			topAccessory={composerTopAccessory}
 			onDraftChange={controller.setDraft}
 			onDraftKeyDown={controller.handleDraftKeyDown}
