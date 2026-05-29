@@ -8,7 +8,6 @@ import {
 	clipboard,
 	dialog,
 	ipcMain,
-	Menu,
 	nativeImage,
 	nativeTheme,
 	powerMonitor,
@@ -28,6 +27,7 @@ import {
 	summarizeTranscriptConfidence,
 } from "../../../packages/ai/src/transcription.mjs";
 import { getDesktopAuthClient } from "./auth-client.mjs";
+import { createDesktopAppMenu } from "./desktop-app-menu.mjs";
 import {
 	createDesktopNavigationState,
 	getDefaultDesktopNavigation,
@@ -196,6 +196,7 @@ const isLikelySystemAudioPermissionError = (error) => {
 
 let mainWindow = null;
 let localServer = null;
+let desktopAppMenu = null;
 let desktopShell = null;
 let desktopTray = null;
 let desktopUpdater = null;
@@ -3280,105 +3281,20 @@ const handleDesktopSignOut = async () => {
 	}
 };
 
-const buildApplicationMenu = () => {
-	if (process.platform !== "darwin") {
-		return null;
-	}
-
-	return Menu.buildFromTemplate([
-		{
-			label: app.getName(),
-			submenu: [
-				{
-					label: `About ${app.getName()}`,
-					click: () => {
-						void showAboutMessageBox();
-					},
-				},
-				{ type: "separator" },
-				{
-					label: "Check for updates...",
-					click: () => {
-						void handleCheckForUpdates();
-					},
-				},
-				{
-					label: "Settings",
-					accelerator: "Command+,",
-					click: () => {
-						void showMainWindow({ pathname: "/settings" });
-					},
-				},
-				{ type: "separator" },
-				{ role: "services" },
-				{ type: "separator" },
-				{
-					label: `Hide ${app.getName()}`,
-					accelerator: "Command+H",
-					click: () => {
-						hideApp();
-					},
-				},
-				{ role: "hideOthers" },
-				{ role: "unhide" },
-				{ type: "separator" },
-				{
-					label: "Quit",
-					click: () => {
-						void handleTrayQuit();
-					},
-				},
-				{
-					label: `Restart ${app.getName()}`,
-					click: () => {
-						handleRestartApp();
-					},
-				},
-				{
-					label: "Quit completely",
-					accelerator: "Command+Q",
-					click: () => {
-						void confirmAndQuitCompletely();
-					},
-				},
-				{ type: "separator" },
-				{
-					label: "Log out",
-					click: () => {
-						void handleDesktopSignOut();
-					},
-				},
-			],
-		},
-		{ role: "editMenu" },
-		{
-			label: "View",
-			submenu: [
-				{ role: "togglefullscreen" },
-				{ type: "separator" },
-				{ role: "toggleDevTools" },
-			],
-		},
-		{
-			role: "window",
-			submenu: [
-				{ role: "minimize" },
-				{ role: "zoom" },
-				{ type: "separator" },
-				{ role: "close" },
-				{ type: "separator" },
-				{ role: "front" },
-			],
-		},
-	]);
-};
+desktopAppMenu = createDesktopAppMenu({
+	appName: () => app.getName(),
+	confirmAndQuitCompletely,
+	handleCheckForUpdates,
+	handleDesktopSignOut,
+	handleRestartApp,
+	handleTrayQuit: () => handleTrayQuit(),
+	hideApp,
+	showAboutMessageBox,
+	showMainWindow,
+});
 
 const refreshApplicationMenu = () => {
-	if (process.platform !== "darwin") {
-		return;
-	}
-
-	Menu.setApplicationMenu(buildApplicationMenu());
+	desktopAppMenu?.refresh();
 };
 
 const handleTrayQuit = async () => {

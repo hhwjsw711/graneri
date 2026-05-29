@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const files = [
 	"src/main.mjs",
+	"src/desktop-app-menu.mjs",
 	"src/meeting-source.mjs",
 	"src/meeting-detection.mjs",
 	"src/desktop-navigation-state.mjs",
