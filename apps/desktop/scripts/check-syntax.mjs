@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 const files = [
 	"src/main.mjs",
 	"src/meeting-source.mjs",
+	"src/meeting-detection.mjs",
+	"src/desktop-storage.mjs",
+	"src/native-audio-capture.mjs",
 	"src/local-server.mjs",
 	"src/auth-client.mjs",
 	"src/network.mjs",
@@ -11,6 +14,7 @@ const files = [
 	"src/env.mjs",
 	"src/preload-api.cjs",
 	"src/preload.cjs",
+	"tests/desktop-storage.test.mjs",
 	"tests/preload-api.test.cjs",
 	"scripts/dev.mjs",
 	"scripts/dev-bundled.mjs",

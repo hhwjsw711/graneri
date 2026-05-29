@@ -1,18 +1,6 @@
-import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import {
-	appendFile,
-	mkdir,
-	readdir,
-	readFile,
-	realpath,
-	rm,
-	stat,
-	writeFile,
-} from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import {
@@ -27,7 +15,6 @@ import {
 	nativeImage,
 	nativeTheme,
 	powerMonitor,
-	screen,
 	shell,
 	systemPreferences,
 	Tray,
@@ -46,9 +33,14 @@ import {
 	summarizeTranscriptConfidence,
 } from "../../../packages/ai/src/transcription.mjs";
 import { getDesktopAuthClient } from "./auth-client.mjs";
+import { createDesktopStorage } from "./desktop-storage.mjs";
 import { loadRootEnv } from "./env.mjs";
 import { startLocalServer } from "./local-server.mjs";
-import { resolveNativeMeetingDetectionSourceName } from "./meeting-source.mjs";
+import {
+	createInitialMeetingDetectionState,
+	createMeetingDetection,
+} from "./meeting-detection.mjs";
+import { createNativeAudioCapture } from "./native-audio-capture.mjs";
 import { toErrorLogDetails } from "./network.mjs";
 import { getRuntimeConfig, hydrateRuntimeConfig } from "./runtime-config.mjs";
 
@@ -81,7 +73,6 @@ const transcriptionSessionStateChannel = "app:transcription-session-state";
 const transcriptionSessionEventChannel = "app:transcription-session-event";
 const meetingDetectionStateChannel = "app:meeting-detection-state";
 const desktopNavigationChannel = "app:navigate";
-const captureHealthTimeoutMs = 3_000;
 const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
 const desktopRealtimeStopFlushTimeoutMs = 1_500;
@@ -90,16 +81,6 @@ const maxRecoveryAttempts = 3;
 const recoveryBackoffMs = [750, 1_500, 3_000];
 const systemAudioAttachRetryBackoffMs = [750, 1_500, 3_000];
 const realtimeSessionRolloverMs = 29 * 60 * 1000;
-const transcriptDraftStorageVersion = 1;
-const transcriptDraftMaxAgeMs = 72 * 60 * 60 * 1000;
-const noteDraftStorageVersion = 1;
-const noteDraftMaxAgeMs = 72 * 60 * 60 * 1000;
-const maxLocalFolderShareRequestPaths = 8;
-const maxLocalFolderPathLength = 4096;
-const maxSharedLocalFolders = 12;
-const meetingDetectionDebounceMs = 8_000;
-const meetingDetectionDismissMs = 30 * 60 * 1000;
-const meetingWidgetAutoHideMs = 12 * 1000;
 const scheduledMeetingNotificationLeadTimeMs = 5 * 60 * 1000;
 const trayCalendarActiveRefreshMs = 60 * 1000;
 const trayCalendarIdleRefreshMs = 5 * 60 * 1000;
@@ -182,66 +163,6 @@ const createInitialNotificationPreferences = () => ({
 	notifyForScheduledMeetings: false,
 	notifyForAutoDetectedMeetings: false,
 });
-const createLocalFolderId = (folderPath) =>
-	createHash("sha256").update(folderPath).digest("hex").slice(0, 24);
-
-const toSharedLocalFolderPayload = (folder) => ({
-	id: folder.id,
-	name: folder.name,
-	path: folder.path,
-});
-
-const shareLocalFolders = async (paths) => {
-	if (!Array.isArray(paths)) {
-		throw new Error("Local folder paths must be an array.");
-	}
-
-	if (paths.length > maxLocalFolderShareRequestPaths) {
-		throw new Error(
-			`At most ${maxLocalFolderShareRequestPaths} local folders can be shared at once.`,
-		);
-	}
-
-	const folders = [];
-
-	for (const value of paths) {
-		if (typeof value !== "string" || !value.trim()) {
-			continue;
-		}
-
-		const requestedPath = value.trim();
-
-		if (requestedPath.length > maxLocalFolderPathLength) {
-			throw new Error("Local folder path is too long.");
-		}
-
-		const folderPath = await realpath(requestedPath);
-		const folderStat = await stat(folderPath);
-
-		if (!folderStat.isDirectory()) {
-			throw new Error("Only folders can be shared with Ask AI.");
-		}
-
-		const folder = {
-			id: createLocalFolderId(folderPath),
-			name: folderPath.split(/[\\/]/u).filter(Boolean).at(-1) ?? folderPath,
-			path: folderPath,
-		};
-
-		sharedLocalFolders.set(folder.id, folder);
-		folders.push(toSharedLocalFolderPayload(folder));
-	}
-
-	while (sharedLocalFolders.size > maxSharedLocalFolders) {
-		const firstKey = sharedLocalFolders.keys().next().value;
-		if (!firstKey) {
-			break;
-		}
-		sharedLocalFolders.delete(firstKey);
-	}
-
-	return { folders };
-};
 const getCurrentDayWindow = () => {
 	const now = new Date();
 	const timeMin = new Date(now);
@@ -254,17 +175,6 @@ const getCurrentDayWindow = () => {
 		timeMax: timeMax.toISOString(),
 	};
 };
-const createInitialMeetingDetectionState = () => ({
-	candidateStartedAt: null,
-	confidence: 0,
-	dismissedUntil: null,
-	hasMeetingSignal: false,
-	isMicrophoneActive: false,
-	isSuppressed: false,
-	sourceName: null,
-	status: "idle",
-});
-
 const logOpenAiResponseMetadata = ({ context, requestId, response }) => {
 	const openAiRequestId = response.headers.get("x-request-id");
 	const processingMs = response.headers.get("openai-processing-ms");
@@ -310,6 +220,16 @@ const createInitialTranscriptionSessionState = () => ({
 	utterances: [],
 });
 
+const isLikelySystemAudioPermissionError = (error) => {
+	const message = error instanceof Error ? error.message : String(error);
+
+	return (
+		message.includes("system-audio tap") ||
+		message.includes("System audio capture exited before it became ready") ||
+		message.includes("Timed out while starting macOS system audio capture")
+	);
+};
+
 let mainWindow = null;
 let localServer = null;
 let tray = null;
@@ -325,24 +245,16 @@ let trayCalendarRefreshTimeoutId = null;
 let trayCalendarRefreshPromise = null;
 let trayStatusLabel = "Updates are unavailable in development builds";
 let hasConfiguredDisplayMediaHandler = false;
-let microphoneCaptureSession = null;
-let microphoneCaptureStartRequestId = 0;
-let microphoneActivitySession = null;
-let microphoneActivityEventSequence = 0;
-let systemAudioCaptureSession = null;
-let systemAudioCaptureStartRequestId = 0;
-const sharedLocalFolders = new Map();
+const desktopStorage = createDesktopStorage({
+	noteDraftsDirPath,
+	transcriptDraftsDirPath,
+});
 let systemAudioPermissionState = "prompt";
-let meetingWidgetWindow = null;
-let latestMeetingWidgetSize = { width: 360, height: 104 };
 let cachedDockIconImage;
-let meetingWidgetAutoHideTimeoutId = null;
-let hasPlayedMeetingWidgetSoundForVisiblePrompt = false;
 let hasPendingUpdateDownload = false;
 let isCheckingForUpdates = false;
 let shouldShowUpdateResultDialogs = false;
 let pendingUpdateVersion = null;
-let latestMeetingDetectionState = createInitialMeetingDetectionState();
 let latestTranscriptionSessionState = createInitialTranscriptionSessionState();
 const shownScheduledMeetingNotificationKeys = new Set();
 const desktopRealtimeTransportSessions = new Map();
@@ -371,7 +283,6 @@ let transcriptionPendingSystemAudioAttachPromise = null;
 let transcriptionPendingStartPromise = null;
 let transcriptionPendingStopPromise = null;
 let currentTranscriptionSessionCorrelationId = null;
-let meetingDetectionDebounceTimeoutId = null;
 let lastNavigation = { ...defaultLastNavigation };
 const areDesktopTestHooksEnabled =
 	app.isPackaged !== true || process.env.OPENGRAN_ENABLE_TEST_HOOKS === "1";
@@ -1027,264 +938,6 @@ const maybeShowScheduledMeetingNotifications = (events) => {
 	}
 };
 
-const normalizeMeetingWidgetSize = (value) => {
-	const nextWidth = Number.isFinite(value?.width)
-		? Math.max(240, Math.min(560, Math.round(value.width)))
-		: latestMeetingWidgetSize.width;
-	const nextHeight = Number.isFinite(value?.height)
-		? Math.max(64, Math.min(220, Math.round(value.height)))
-		: latestMeetingWidgetSize.height;
-
-	return {
-		width: nextWidth,
-		height: nextHeight,
-	};
-};
-
-const getMeetingWidgetWindowBounds = (size = latestMeetingWidgetSize) => {
-	const display = screen.getPrimaryDisplay();
-	const { width, x, y } = display.workArea;
-	const widgetSize = normalizeMeetingWidgetSize(size);
-	return {
-		width: widgetSize.width,
-		height: widgetSize.height,
-		x: Math.round(x + width - widgetSize.width - 18),
-		y: Math.round(y + 18),
-	};
-};
-
-const updateMeetingWidgetWindowSize = (size) => {
-	latestMeetingWidgetSize = normalizeMeetingWidgetSize(size);
-
-	if (!meetingWidgetWindow || meetingWidgetWindow.isDestroyed()) {
-		return;
-	}
-
-	meetingWidgetWindow.setBounds(
-		getMeetingWidgetWindowBounds(latestMeetingWidgetSize),
-	);
-};
-
-const syncMeetingDetectionState = (patch) => {
-	const isMicrophoneActive = Boolean(
-		patch?.isMicrophoneActive ?? latestMeetingDetectionState.isMicrophoneActive,
-	);
-
-	latestMeetingDetectionState = {
-		...latestMeetingDetectionState,
-		...patch,
-		hasMeetingSignal: isMicrophoneActive,
-	};
-
-	broadcastToDesktopWindows({
-		channel: meetingDetectionStateChannel,
-		payload: latestMeetingDetectionState,
-	});
-};
-
-const clearMeetingWidgetAutoHideTimeout = () => {
-	if (meetingWidgetAutoHideTimeoutId == null) {
-		return;
-	}
-
-	clearTimeout(meetingWidgetAutoHideTimeoutId);
-	meetingWidgetAutoHideTimeoutId = null;
-};
-
-const hideMeetingWidgetWindow = () => {
-	clearMeetingWidgetAutoHideTimeout();
-	hasPlayedMeetingWidgetSoundForVisiblePrompt = false;
-
-	if (!meetingWidgetWindow || meetingWidgetWindow.isDestroyed()) {
-		meetingWidgetWindow = null;
-		return;
-	}
-
-	meetingWidgetWindow.hide();
-};
-
-const ensureMeetingWidgetWindow = async () => {
-	if (meetingWidgetWindow && !meetingWidgetWindow.isDestroyed()) {
-		return meetingWidgetWindow;
-	}
-
-	const bounds = getMeetingWidgetWindowBounds();
-	meetingWidgetWindow = new BrowserWindow({
-		...bounds,
-		show: false,
-		frame: false,
-		hasShadow: false,
-		transparent: true,
-		backgroundColor: "#00000000",
-		resizable: false,
-		fullscreenable: false,
-		skipTaskbar: true,
-		alwaysOnTop: true,
-		focusable: true,
-		acceptFirstMouse: true,
-		title: "OpenGran meeting widget",
-		icon: dockIconPath,
-		webPreferences: {
-			preload: join(runtimeDir, "preload.cjs"),
-			contextIsolation: true,
-			nodeIntegration: false,
-			sandbox: false,
-		},
-	});
-
-	meetingWidgetWindow.setAlwaysOnTop(true, "floating");
-	meetingWidgetWindow.setVisibleOnAllWorkspaces(true, {
-		visibleOnFullScreen: true,
-	});
-
-	meetingWidgetWindow.on("closed", () => {
-		meetingWidgetWindow = null;
-	});
-
-	await meetingWidgetWindow.loadURL(
-		await getNavigationUrl({
-			pathname: "/desktop/meeting-widget",
-		}),
-	);
-
-	return meetingWidgetWindow;
-};
-
-const autoHideMeetingWidgetPrompt = () => {
-	hideMeetingWidgetWindow();
-
-	const hasMeetingSignal = latestMeetingDetectionState.isMicrophoneActive;
-
-	if (!hasMeetingSignal || isMeetingDetectionSuppressed()) {
-		syncMeetingDetectionState({
-			candidateStartedAt: null,
-			confidence: 0,
-			isSuppressed: isMeetingDetectionSuppressed(),
-			sourceName: null,
-			status: "idle",
-		});
-		return;
-	}
-
-	syncMeetingDetectionState({
-		confidence: 0.35,
-		isSuppressed: false,
-		sourceName: null,
-		status: "monitoring",
-	});
-};
-
-const showMeetingWidgetWindow = async () => {
-	clearMeetingWidgetAutoHideTimeout();
-
-	const nextWindow = await ensureMeetingWidgetWindow();
-	const bounds = getMeetingWidgetWindowBounds();
-	const shouldPlaySound =
-		!nextWindow.isVisible() || !hasPlayedMeetingWidgetSoundForVisiblePrompt;
-	nextWindow.setBounds(bounds);
-	ensureDockVisible();
-	nextWindow.showInactive();
-	if (shouldPlaySound) {
-		shell.beep();
-		hasPlayedMeetingWidgetSoundForVisiblePrompt = true;
-	}
-
-	meetingWidgetAutoHideTimeoutId = setTimeout(() => {
-		meetingWidgetAutoHideTimeoutId = null;
-		autoHideMeetingWidgetPrompt();
-	}, meetingWidgetAutoHideMs);
-};
-
-const resolveSystemAudioHelperPath = () => {
-	const envPath = process.env.OPENGRAN_SYSTEM_AUDIO_HELPER_PATH?.trim();
-	const unpackedHelperPath = app.isPackaged
-		? resolve(
-				process.resourcesPath,
-				"app.asar.unpacked",
-				".bundle-root",
-				"apps",
-				"desktop",
-				"dist",
-				"bin",
-				"opengran-system-audio-helper",
-			)
-		: null;
-	const candidates = [
-		envPath,
-		unpackedHelperPath,
-		resolve(runtimeDir, "bin", "opengran-system-audio-helper"),
-		resolve(
-			runtimeDir,
-			"..",
-			".generated",
-			"system-audio",
-			"opengran-system-audio-helper",
-		),
-	].filter(Boolean);
-
-	return candidates.find((candidatePath) => existsSync(candidatePath)) ?? null;
-};
-
-const resolveMicrophoneHelperPath = () => {
-	const envPath = process.env.OPENGRAN_MICROPHONE_HELPER_PATH?.trim();
-	const unpackedHelperPath = app.isPackaged
-		? resolve(
-				process.resourcesPath,
-				"app.asar.unpacked",
-				".bundle-root",
-				"apps",
-				"desktop",
-				"dist",
-				"bin",
-				"opengran-microphone-helper",
-			)
-		: null;
-	const candidates = [
-		envPath,
-		unpackedHelperPath,
-		resolve(runtimeDir, "bin", "opengran-microphone-helper"),
-		resolve(
-			runtimeDir,
-			"..",
-			".generated",
-			"system-audio",
-			"opengran-microphone-helper",
-		),
-	].filter(Boolean);
-
-	return candidates.find((candidatePath) => existsSync(candidatePath)) ?? null;
-};
-
-const resolveMicrophoneActivityHelperPath = () => {
-	const envPath = process.env.OPENGRAN_MICROPHONE_ACTIVITY_HELPER_PATH?.trim();
-	const unpackedHelperPath = app.isPackaged
-		? resolve(
-				process.resourcesPath,
-				"app.asar.unpacked",
-				".bundle-root",
-				"apps",
-				"desktop",
-				"dist",
-				"bin",
-				"opengran-microphone-activity-helper",
-			)
-		: null;
-	const candidates = [
-		envPath,
-		unpackedHelperPath,
-		resolve(runtimeDir, "bin", "opengran-microphone-activity-helper"),
-		resolve(
-			runtimeDir,
-			"..",
-			".generated",
-			"system-audio",
-			"opengran-microphone-activity-helper",
-		),
-	].filter(Boolean);
-
-	return candidates.find((candidatePath) => existsSync(candidatePath)) ?? null;
-};
-
 function createTranscriptionSpeakerRuntime(speaker) {
 	return {
 		speaker,
@@ -1323,16 +976,6 @@ function createEmptyLiveTranscriptState() {
 		},
 	};
 }
-
-const isLikelySystemAudioPermissionError = (error) => {
-	const message = error instanceof Error ? error.message : String(error);
-
-	return (
-		message.includes("system-audio tap") ||
-		message.includes("System audio capture exited before it became ready") ||
-		message.includes("Timed out while starting macOS system audio capture")
-	);
-};
 
 const markSystemAudioPermissionGranted = () => {
 	systemAudioPermissionState = "granted";
@@ -1391,12 +1034,56 @@ const subscribeToCaptureEvents = (source, listener) => {
 	};
 };
 
-const clearCaptureHealthTimeout = (session) => {
-	if (session?.healthTimeout) {
-		clearTimeout(session.healthTimeout);
-		session.healthTimeout = null;
-	}
+const nativeAudioCapture = createNativeAudioCapture({
+	emitMicrophoneCaptureEvent,
+	emitSystemAudioCaptureEvent,
+	getSystemAudioPermissionState: () => systemAudioPermissionState,
+	isPackaged: app.isPackaged,
+	logDesktopTurnDebug: (...args) => logDesktopTurnDebug(...args),
+	markSystemAudioPermissionBlocked,
+	markSystemAudioPermissionGranted,
+	markSystemAudioPermissionPrompt,
+	runtimeDir,
+});
+const resolveMicrophoneHelperPath =
+	nativeAudioCapture.resolveMicrophoneHelperPath;
+const resolveSystemAudioHelperPath =
+	nativeAudioCapture.resolveSystemAudioHelperPath;
+const startMicrophoneCapture = nativeAudioCapture.startMicrophoneCapture;
+const startSystemAudioCapture = nativeAudioCapture.startSystemAudioCapture;
+const stopMicrophoneCapture = nativeAudioCapture.stopMicrophoneCapture;
+const stopSystemAudioCapture = nativeAudioCapture.stopSystemAudioCapture;
+let meetingDetection = null;
+const getMeetingDetectionState = () =>
+	meetingDetection?.getMeetingDetectionState() ??
+	createInitialMeetingDetectionState();
+const reevaluateMeetingDetection = () => {
+	meetingDetection?.reevaluateMeetingDetection();
 };
+const startMicrophoneActivityMonitor = async () =>
+	(await meetingDetection?.startMicrophoneActivityMonitor()) ?? false;
+const stopMicrophoneActivityMonitor = async () => {
+	await meetingDetection?.stopMicrophoneActivityMonitor();
+};
+const startDetectedMeetingNote = async () => {
+	await meetingDetection?.startDetectedMeetingNote();
+};
+const dismissDetectedMeetingWidget = () => {
+	meetingDetection?.dismissDetectedMeetingWidget();
+};
+const showMeetingWidgetForTest = async () => {
+	await meetingDetection?.showMeetingWidgetForTest();
+};
+const resetMeetingDetectionForTest = () => {
+	meetingDetection?.resetMeetingDetectionForTest();
+};
+const updateMeetingWidgetWindowSize = (size) => {
+	meetingDetection?.updateMeetingWidgetWindowSize(size);
+};
+const isMeetingWidgetSender = (sender) =>
+	meetingDetection?.isMeetingWidgetSender(sender) ?? false;
+const isMeetingWidgetVisible = () =>
+	meetingDetection?.isMeetingWidgetVisible() ?? false;
 
 const syncTranscriptionSessionState = (state) => {
 	latestTranscriptionSessionState = state;
@@ -1731,147 +1418,6 @@ const refreshTranscriptionPolicy = () => {
 	return transcriptionPolicy;
 };
 
-const clearMeetingDetectionDebounceTimeout = () => {
-	if (meetingDetectionDebounceTimeoutId == null) {
-		return;
-	}
-
-	clearTimeout(meetingDetectionDebounceTimeoutId);
-	meetingDetectionDebounceTimeoutId = null;
-};
-
-const isMeetingDetectionSuppressed = () =>
-	["starting", "listening", "reconnecting", "stopping"].includes(
-		latestTranscriptionSessionState.phase,
-	) || (latestMeetingDetectionState.dismissedUntil ?? 0) > Date.now();
-
-const reevaluateMeetingDetection = () => {
-	const isSuppressed = isMeetingDetectionSuppressed();
-	const hasMeetingSignal = latestMeetingDetectionState.isMicrophoneActive;
-	const confidence = 0.35;
-	const promptConfidence = 0.82;
-
-	if (!hasMeetingSignal || isSuppressed) {
-		clearMeetingDetectionDebounceTimeout();
-		hideMeetingWidgetWindow();
-		syncMeetingDetectionState({
-			candidateStartedAt: null,
-			confidence: 0,
-			isSuppressed,
-			sourceName: null,
-			status: "idle",
-		});
-		return;
-	}
-
-	syncMeetingDetectionState({
-		confidence,
-		isSuppressed: false,
-		sourceName: latestMeetingDetectionState.sourceName,
-		status: "monitoring",
-	});
-
-	if (!activeWorkspaceNotificationPreferences.notifyForAutoDetectedMeetings) {
-		clearMeetingDetectionDebounceTimeout();
-		hideMeetingWidgetWindow();
-		return;
-	}
-
-	if (meetingDetectionDebounceTimeoutId != null) {
-		return;
-	}
-
-	meetingDetectionDebounceTimeoutId = setTimeout(() => {
-		meetingDetectionDebounceTimeoutId = null;
-
-		if (
-			!latestMeetingDetectionState.isMicrophoneActive ||
-			isMeetingDetectionSuppressed()
-		) {
-			reevaluateMeetingDetection();
-			return;
-		}
-
-		syncMeetingDetectionState({
-			candidateStartedAt: Date.now(),
-			confidence: promptConfidence,
-			isSuppressed: false,
-			sourceName: latestMeetingDetectionState.sourceName,
-			status: "prompting",
-		});
-		void showMeetingWidgetWindow();
-	}, meetingDetectionDebounceMs);
-};
-
-const dismissDetectedMeetingWidget = () => {
-	clearMeetingDetectionDebounceTimeout();
-	hideMeetingWidgetWindow();
-	syncMeetingDetectionState({
-		candidateStartedAt: null,
-		confidence: 0,
-		dismissedUntil: Date.now() + meetingDetectionDismissMs,
-		isSuppressed: true,
-		sourceName: null,
-		status: "idle",
-	});
-};
-
-const startDetectedMeetingNote = async () => {
-	clearMeetingDetectionDebounceTimeout();
-	hideMeetingWidgetWindow();
-	syncMeetingDetectionState({
-		candidateStartedAt: null,
-		confidence: 0,
-		dismissedUntil: null,
-		isSuppressed: true,
-		sourceName: null,
-		status: "idle",
-	});
-
-	const detectedMeetingCalendarEvent = getDetectedMeetingCalendarEvent();
-
-	if (detectedMeetingCalendarEvent) {
-		await openCalendarEventNote(detectedMeetingCalendarEvent, {
-			autoStartCapture: true,
-			stopCaptureWhenMeetingEnds: true,
-		});
-		return;
-	}
-
-	await showMainWindow({
-		pathname: "/note",
-		search: "?capture=1&meeting=1",
-	});
-};
-
-const showMeetingWidgetForTest = async () => {
-	clearMeetingDetectionDebounceTimeout();
-	syncMeetingDetectionState({
-		candidateStartedAt: Date.now(),
-		confidence: 1,
-		dismissedUntil: null,
-		isMicrophoneActive: true,
-		isSuppressed: false,
-		sourceName: null,
-		status: "prompting",
-	});
-	await showMeetingWidgetWindow();
-};
-
-const resetMeetingDetectionForTest = () => {
-	clearMeetingDetectionDebounceTimeout();
-	hideMeetingWidgetWindow();
-	syncMeetingDetectionState({
-		candidateStartedAt: null,
-		confidence: 0,
-		dismissedUntil: null,
-		isMicrophoneActive: false,
-		isSuppressed: false,
-		sourceName: null,
-		status: "idle",
-	});
-};
-
 const ensureDesktopMicrophonePermissionGranted = async () => {
 	let microphonePermission = getMicrophonePermission();
 
@@ -2065,11 +1611,7 @@ const ensureLocalServer = async () => {
 					return [];
 				}
 			},
-			getSharedLocalFolders: (ids) =>
-				ids
-					.map((id) => sharedLocalFolders.get(id))
-					.filter(Boolean)
-					.map(toSharedLocalFolderPayload),
+			getSharedLocalFolders: desktopStorage.getSharedLocalFolders,
 			onAuthCallback: handleDesktopAuthCallback,
 		});
 	}
@@ -2238,214 +1780,6 @@ const rememberRendererNavigation = async (urlString) => {
 	} catch (error) {
 		console.warn("Failed to remember renderer navigation.", error);
 	}
-};
-
-const getTranscriptDraftPath = (noteKey) =>
-	join(
-		transcriptDraftsDirPath,
-		`${Buffer.from(noteKey, "utf8").toString("base64url")}.json`,
-	);
-
-const ensureTranscriptDraftsDir = async () => {
-	await mkdir(transcriptDraftsDirPath, { recursive: true });
-};
-
-const pruneTranscriptDrafts = async () => {
-	try {
-		await ensureTranscriptDraftsDir();
-		const entries = await readdir(transcriptDraftsDirPath, {
-			withFileTypes: true,
-		});
-
-		await Promise.all(
-			entries.map(async (entry) => {
-				if (!entry.isFile()) {
-					return;
-				}
-
-				const filePath = join(transcriptDraftsDirPath, entry.name);
-
-				try {
-					const fileStats = await stat(filePath);
-
-					if (Date.now() - fileStats.mtimeMs > transcriptDraftMaxAgeMs) {
-						await rm(filePath, { force: true });
-					}
-				} catch {
-					await rm(filePath, { force: true });
-				}
-			}),
-		);
-	} catch (error) {
-		console.warn("Failed to prune transcript drafts.", error);
-	}
-};
-
-const loadTranscriptDraft = async (noteKey) => {
-	await pruneTranscriptDrafts();
-
-	const filePath = getTranscriptDraftPath(noteKey);
-
-	try {
-		const rawValue = await readFile(filePath, "utf8");
-		const parsed = JSON.parse(rawValue);
-
-		if (
-			parsed?.version !== transcriptDraftStorageVersion ||
-			parsed?.noteKey !== noteKey ||
-			typeof parsed?.updatedAt !== "number" ||
-			Date.now() - parsed.updatedAt > transcriptDraftMaxAgeMs
-		) {
-			await rm(filePath, { force: true });
-			return { draft: null };
-		}
-
-		return {
-			draft: parsed,
-		};
-	} catch (error) {
-		if (
-			error &&
-			typeof error === "object" &&
-			"code" in error &&
-			error.code === "ENOENT"
-		) {
-			return { draft: null };
-		}
-
-		await rm(filePath, { force: true }).catch(() => {});
-		return { draft: null };
-	}
-};
-
-const saveTranscriptDraft = async ({ noteKey, draft }) => {
-	await pruneTranscriptDrafts();
-	await ensureTranscriptDraftsDir();
-
-	await writeFile(
-		getTranscriptDraftPath(noteKey),
-		JSON.stringify(
-			{
-				...draft,
-				version: transcriptDraftStorageVersion,
-				noteKey,
-				updatedAt: Date.now(),
-			},
-			null,
-			2,
-		),
-		"utf8",
-	);
-
-	return { ok: true };
-};
-
-const clearTranscriptDraft = async (noteKey) => {
-	await rm(getTranscriptDraftPath(noteKey), { force: true });
-	return { ok: true };
-};
-
-const getNoteDraftPath = (noteKey) =>
-	join(
-		noteDraftsDirPath,
-		`${Buffer.from(noteKey, "utf8").toString("base64url")}.json`,
-	);
-
-const ensureNoteDraftsDir = async () => {
-	await mkdir(noteDraftsDirPath, { recursive: true });
-};
-
-const pruneNoteDrafts = async () => {
-	try {
-		await ensureNoteDraftsDir();
-		const entries = await readdir(noteDraftsDirPath, {
-			withFileTypes: true,
-		});
-
-		await Promise.all(
-			entries.map(async (entry) => {
-				if (!entry.isFile()) {
-					return;
-				}
-
-				const filePath = join(noteDraftsDirPath, entry.name);
-
-				try {
-					const fileStats = await stat(filePath);
-
-					if (Date.now() - fileStats.mtimeMs > noteDraftMaxAgeMs) {
-						await rm(filePath, { force: true });
-					}
-				} catch {
-					await rm(filePath, { force: true });
-				}
-			}),
-		);
-	} catch (error) {
-		console.warn("Failed to prune note drafts.", error);
-	}
-};
-
-const loadNoteDraft = async (noteKey) => {
-	await pruneNoteDrafts();
-
-	const filePath = getNoteDraftPath(noteKey);
-
-	try {
-		const rawValue = await readFile(filePath, "utf8");
-		const parsed = JSON.parse(rawValue);
-
-		if (
-			parsed?.version !== noteDraftStorageVersion ||
-			parsed?.noteId !== noteKey ||
-			typeof parsed?.updatedAt !== "number" ||
-			Date.now() - parsed.updatedAt > noteDraftMaxAgeMs
-		) {
-			await rm(filePath, { force: true });
-			return { draft: null };
-		}
-
-		return { draft: parsed };
-	} catch (error) {
-		if (
-			error &&
-			typeof error === "object" &&
-			"code" in error &&
-			error.code === "ENOENT"
-		) {
-			return { draft: null };
-		}
-
-		await rm(filePath, { force: true }).catch(() => {});
-		return { draft: null };
-	}
-};
-
-const saveNoteDraft = async ({ noteKey, draft }) => {
-	await pruneNoteDrafts();
-	await ensureNoteDraftsDir();
-
-	await writeFile(
-		getNoteDraftPath(noteKey),
-		JSON.stringify(
-			{
-				...draft,
-				version: noteDraftStorageVersion,
-				noteId: noteKey,
-				updatedAt: Date.now(),
-			},
-			null,
-			2,
-		),
-		"utf8",
-	);
-
-	return { ok: true };
-};
-
-const clearNoteDraft = async (noteKey) => {
-	await rm(getNoteDraftPath(noteKey), { force: true });
-	return { ok: true };
 };
 
 const parseDesktopRealtimeTransportEvent = ({ event, speaker }) => {
@@ -2775,12 +2109,9 @@ const startDesktopRealtimeTransport = async ({ lang, source, speaker }) => {
 		);
 	}
 
-	const captureSession =
-		source === "microphone"
-			? microphoneCaptureSession
-			: systemAudioCaptureSession;
+	const captureSampleRate = nativeAudioCapture.getCaptureSampleRate(source);
 
-	if (!captureSession?.sampleRate) {
+	if (!captureSampleRate) {
 		throw new Error("Desktop audio capture is not active.");
 	}
 
@@ -2797,10 +2128,7 @@ const startDesktopRealtimeTransport = async ({ lang, source, speaker }) => {
 
 	return await new Promise((resolvePromise, rejectPromise) => {
 		let didResolve = false;
-		const resampleChunk = createPcm16Resampler(
-			captureSession.sampleRate,
-			24_000,
-		);
+		const resampleChunk = createPcm16Resampler(captureSampleRate, 24_000);
 		const socket = new WebSocket(
 			"wss://api.openai.com/v1/realtime?intent=transcription",
 			{
@@ -3818,790 +3146,6 @@ const detachDesktopTranscriptionSystemAudio = async () => {
 	});
 };
 
-const stopMicrophoneCapture = async () => {
-	if (!microphoneCaptureSession) {
-		return;
-	}
-
-	const session = microphoneCaptureSession;
-	microphoneCaptureSession = null;
-	session.isStopping = true;
-
-	if (session.cleanupTimeout) {
-		clearTimeout(session.cleanupTimeout);
-		session.cleanupTimeout = null;
-	}
-
-	clearCaptureHealthTimeout(session);
-
-	session.lineReader?.removeAllListeners();
-	session.process.stdout?.removeAllListeners();
-	session.process.stderr?.removeAllListeners();
-	session.process.removeAllListeners();
-
-	await new Promise((resolvePromise) => {
-		const finalize = () => {
-			resolvePromise();
-		};
-
-		session.process.once("exit", finalize);
-		session.process.kill("SIGTERM");
-
-		setTimeout(() => {
-			if (!session.process.killed) {
-				session.process.kill("SIGKILL");
-			}
-			finalize();
-		}, 1_000);
-	});
-
-	emitMicrophoneCaptureEvent({
-		type: "stopped",
-	});
-};
-
-const stopSystemAudioCapture = async () => {
-	if (!systemAudioCaptureSession) {
-		return;
-	}
-
-	const session = systemAudioCaptureSession;
-	systemAudioCaptureSession = null;
-	session.isStopping = true;
-
-	if (session.cleanupTimeout) {
-		clearTimeout(session.cleanupTimeout);
-		session.cleanupTimeout = null;
-	}
-
-	clearCaptureHealthTimeout(session);
-
-	session.lineReader?.removeAllListeners();
-	session.process.stdout?.removeAllListeners();
-	session.process.stderr?.removeAllListeners();
-	session.process.removeAllListeners();
-
-	await new Promise((resolvePromise) => {
-		const finalize = () => {
-			resolvePromise();
-		};
-
-		session.process.once("exit", finalize);
-		session.process.kill("SIGTERM");
-
-		setTimeout(() => {
-			if (!session.process.killed) {
-				session.process.kill("SIGKILL");
-			}
-			finalize();
-		}, 1_000);
-	});
-
-	emitSystemAudioCaptureEvent({
-		type: "stopped",
-	});
-};
-
-const stopMicrophoneActivityMonitor = async () => {
-	clearMeetingDetectionDebounceTimeout();
-
-	if (!microphoneActivitySession) {
-		syncMeetingDetectionState({
-			candidateStartedAt: null,
-			confidence: 0,
-			isMicrophoneActive: false,
-			sourceName: null,
-			status: "idle",
-		});
-		hideMeetingWidgetWindow();
-		return;
-	}
-
-	const session = microphoneActivitySession;
-	microphoneActivitySession = null;
-	session.isStopping = true;
-
-	if (session.cleanupTimeout) {
-		clearTimeout(session.cleanupTimeout);
-		session.cleanupTimeout = null;
-	}
-
-	session.lineReader?.removeAllListeners();
-	session.process.stdout?.removeAllListeners();
-	session.process.stderr?.removeAllListeners();
-	session.process.removeAllListeners();
-
-	await new Promise((resolvePromise) => {
-		const finalize = () => {
-			resolvePromise();
-		};
-
-		session.process.once("exit", finalize);
-		session.process.kill("SIGTERM");
-
-		setTimeout(() => {
-			if (!session.process.killed) {
-				session.process.kill("SIGKILL");
-			}
-			finalize();
-		}, 1_000);
-	});
-
-	syncMeetingDetectionState({
-		candidateStartedAt: null,
-		confidence: 0,
-		isMicrophoneActive: false,
-		sourceName: null,
-		status: "idle",
-	});
-	hideMeetingWidgetWindow();
-};
-
-const startMicrophoneActivityMonitor = async () => {
-	if (process.platform !== "darwin") {
-		return false;
-	}
-
-	const helperPath = resolveMicrophoneActivityHelperPath();
-	if (!helperPath) {
-		console.warn("[meeting-detection] microphone activity helper is missing");
-		return false;
-	}
-
-	await stopMicrophoneActivityMonitor();
-
-	return await new Promise((resolvePromise, rejectPromise) => {
-		const child = spawn(helperPath, [], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const lineReader = createInterface({
-			input: child.stdout,
-			crlfDelay: Infinity,
-		});
-		let didResolve = false;
-		let session;
-
-		const failStart = (error) => {
-			if (didResolve) {
-				console.error(
-					"[meeting-detection] microphone activity helper failed after start",
-					error,
-				);
-				void stopMicrophoneActivityMonitor();
-				return;
-			}
-
-			didResolve = true;
-			rejectPromise(error);
-		};
-
-		const startupTimeout = setTimeout(() => {
-			failStart(
-				new Error("Timed out while starting the microphone activity monitor."),
-			);
-			child.kill("SIGKILL");
-		}, 5_000);
-
-		session = {
-			cleanupTimeout: startupTimeout,
-			isStopping: false,
-			lineReader,
-			process: child,
-		};
-		microphoneActivitySession = session;
-
-		child.stderr.setEncoding("utf8");
-		child.stderr.on("data", (chunk) => {
-			const message = String(chunk).trim();
-			if (message) {
-				console.error("[microphone-activity-helper]", message);
-			}
-		});
-
-		lineReader.on("line", (line) => {
-			let event;
-
-			try {
-				event = JSON.parse(line);
-			} catch (error) {
-				console.error(
-					"[meeting-detection] failed to parse microphone activity event",
-					error,
-					line,
-				);
-				return;
-			}
-
-			if (event?.type !== "ready" && event?.type !== "active-changed") {
-				return;
-			}
-
-			const eventSequence = ++microphoneActivityEventSequence;
-			void (async () => {
-				const isActive = event.active === true;
-				const sourceName = isActive
-					? await resolveNativeMeetingDetectionSourceName(event.sourceName)
-					: null;
-
-				if (
-					microphoneActivitySession !== session ||
-					eventSequence !== microphoneActivityEventSequence
-				) {
-					return;
-				}
-
-				syncMeetingDetectionState({
-					...(event.type === "ready"
-						? {
-								dismissedUntil:
-									latestMeetingDetectionState.dismissedUntil ?? null,
-							}
-						: {}),
-					isMicrophoneActive: isActive,
-					sourceName,
-				});
-				reevaluateMeetingDetection();
-
-				if (event.type === "ready") {
-					clearTimeout(startupTimeout);
-					session.cleanupTimeout = null;
-					if (!didResolve) {
-						didResolve = true;
-						resolvePromise(true);
-					}
-				}
-			})().catch((error) => {
-				console.error(
-					"[meeting-detection] failed to handle microphone activity event",
-					error,
-				);
-				if (event?.type === "ready" && !didResolve) {
-					failStart(error);
-				}
-			});
-		});
-
-		child.on("error", (error) => {
-			clearTimeout(startupTimeout);
-			if (microphoneActivitySession === session) {
-				microphoneActivitySession = null;
-			}
-			failStart(error);
-		});
-
-		child.on("exit", (code, signal) => {
-			clearTimeout(startupTimeout);
-			if (microphoneActivitySession === session) {
-				microphoneActivitySession = null;
-			}
-
-			if (!session.isStopping) {
-				console.error("[meeting-detection] microphone activity helper exited", {
-					code,
-					signal,
-				});
-				syncMeetingDetectionState({
-					candidateStartedAt: null,
-					confidence: 0,
-					isMicrophoneActive: false,
-					sourceName: null,
-					status: "idle",
-				});
-				hideMeetingWidgetWindow();
-			}
-
-			if (!didResolve && !session.isStopping) {
-				failStart(
-					new Error(
-						`Microphone activity monitor exited before it became ready (code ${code ?? "null"}, signal ${signal ?? "null"}).`,
-					),
-				);
-			}
-		});
-	});
-};
-
-const startMicrophoneCapture = async () => {
-	if (process.platform !== "darwin") {
-		throw new Error("Native microphone capture is only available on macOS.");
-	}
-
-	const helperPath = resolveMicrophoneHelperPath();
-	if (!helperPath) {
-		throw new Error("The macOS microphone helper is missing.");
-	}
-
-	console.info("[microphone] starting macOS helper", {
-		helperPath,
-	});
-
-	const requestId = ++microphoneCaptureStartRequestId;
-	await stopMicrophoneCapture();
-
-	return await new Promise((resolvePromise, rejectPromise) => {
-		const child = spawn(helperPath, [], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const lineReader = createInterface({
-			input: child.stdout,
-			crlfDelay: Infinity,
-		});
-		let didResolve = false;
-		let session;
-
-		const rejectStart = (error) => {
-			if (requestId !== microphoneCaptureStartRequestId) {
-				console.info("[microphone] ignoring stale helper start failure", {
-					requestId,
-					currentRequestId: microphoneCaptureStartRequestId,
-					message: error instanceof Error ? error.message : String(error),
-				});
-				return;
-			}
-
-			console.error(
-				"[microphone] helper failed to start",
-				error instanceof Error ? error.message : error,
-			);
-			if (didResolve) {
-				emitMicrophoneCaptureEvent({
-					type: "error",
-					message: error instanceof Error ? error.message : String(error),
-				});
-				return;
-			}
-
-			didResolve = true;
-			rejectPromise(error);
-		};
-
-		const resolveStart = (payload) => {
-			if (requestId !== microphoneCaptureStartRequestId) {
-				console.info("[microphone] ignoring stale helper ready event", {
-					requestId,
-					currentRequestId: microphoneCaptureStartRequestId,
-				});
-				return;
-			}
-
-			if (didResolve) {
-				return;
-			}
-
-			console.info("[microphone] helper reported ready", payload);
-			logDesktopTurnDebug("microphone.helper_ready", {
-				channels: payload?.channels ?? null,
-				route:
-					payload?.route && typeof payload.route === "object"
-						? payload.route
-						: null,
-				sampleRate: payload?.sampleRate ?? null,
-				voiceProcessingEnabled: payload?.voiceProcessingEnabled === true,
-				voiceProcessingOutputEnabled:
-					payload?.voiceProcessingOutputEnabled === true,
-			});
-			didResolve = true;
-			resolvePromise(payload);
-		};
-
-		const cleanupTimeout = setTimeout(() => {
-			if (requestId !== microphoneCaptureStartRequestId) {
-				console.info("[microphone] cleared stale helper startup timeout", {
-					requestId,
-					currentRequestId: microphoneCaptureStartRequestId,
-				});
-				return;
-			}
-
-			console.error("[microphone] helper startup timed out after 5000ms");
-			rejectStart(
-				new Error("Timed out while starting macOS microphone capture."),
-			);
-			child.kill("SIGKILL");
-		}, 5_000);
-
-		const resetHealthTimeout = () => {
-			if (!session || session.isStopping) {
-				return;
-			}
-
-			clearCaptureHealthTimeout(session);
-			session.healthTimeout = setTimeout(() => {
-				if (microphoneCaptureSession !== session || session.isStopping) {
-					return;
-				}
-
-				const timeoutError = new Error(
-					"Timed out while receiving macOS microphone audio frames.",
-				);
-				console.error("[microphone] helper stopped producing audio frames");
-
-				if (didResolve) {
-					emitMicrophoneCaptureEvent({
-						type: "error",
-						message: timeoutError.message,
-					});
-				} else {
-					rejectStart(timeoutError);
-				}
-
-				child.kill("SIGKILL");
-			}, captureHealthTimeoutMs);
-		};
-
-		session = {
-			isStopping: false,
-			cleanupTimeout,
-			healthTimeout: null,
-			lineReader,
-			process: child,
-			requestId,
-			sampleRate: null,
-		};
-		microphoneCaptureSession = session;
-
-		child.stderr.setEncoding("utf8");
-		child.stderr.on("data", (chunk) => {
-			const message = String(chunk).trim();
-			if (message) {
-				console.error("[microphone-helper]", message);
-			}
-		});
-
-		lineReader.on("line", (line) => {
-			let event;
-
-			try {
-				event = JSON.parse(line);
-			} catch (error) {
-				console.error("Failed to parse microphone helper event", error, line);
-				return;
-			}
-
-			if (event?.type !== "chunk") {
-				console.info("[microphone] helper event", event?.type ?? "unknown");
-			}
-
-			if (event?.type === "ready") {
-				clearTimeout(cleanupTimeout);
-				session.cleanupTimeout = null;
-				session.sampleRate = Number(event.sampleRate) || 48_000;
-				resetHealthTimeout();
-				resolveStart({
-					channels: Number(event.channels) || 1,
-					route:
-						event?.route && typeof event.route === "object"
-							? event.route
-							: null,
-					sampleRate: session.sampleRate,
-					voiceProcessingEnabled: event?.voiceProcessingEnabled === true,
-					voiceProcessingOutputEnabled:
-						event?.voiceProcessingOutputEnabled === true,
-				});
-				return;
-			}
-
-			if (event?.type === "error") {
-				const nextError = new Error(
-					typeof event.message === "string"
-						? event.message
-						: "Microphone capture failed.",
-				);
-				clearTimeout(cleanupTimeout);
-				session.cleanupTimeout = null;
-				clearCaptureHealthTimeout(session);
-				rejectStart(nextError);
-				return;
-			}
-
-			if (event?.type === "chunk") {
-				resetHealthTimeout();
-			}
-
-			emitMicrophoneCaptureEvent(event);
-		});
-
-		child.on("error", (error) => {
-			clearTimeout(cleanupTimeout);
-			session.cleanupTimeout = null;
-			clearCaptureHealthTimeout(session);
-			if (microphoneCaptureSession === session) {
-				microphoneCaptureSession = null;
-			}
-			console.error("[microphone] helper process error", error);
-			rejectStart(error);
-		});
-
-		child.on("exit", (code, signal) => {
-			clearTimeout(cleanupTimeout);
-			session.cleanupTimeout = null;
-			clearCaptureHealthTimeout(session);
-			if (microphoneCaptureSession === session) {
-				microphoneCaptureSession = null;
-			}
-
-			console.info("[microphone] helper exited", {
-				code,
-				signal,
-				didResolve,
-				isStopping: session.isStopping,
-			});
-
-			if (!session.isStopping && !didResolve) {
-				rejectStart(
-					new Error(
-						`Microphone capture exited before it became ready (code ${code ?? "null"}, signal ${signal ?? "null"}).`,
-					),
-				);
-				return;
-			}
-
-			if (!session.isStopping) {
-				emitMicrophoneCaptureEvent({
-					type: "stopped",
-					code,
-					signal,
-				});
-			}
-		});
-	});
-};
-
-const startSystemAudioCapture = async () => {
-	if (process.platform !== "darwin") {
-		throw new Error("Native system audio capture is only available on macOS.");
-	}
-
-	const helperPath = resolveSystemAudioHelperPath();
-	if (!helperPath) {
-		throw new Error("The macOS system-audio helper is missing.");
-	}
-
-	console.info("[system-audio] starting macOS helper", {
-		helperPath,
-	});
-
-	const requestId = ++systemAudioCaptureStartRequestId;
-	await stopSystemAudioCapture();
-
-	return await new Promise((resolvePromise, rejectPromise) => {
-		const child = spawn(helperPath, [], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const lineReader = createInterface({
-			input: child.stdout,
-			crlfDelay: Infinity,
-		});
-		let didResolve = false;
-		let session;
-
-		const rejectStart = (error) => {
-			if (requestId !== systemAudioCaptureStartRequestId) {
-				console.info("[system-audio] ignoring stale helper start failure", {
-					requestId,
-					currentRequestId: systemAudioCaptureStartRequestId,
-					message: error instanceof Error ? error.message : String(error),
-				});
-				return;
-			}
-
-			if (isLikelySystemAudioPermissionError(error)) {
-				markSystemAudioPermissionBlocked();
-			} else if (systemAudioPermissionState !== "granted") {
-				markSystemAudioPermissionPrompt();
-			}
-
-			console.error(
-				"[system-audio] helper failed to start",
-				error instanceof Error ? error.message : error,
-			);
-			if (didResolve) {
-				emitSystemAudioCaptureEvent({
-					type: "error",
-					message: error instanceof Error ? error.message : String(error),
-				});
-				return;
-			}
-
-			didResolve = true;
-			rejectPromise(error);
-		};
-
-		const resolveStart = (payload) => {
-			if (requestId !== systemAudioCaptureStartRequestId) {
-				console.info("[system-audio] ignoring stale helper ready event", {
-					requestId,
-					currentRequestId: systemAudioCaptureStartRequestId,
-				});
-				return;
-			}
-
-			if (didResolve) {
-				return;
-			}
-
-			console.info("[system-audio] helper reported ready", payload);
-			markSystemAudioPermissionGranted();
-			didResolve = true;
-			resolvePromise(payload);
-		};
-
-		const cleanupTimeout = setTimeout(() => {
-			if (requestId !== systemAudioCaptureStartRequestId) {
-				console.info("[system-audio] cleared stale helper startup timeout", {
-					requestId,
-					currentRequestId: systemAudioCaptureStartRequestId,
-				});
-				return;
-			}
-
-			console.error("[system-audio] helper startup timed out after 5000ms");
-			rejectStart(
-				new Error("Timed out while starting macOS system audio capture."),
-			);
-			child.kill("SIGKILL");
-		}, 5_000);
-
-		const resetHealthTimeout = () => {
-			if (!session || session.isStopping) {
-				return;
-			}
-
-			clearCaptureHealthTimeout(session);
-			session.healthTimeout = setTimeout(() => {
-				if (systemAudioCaptureSession !== session || session.isStopping) {
-					return;
-				}
-
-				const timeoutError = new Error(
-					"Timed out while receiving macOS system audio frames.",
-				);
-				console.error("[system-audio] helper stopped producing audio frames");
-
-				if (didResolve) {
-					emitSystemAudioCaptureEvent({
-						type: "error",
-						message: timeoutError.message,
-					});
-				} else {
-					rejectStart(timeoutError);
-				}
-
-				child.kill("SIGKILL");
-			}, captureHealthTimeoutMs);
-		};
-
-		session = {
-			isStopping: false,
-			cleanupTimeout,
-			healthTimeout: null,
-			lineReader,
-			process: child,
-			requestId,
-			sampleRate: null,
-		};
-		systemAudioCaptureSession = session;
-
-		child.stderr.setEncoding("utf8");
-		child.stderr.on("data", (chunk) => {
-			const message = String(chunk).trim();
-			if (message) {
-				console.error("[system-audio-helper]", message);
-			}
-		});
-
-		lineReader.on("line", (line) => {
-			let event;
-
-			try {
-				event = JSON.parse(line);
-			} catch (error) {
-				console.error("Failed to parse system audio helper event", error, line);
-				return;
-			}
-
-			if (event?.type !== "chunk") {
-				console.info("[system-audio] helper event", event?.type ?? "unknown");
-			}
-
-			if (event?.type === "ready") {
-				clearTimeout(cleanupTimeout);
-				session.cleanupTimeout = null;
-				session.sampleRate = Number(event.sampleRate) || 48_000;
-				resetHealthTimeout();
-				resolveStart({
-					channels: Number(event.channels) || 1,
-					sampleRate: session.sampleRate,
-				});
-				return;
-			}
-
-			if (event?.type === "error") {
-				const nextError = new Error(
-					typeof event.message === "string"
-						? event.message
-						: "System audio capture failed.",
-				);
-				clearTimeout(cleanupTimeout);
-				session.cleanupTimeout = null;
-				clearCaptureHealthTimeout(session);
-				rejectStart(nextError);
-				return;
-			}
-
-			if (event?.type === "chunk") {
-				resetHealthTimeout();
-			}
-
-			emitSystemAudioCaptureEvent(event);
-		});
-
-		child.on("error", (error) => {
-			clearTimeout(cleanupTimeout);
-			session.cleanupTimeout = null;
-			clearCaptureHealthTimeout(session);
-			if (systemAudioCaptureSession === session) {
-				systemAudioCaptureSession = null;
-			}
-			console.error("[system-audio] helper process error", error);
-			rejectStart(error);
-		});
-
-		child.on("exit", (code, signal) => {
-			clearTimeout(cleanupTimeout);
-			session.cleanupTimeout = null;
-			clearCaptureHealthTimeout(session);
-			if (systemAudioCaptureSession === session) {
-				systemAudioCaptureSession = null;
-			}
-
-			console.info("[system-audio] helper exited", {
-				code,
-				signal,
-				didResolve,
-				isStopping: session.isStopping,
-			});
-
-			if (!session.isStopping && !didResolve) {
-				rejectStart(
-					new Error(
-						`System audio capture exited before it became ready (code ${code ?? "null"}, signal ${signal ?? "null"}).`,
-					),
-				);
-				return;
-			}
-
-			if (!session.isStopping) {
-				emitSystemAudioCaptureEvent({
-					type: "stopped",
-					code,
-					signal,
-				});
-			}
-		});
-	});
-};
-
 const getNavigationUrl = async ({
 	pathname = "/home",
 	search = "",
@@ -4664,6 +3208,26 @@ const showMainWindow = async (options = {}) => {
 	mainWindow.show();
 	mainWindow.focus();
 };
+
+meetingDetection = createMeetingDetection({
+	broadcastState: (state) =>
+		broadcastToDesktopWindows({
+			channel: meetingDetectionStateChannel,
+			payload: state,
+		}),
+	dockIconPath,
+	ensureDockVisible,
+	getDetectedMeetingCalendarEvent,
+	getNavigationUrl,
+	getTranscriptionPhase: () => latestTranscriptionSessionState.phase,
+	isNotificationEnabled: () =>
+		activeWorkspaceNotificationPreferences.notifyForAutoDetectedMeetings,
+	isPackaged: app.isPackaged,
+	openCalendarEventNote,
+	preloadPath: join(runtimeDir, "preload.cjs"),
+	runtimeDir,
+	showMainWindow,
+});
 
 const navigateMainWindow = async (options = {}) => {
 	if (!mainWindow) {
@@ -5145,7 +3709,7 @@ ipcMain.handle("app:get-transcription-session-state", async () => {
 });
 
 ipcMain.handle("app:get-meeting-detection-state", async () => {
-	return latestMeetingDetectionState;
+	return getMeetingDetectionState();
 });
 
 ipcMain.handle(
@@ -5189,11 +3753,7 @@ ipcMain.handle("app:dismiss-detected-meeting-widget", async () => {
 });
 
 ipcMain.on("app:report-meeting-widget-size", (event, size) => {
-	if (
-		!meetingWidgetWindow ||
-		meetingWidgetWindow.isDestroyed() ||
-		event.sender !== meetingWidgetWindow.webContents
-	) {
+	if (!isMeetingWidgetSender(event.sender)) {
 		return;
 	}
 
@@ -5360,7 +3920,7 @@ ipcMain.handle("app:load-transcript-draft", async (_event, noteKey) => {
 		throw new Error("Transcript draft key must be a non-empty string.");
 	}
 
-	return await loadTranscriptDraft(noteKey.trim());
+	return await desktopStorage.loadTranscriptDraft(noteKey.trim());
 });
 
 ipcMain.handle("app:save-transcript-draft", async (_event, noteKey, draft) => {
@@ -5372,7 +3932,7 @@ ipcMain.handle("app:save-transcript-draft", async (_event, noteKey, draft) => {
 		throw new Error("Transcript draft payload must be an object.");
 	}
 
-	return await saveTranscriptDraft({
+	return await desktopStorage.saveTranscriptDraft({
 		noteKey: noteKey.trim(),
 		draft,
 	});
@@ -5383,7 +3943,7 @@ ipcMain.handle("app:clear-transcript-draft", async (_event, noteKey) => {
 		throw new Error("Transcript draft key must be a non-empty string.");
 	}
 
-	return await clearTranscriptDraft(noteKey.trim());
+	return await desktopStorage.clearTranscriptDraft(noteKey.trim());
 });
 
 ipcMain.handle("app:load-note-draft", async (_event, noteKey) => {
@@ -5391,7 +3951,7 @@ ipcMain.handle("app:load-note-draft", async (_event, noteKey) => {
 		throw new Error("Note draft key must be a non-empty string.");
 	}
 
-	return await loadNoteDraft(noteKey.trim());
+	return await desktopStorage.loadNoteDraft(noteKey.trim());
 });
 
 ipcMain.handle("app:save-note-draft", async (_event, noteKey, draft) => {
@@ -5403,7 +3963,7 @@ ipcMain.handle("app:save-note-draft", async (_event, noteKey, draft) => {
 		throw new Error("Note draft payload must be an object.");
 	}
 
-	return await saveNoteDraft({
+	return await desktopStorage.saveNoteDraft({
 		noteKey: noteKey.trim(),
 		draft,
 	});
@@ -5414,11 +3974,11 @@ ipcMain.handle("app:clear-note-draft", async (_event, noteKey) => {
 		throw new Error("Note draft key must be a non-empty string.");
 	}
 
-	return await clearNoteDraft(noteKey.trim());
+	return await desktopStorage.clearNoteDraft(noteKey.trim());
 });
 
 ipcMain.handle("app:share-local-folders", async (_event, paths) => {
-	return await shareLocalFolders(paths);
+	return await desktopStorage.shareLocalFolders(paths);
 });
 
 ipcMain.handle(
@@ -6001,12 +4561,7 @@ if (!singleInstanceLock) {
 		}
 
 		app.on("activate", async () => {
-			if (
-				meetingWidgetWindow &&
-				!meetingWidgetWindow.isDestroyed() &&
-				meetingWidgetWindow.isVisible() &&
-				!mainWindow?.isVisible()
-			) {
+			if (isMeetingWidgetVisible() && !mainWindow?.isVisible()) {
 				return;
 			}
 
