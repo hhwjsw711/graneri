@@ -7,6 +7,7 @@ const files = [
 	"src/meeting-detection.mjs",
 	"src/desktop-storage.mjs",
 	"src/desktop-tray.mjs",
+	"src/desktop-updater.mjs",
 	"src/native-audio-capture.mjs",
 	"src/local-server.mjs",
 	"src/auth-client.mjs",

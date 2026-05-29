@@ -31,6 +31,7 @@ import {
 import { getDesktopAuthClient } from "./auth-client.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
+import { createDesktopUpdater } from "./desktop-updater.mjs";
 import { loadRootEnv } from "./env.mjs";
 import { startLocalServer } from "./local-server.mjs";
 import {
@@ -204,6 +205,7 @@ const isLikelySystemAudioPermissionError = (error) => {
 let mainWindow = null;
 let localServer = null;
 let desktopTray = null;
+let desktopUpdater = null;
 let isQuitting = false;
 let isBypassingQuitConfirmation = false;
 let isPromptingForQuitConfirmation = false;
@@ -217,10 +219,6 @@ const desktopStorage = createDesktopStorage({
 });
 let systemAudioPermissionState = "prompt";
 let cachedDockIconImage;
-let hasPendingUpdateDownload = false;
-let isCheckingForUpdates = false;
-let shouldShowUpdateResultDialogs = false;
-let pendingUpdateVersion = null;
 let latestTranscriptionSessionState = createInitialTranscriptionSessionState();
 const desktopRealtimeTransportSessions = new Map();
 const captureEventListeners = {
@@ -2619,6 +2617,25 @@ desktopTray = createDesktopTray({
 	userDataPath: app.getPath("userData"),
 });
 
+desktopUpdater = createDesktopUpdater({
+	appVersion: () => app.getVersion(),
+	autoUpdater,
+	isAvailable: isUpdaterAvailable,
+	onBeforeInstall: () => {
+		isBypassingQuitConfirmation = true;
+		isQuitting = true;
+	},
+	setNativeProgress: (progressFraction) => {
+		if (!mainWindow || mainWindow.isDestroyed()) {
+			return;
+		}
+
+		mainWindow.setProgressBar(progressFraction);
+	},
+	setTrayStatusLabel,
+	showMessageBox: (options) => showUpdateMessageBox(options),
+});
+
 meetingDetection = createMeetingDetection({
 	broadcastState: (state) =>
 		broadcastToDesktopWindows({
@@ -3461,14 +3478,6 @@ const promptToConfirmQuitCompletely = async () => {
 	}
 };
 
-const setNativeUpdateProgress = (progressFraction) => {
-	if (!mainWindow || mainWindow.isDestroyed()) {
-		return;
-	}
-
-	mainWindow.setProgressBar(progressFraction);
-};
-
 const showUpdateMessageBox = async ({
 	type = "info",
 	title = "Software Update",
@@ -3534,132 +3543,8 @@ const confirmAndQuitCompletely = async () => {
 	quitCompletely();
 };
 
-const promptToInstallDownloadedUpdate = async (version) => {
-	const { response } = await showUpdateMessageBox({
-		type: "question",
-		message: `OpenGran ${version} has finished downloading.`,
-		detail: "Install now or keep working and update on quit.",
-		buttons: ["Later", "Install and Restart"],
-		defaultId: 1,
-		cancelId: 0,
-	});
-
-	if (response !== 1) {
-		return;
-	}
-
-	isBypassingQuitConfirmation = true;
-	isQuitting = true;
-	autoUpdater.quitAndInstall();
-};
-
-const configureAutoUpdater = () => {
-	if (!isUpdaterAvailable()) {
-		return;
-	}
-
-	autoUpdater.autoDownload = true;
-	autoUpdater.autoInstallOnAppQuit = true;
-
-	autoUpdater.on("checking-for-update", () => {
-		isCheckingForUpdates = true;
-		setTrayStatusLabel("Checking for updates...");
-		setNativeUpdateProgress(0.02);
-	});
-
-	autoUpdater.on("update-available", (info) => {
-		hasPendingUpdateDownload = false;
-		pendingUpdateVersion = info.version;
-		setTrayStatusLabel(`Downloading OpenGran ${info.version}...`);
-		setNativeUpdateProgress(0.03);
-	});
-
-	autoUpdater.on("download-progress", (progress) => {
-		setTrayStatusLabel(
-			`Downloading update... ${Math.round(progress.percent)}%`,
-		);
-		setNativeUpdateProgress(
-			Math.max(0.03, Math.min(1, Number(progress.percent ?? 0) / 100)),
-		);
-	});
-
-	autoUpdater.on("update-not-available", async () => {
-		isCheckingForUpdates = false;
-		hasPendingUpdateDownload = false;
-		pendingUpdateVersion = null;
-		setTrayStatusLabel("OpenGran is up to date");
-		setNativeUpdateProgress(-1);
-
-		if (!shouldShowUpdateResultDialogs) {
-			return;
-		}
-
-		shouldShowUpdateResultDialogs = false;
-		await showUpdateMessageBox({
-			message: "You're up to date.",
-			detail: `OpenGran ${app.getVersion()} is currently the newest version available.`,
-		});
-	});
-
-	autoUpdater.on("update-downloaded", async (info) => {
-		isCheckingForUpdates = false;
-		hasPendingUpdateDownload = true;
-		pendingUpdateVersion = info.version;
-		shouldShowUpdateResultDialogs = false;
-		setTrayStatusLabel(`OpenGran ${info.version} is ready to install`);
-		setNativeUpdateProgress(-1);
-		await promptToInstallDownloadedUpdate(info.version);
-	});
-
-	autoUpdater.on("error", async (error) => {
-		isCheckingForUpdates = false;
-		setTrayStatusLabel("Update check failed");
-		setNativeUpdateProgress(-1);
-		console.error("Auto updater failed", error);
-
-		if (!shouldShowUpdateResultDialogs) {
-			return;
-		}
-
-		shouldShowUpdateResultDialogs = false;
-		await showUpdateMessageBox({
-			type: "error",
-			message: "Update check failed.",
-			detail: [
-				"OpenGran couldn't check for updates.",
-				error instanceof Error ? error.message : String(error),
-			]
-				.filter(Boolean)
-				.join("\n\n"),
-		});
-	});
-};
-
 const handleCheckForUpdates = async () => {
-	if (!isUpdaterAvailable()) {
-		await showUpdateMessageBox({
-			message: "Updates are unavailable.",
-			detail: "Updates are only available in packaged release builds.",
-		});
-		return;
-	}
-
-	if (isCheckingForUpdates) {
-		await showUpdateMessageBox({
-			message: "OpenGran is already checking for updates.",
-		});
-		return;
-	}
-
-	if (hasPendingUpdateDownload) {
-		await promptToInstallDownloadedUpdate(
-			pendingUpdateVersion ?? app.getVersion(),
-		);
-		return;
-	}
-
-	shouldShowUpdateResultDialogs = true;
-	await autoUpdater.checkForUpdates();
+	await desktopUpdater?.checkForUpdates();
 };
 
 const handleRestartApp = () => {
@@ -3860,11 +3745,11 @@ if (!singleInstanceLock) {
 		});
 		desktopTray?.create();
 		void refreshTrayCalendar();
-		configureAutoUpdater();
+		desktopUpdater?.configure();
 
 		if (isUpdaterAvailable()) {
 			setTrayStatusLabel("Checking for updates...");
-			void autoUpdater.checkForUpdates().catch((error) => {
+			void desktopUpdater?.checkForUpdatesQuietly().catch((error) => {
 				console.error("Initial update check failed", error);
 			});
 		}
