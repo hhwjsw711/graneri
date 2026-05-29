@@ -19,6 +19,9 @@ Run `bun install` once at the repo root. Use `bun dev` to start the local stack,
 ## Coding Style & Naming Conventions
 Biome is the formatter and linter (`biome.json`). Use tabs for indentation, double quotes for JavaScript/TypeScript, and let Biome organize imports. `lint` and `check` should be treated as validation commands; `format`, `lint:fix`, and `check:fix` are the mutating commands. React components use PascalCase file names such as `ChatPage`; hooks stay in camel case like `use-mobile.ts`; Convex modules use descriptive lower camel or kebab-free file names such as `notes.ts`. Prefer small shared UI additions in `packages/ui` rather than duplicating components in apps.
 
+## Code Quality
+Avoid `any` types unless they are absolutely necessary and locally justified. Before guessing external API shapes, check the dependency's installed type definitions under `node_modules` and use the exported types. Never use inline imports: do not write `await import("./foo.js")` for runtime code or `import("pkg").Type` in type positions. Use standard top-level imports for runtime values and `import type` declarations for types.
+
 ## Testing Guidelines
 Web tests use Vitest with Testing Library and `jsdom`. Name tests `*.test.tsx` and keep them near feature-level behavior, as in `apps/web/tests/chat-page.test.tsx`. Run `bun run test` before opening a PR; for frontend changes, also run `bun run typecheck` and `bun run check`. Desktop changes should pass `bun --filter=desktop run typecheck` and `bun --filter=desktop run check`; native behavior should include targeted tests when practical or a clear manual verification note when it depends on macOS permissions, packaging, or system audio.
 
