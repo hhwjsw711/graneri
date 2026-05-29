@@ -8,6 +8,11 @@ const createUpdaterHarness = ({
 	messageBoxResponses = [],
 } = {}) => {
 	const autoUpdater = new EventEmitter();
+	autoUpdater.emitAsync = async (eventName, ...args) => {
+		for (const listener of autoUpdater.listeners(eventName)) {
+			await listener(...args);
+		}
+	};
 	const calls = {
 		checkForUpdates: 0,
 		quitAndInstall: 0,
@@ -69,7 +74,7 @@ test("desktop updater blocks duplicate manual checks while checking", async () =
 	const { autoUpdater, calls, updater } = createUpdaterHarness();
 
 	updater.configure();
-	autoUpdater.emit("checking-for-update");
+	await autoUpdater.emitAsync("checking-for-update");
 	await updater.checkForUpdates();
 
 	assert.equal(calls.checkForUpdates, 0);
@@ -86,7 +91,7 @@ test("desktop updater shows manual up-to-date result", async () => {
 
 	updater.configure();
 	await updater.checkForUpdates();
-	await autoUpdater.emit("update-not-available");
+	await autoUpdater.emitAsync("update-not-available");
 
 	assert.equal(calls.checkForUpdates, 1);
 	assert.equal(calls.trayLabels.at(-1), "OpenGran is up to date");
@@ -105,7 +110,7 @@ test("desktop updater installs a downloaded update when confirmed", async () => 
 	});
 
 	updater.configure();
-	await autoUpdater.emit("update-downloaded", { version: "2.0.0" });
+	await autoUpdater.emitAsync("update-downloaded", { version: "2.0.0" });
 
 	assert.equal(calls.trayLabels.at(-1), "OpenGran 2.0.0 is ready to install");
 	assert.equal(calls.progress.at(-1), -1);

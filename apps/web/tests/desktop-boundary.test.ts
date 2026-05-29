@@ -8,6 +8,8 @@ const allowedDirectBridgeReaders = new Set([
 	"packages/platform/src/desktop.ts",
 	"packages/platform/src/desktop-bridge.ts",
 ]);
+const directDesktopBridgeAccessPattern =
+	/\bwindow\s*(?:\.openGranDesktop|\[\s*["']openGranDesktop["']\s*\])/u;
 
 const collectSourceFiles = async (directory: string): Promise<string[]> => {
 	const entries = await readdir(directory, { withFileTypes: true });
@@ -44,7 +46,7 @@ describe("desktop platform boundary", () => {
 
 			const source = await readFile(filePath, "utf8");
 
-			if (source.includes("window.openGranDesktop")) {
+			if (directDesktopBridgeAccessPattern.test(source)) {
 				violations.push(relativePath);
 			}
 		}

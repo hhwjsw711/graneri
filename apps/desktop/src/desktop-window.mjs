@@ -17,9 +17,7 @@ export const createDesktopWindow = ({
 	getDefaultNavigation,
 	getNavigationUrl,
 	isQuitting,
-	onClosed,
 	onHideRequested,
-	onWindowCreated,
 	preloadPath,
 	rememberNavigation,
 	shell,
@@ -55,7 +53,6 @@ export const createDesktopWindow = ({
 				sandbox: false,
 			},
 		});
-		onWindowCreated(mainWindow);
 
 		if (!hasConfiguredDisplayMediaHandler) {
 			hasConfiguredDisplayMediaHandler = true;
@@ -103,7 +100,6 @@ export const createDesktopWindow = ({
 
 		mainWindow.on("closed", () => {
 			mainWindow = null;
-			onClosed();
 		});
 
 		mainWindow.webContents.on("before-input-event", (event, input) => {

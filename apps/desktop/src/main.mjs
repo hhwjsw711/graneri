@@ -39,10 +39,7 @@ import { createDesktopUpdater } from "./desktop-updater.mjs";
 import { createDesktopWindow } from "./desktop-window.mjs";
 import { loadRootEnv } from "./env.mjs";
 import { startLocalServer } from "./local-server.mjs";
-import {
-	createInitialMeetingDetectionState,
-	createMeetingDetection,
-} from "./meeting-detection.mjs";
+import { createMeetingDetection } from "./meeting-detection.mjs";
 import { createNativeAudioCapture } from "./native-audio-capture.mjs";
 import { toErrorLogDetails } from "./network.mjs";
 import { getRuntimeConfig, hydrateRuntimeConfig } from "./runtime-config.mjs";
@@ -105,6 +102,10 @@ const getMainWindowBackgroundColor = () => {
 	return shouldUseDarkColors ? "#18181b" : "#f7f7f5";
 };
 
+function getExistingMainWindow() {
+	return desktopWindow?.getWindow() ?? null;
+}
+
 const applyDesktopThemeSource = (themeSource) => {
 	if (
 		themeSource !== "light" &&
@@ -116,8 +117,9 @@ const applyDesktopThemeSource = (themeSource) => {
 
 	nativeTheme.themeSource = themeSource;
 
-	if (mainWindow && !mainWindow.isDestroyed()) {
-		mainWindow.setBackgroundColor(getMainWindowBackgroundColor());
+	const window = getExistingMainWindow();
+	if (window && !window.isDestroyed()) {
+		window.setBackgroundColor(getMainWindowBackgroundColor());
 	}
 
 	return {
@@ -128,11 +130,12 @@ const applyDesktopThemeSource = (themeSource) => {
 };
 
 nativeTheme.on("updated", () => {
-	if (!mainWindow || mainWindow.isDestroyed()) {
+	const window = getExistingMainWindow();
+	if (!window || window.isDestroyed()) {
 		return;
 	}
 
-	mainWindow.setBackgroundColor(getMainWindowBackgroundColor());
+	window.setBackgroundColor(getMainWindowBackgroundColor());
 });
 
 const createInitialNotificationPreferences = () => ({
@@ -194,7 +197,6 @@ const isLikelySystemAudioPermissionError = (error) => {
 	);
 };
 
-let mainWindow = null;
 let localServer = null;
 let desktopAppMenu = null;
 let desktopShell = null;
@@ -243,25 +245,33 @@ let desktopNavigationState = null;
 const areDesktopTestHooksEnabled =
 	app.isPackaged !== true || process.env.OPENGRAN_ENABLE_TEST_HOOKS === "1";
 
+const requireDesktopService = (service, name) => {
+	if (!service) {
+		throw new Error(`${name} has not been initialized.`);
+	}
+
+	return service;
+};
+
 const isUpdaterAvailable = () =>
 	process.platform === "darwin" &&
 	app.isPackaged === true &&
 	process.env.OPENGRAN_DISABLE_UPDATER !== "1";
 
 const applyDockIcon = () => {
-	desktopShell?.applyDockIcon();
+	requireDesktopService(desktopShell, "desktopShell").applyDockIcon();
 };
 const ensureDockVisible = () => {
-	desktopShell?.ensureDockVisible();
+	requireDesktopService(desktopShell, "desktopShell").ensureDockVisible();
 };
 const ensureAppActive = () => {
-	desktopShell?.ensureAppActive();
+	requireDesktopService(desktopShell, "desktopShell").ensureAppActive();
 };
 const hideMainWindow = () => {
-	desktopShell?.hideMainWindow();
+	requireDesktopService(desktopShell, "desktopShell").hideMainWindow();
 };
 const hideApp = (options) => {
-	desktopShell?.hideApp(options);
+	requireDesktopService(desktopShell, "desktopShell").hideApp(options);
 };
 
 const getConvexUrl = () => {
@@ -406,48 +416,87 @@ const stopMicrophoneCapture = nativeAudioCapture.stopMicrophoneCapture;
 const stopSystemAudioCapture = nativeAudioCapture.stopSystemAudioCapture;
 let meetingDetection = null;
 const getMeetingDetectionState = () =>
-	meetingDetection?.getMeetingDetectionState() ??
-	createInitialMeetingDetectionState();
+	requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).getMeetingDetectionState();
 const reevaluateMeetingDetection = () => {
-	meetingDetection?.reevaluateMeetingDetection();
+	requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).reevaluateMeetingDetection();
 };
 const startMicrophoneActivityMonitor = async () =>
-	(await meetingDetection?.startMicrophoneActivityMonitor()) ?? false;
+	await requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).startMicrophoneActivityMonitor();
 const stopMicrophoneActivityMonitor = async () => {
-	await meetingDetection?.stopMicrophoneActivityMonitor();
+	await requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).stopMicrophoneActivityMonitor();
 };
 const startDetectedMeetingNote = async () => {
-	await meetingDetection?.startDetectedMeetingNote();
+	await requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).startDetectedMeetingNote();
 };
 const dismissDetectedMeetingWidget = () => {
-	meetingDetection?.dismissDetectedMeetingWidget();
+	requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).dismissDetectedMeetingWidget();
 };
 const showMeetingWidgetForTest = async () => {
-	await meetingDetection?.showMeetingWidgetForTest();
+	await requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).showMeetingWidgetForTest();
 };
 const resetMeetingDetectionForTest = () => {
-	meetingDetection?.resetMeetingDetectionForTest();
+	requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).resetMeetingDetectionForTest();
 };
 const updateMeetingWidgetWindowSize = (size) => {
-	meetingDetection?.updateMeetingWidgetWindowSize(size);
+	requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).updateMeetingWidgetWindowSize(size);
 };
 const isMeetingWidgetSender = (sender) =>
-	meetingDetection?.isMeetingWidgetSender(sender) ?? false;
+	requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).isMeetingWidgetSender(sender);
 const isMeetingWidgetVisible = () =>
-	meetingDetection?.isMeetingWidgetVisible() ?? false;
+	requireDesktopService(
+		meetingDetection,
+		"meetingDetection",
+	).isMeetingWidgetVisible();
 const getDetectedMeetingCalendarEvent = (...args) =>
-	desktopTray?.getDetectedMeetingCalendarEvent(...args) ?? null;
+	requireDesktopService(
+		desktopTray,
+		"desktopTray",
+	).getDetectedMeetingCalendarEvent(...args);
 const openCalendarEventNote = async (...args) => {
-	await desktopTray?.openCalendarEventNote(...args);
+	await requireDesktopService(desktopTray, "desktopTray").openCalendarEventNote(
+		...args,
+	);
 };
 const refreshTrayCalendar = async () => {
-	await desktopTray?.refreshCalendar();
+	await requireDesktopService(desktopTray, "desktopTray").refreshCalendar();
 };
 const scheduleTrayCalendarRefresh = (delayMs) => {
-	desktopTray?.scheduleCalendarRefresh(delayMs);
+	requireDesktopService(desktopTray, "desktopTray").scheduleCalendarRefresh(
+		delayMs,
+	);
 };
 const setTrayStatusLabel = (value) => {
-	desktopTray?.setStatusLabel(value);
+	requireDesktopService(desktopTray, "desktopTray").setStatusLabel(value);
 };
 
 const syncTranscriptionSessionState = (state) => {
@@ -1002,11 +1051,14 @@ desktopNavigationState = createDesktopNavigationState({
 desktopShell = createDesktopShell({
 	app,
 	dockIconPath,
-	getMainWindow: () => mainWindow,
+	getMainWindow: getExistingMainWindow,
 });
 
 const rememberRendererNavigation = async (urlString) => {
-	await desktopNavigationState?.remember(urlString);
+	await requireDesktopService(
+		desktopNavigationState,
+		"desktopNavigationState",
+	).remember(urlString);
 };
 
 const parseDesktopRealtimeTransportEvent = ({ event, speaker }) => {
@@ -2418,16 +2470,13 @@ desktopWindow = createDesktopWindow({
 	dockIconPath,
 	getBackgroundColor: getMainWindowBackgroundColor,
 	getDefaultNavigation: () =>
-		desktopNavigationState?.get() ?? getDefaultDesktopNavigation(),
+		requireDesktopService(
+			desktopNavigationState,
+			"desktopNavigationState",
+		).get(),
 	getNavigationUrl,
 	isQuitting: () => isQuitting,
-	onClosed: () => {
-		mainWindow = null;
-	},
 	onHideRequested: () => hideMainWindow(),
-	onWindowCreated: (window) => {
-		mainWindow = window;
-	},
 	preloadPath: join(runtimeDir, "preload.cjs"),
 	rememberNavigation: rememberRendererNavigation,
 	shell: {
@@ -2435,11 +2484,15 @@ desktopWindow = createDesktopWindow({
 		ensureDockVisible,
 	},
 	shouldHideInsteadOfClose: () =>
-		process.platform === "darwin" && desktopTray?.isKeepOpenInMenuBarEnabled(),
+		process.platform === "darwin" &&
+		requireDesktopService(
+			desktopTray,
+			"desktopTray",
+		).isKeepOpenInMenuBarEnabled(),
 });
 
 const showMainWindow = async (options = {}) => {
-	await desktopWindow?.show(options);
+	await requireDesktopService(desktopWindow, "desktopWindow").show(options);
 };
 
 desktopTray = createDesktopTray({
@@ -2466,11 +2519,12 @@ desktopUpdater = createDesktopUpdater({
 		isQuitting = true;
 	},
 	setNativeProgress: (progressFraction) => {
-		if (!mainWindow || mainWindow.isDestroyed()) {
+		const window = getExistingMainWindow();
+		if (!window || window.isDestroyed()) {
 			return;
 		}
 
-		mainWindow.setProgressBar(progressFraction);
+		window.setProgressBar(progressFraction);
 	},
 	setTrayStatusLabel,
 	showMessageBox: (options) => showUpdateMessageBox(options),
@@ -2506,11 +2560,15 @@ const handleDesktopAuthCallback = async (callbackUrl) => {
 
 	const targetUrl = await buildAuthCallbackUrl(callbackUrl);
 
-	await desktopWindow?.loadUrlAndFocus(targetUrl);
+	await requireDesktopService(desktopWindow, "desktopWindow").loadUrlAndFocus(
+		targetUrl,
+	);
 };
 
 const createMainWindow = async (targetUrl) => {
-	return await desktopWindow?.create(targetUrl);
+	return await requireDesktopService(desktopWindow, "desktopWindow").create(
+		targetUrl,
+	);
 };
 
 const getMicrophonePermission = () => {
@@ -2966,7 +3024,9 @@ ipcMain.handle("app:set-active-workspace-id", async (_event, workspaceId) => {
 	}
 
 	activeWorkspaceId = workspaceId;
-	desktopTray?.setActiveWorkspaceId(workspaceId);
+	requireDesktopService(desktopTray, "desktopTray").setActiveWorkspaceId(
+		workspaceId,
+	);
 	activeWorkspaceNotificationPreferences =
 		createInitialNotificationPreferences();
 	reevaluateMeetingDetection();
@@ -3115,10 +3175,13 @@ ipcMain.handle(
 			throw new Error("File content must be a string.");
 		}
 
-		const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
-			defaultPath: defaultFileName,
-			filters: [{ name: "Text", extensions: ["txt"] }],
-		});
+		const result = await dialog.showSaveDialog(
+			getExistingMainWindow() ?? undefined,
+			{
+				defaultPath: defaultFileName,
+				filters: [{ name: "Text", extensions: ["txt"] }],
+			},
+		);
 
 		if (result.canceled || !result.filePath) {
 			return { ok: true, canceled: true };
@@ -3148,7 +3211,10 @@ const promptToConfirmQuitCompletely = async () => {
 	isPromptingForQuitConfirmation = true;
 
 	try {
-		const parentWindow = desktopShell?.getVisibleMainWindow();
+		const parentWindow = requireDesktopService(
+			desktopShell,
+			"desktopShell",
+		).getVisibleMainWindow();
 		const dialogOptions = {
 			type: "question",
 			buttons: ["Cancel", "Quit"],
@@ -3179,7 +3245,10 @@ const showUpdateMessageBox = async ({
 	defaultId = 0,
 	cancelId = defaultId,
 }) => {
-	const parentWindow = desktopShell?.getVisibleMainWindow();
+	const parentWindow = requireDesktopService(
+		desktopShell,
+		"desktopShell",
+	).getVisibleMainWindow();
 	const dialogOptions = {
 		type,
 		buttons,
@@ -3198,7 +3267,10 @@ const showUpdateMessageBox = async ({
 };
 
 const showAboutMessageBox = async () => {
-	const parentWindow = desktopShell?.getVisibleMainWindow();
+	const parentWindow = requireDesktopService(
+		desktopShell,
+		"desktopShell",
+	).getVisibleMainWindow();
 	const version = app.getVersion();
 	const currentYear = new Date().getFullYear();
 	const dialogOptions = {
@@ -3230,7 +3302,10 @@ const confirmAndQuitCompletely = async () => {
 };
 
 const handleCheckForUpdates = async () => {
-	await desktopUpdater?.checkForUpdates();
+	await requireDesktopService(
+		desktopUpdater,
+		"desktopUpdater",
+	).checkForUpdates();
 };
 
 const handleRestartApp = () => {
@@ -3251,24 +3326,14 @@ const handleDesktopSignOut = async () => {
 			body: JSON.stringify({}),
 			throw: true,
 		});
-		await desktopNavigationState?.reset();
+		await requireDesktopService(
+			desktopNavigationState,
+			"desktopNavigationState",
+		).reset();
 		const defaultLastNavigation = getDefaultDesktopNavigation();
-
-		if (!mainWindow || mainWindow.isDestroyed()) {
-			await showMainWindow(defaultLastNavigation);
-			return;
-		}
-
-		await mainWindow.loadURL(await getNavigationUrl(defaultLastNavigation));
-
-		if (mainWindow.isMinimized()) {
-			mainWindow.restore();
-		}
-
-		ensureDockVisible();
-		ensureAppActive();
-		mainWindow.show();
-		mainWindow.focus();
+		await requireDesktopService(desktopWindow, "desktopWindow").loadUrlAndFocus(
+			await getNavigationUrl(defaultLastNavigation),
+		);
 	} catch (error) {
 		const errorDetails = toErrorLogDetails(error);
 		console.error("Failed to sign out from desktop menu.", errorDetails);
@@ -3294,11 +3359,16 @@ desktopAppMenu = createDesktopAppMenu({
 });
 
 const refreshApplicationMenu = () => {
-	desktopAppMenu?.refresh();
+	requireDesktopService(desktopAppMenu, "desktopAppMenu").refresh();
 };
 
 const handleTrayQuit = async () => {
-	if (!desktopTray?.isKeepOpenInMenuBarEnabled()) {
+	if (
+		!requireDesktopService(
+			desktopTray,
+			"desktopTray",
+		).isKeepOpenInMenuBarEnabled()
+	) {
 		await confirmAndQuitCompletely();
 		return;
 	}
@@ -3337,26 +3407,32 @@ if (!singleInstanceLock) {
 
 		applyDockIcon();
 
-		await desktopTray?.loadSettings();
-		await desktopNavigationState?.load();
+		await requireDesktopService(desktopTray, "desktopTray").loadSettings();
+		await requireDesktopService(
+			desktopNavigationState,
+			"desktopNavigationState",
+		).load();
 		await ensureLocalServer();
 		await createMainWindow();
 		await startMicrophoneActivityMonitor().catch((error) => {
 			console.error("Failed to start meeting detection", error);
 		});
-		desktopTray?.create();
+		requireDesktopService(desktopTray, "desktopTray").create();
 		void refreshTrayCalendar();
-		desktopUpdater?.configure();
+		requireDesktopService(desktopUpdater, "desktopUpdater").configure();
 
 		if (isUpdaterAvailable()) {
 			setTrayStatusLabel("Checking for updates...");
-			void desktopUpdater?.checkForUpdatesQuietly().catch((error) => {
-				console.error("Initial update check failed", error);
-			});
+			void requireDesktopService(desktopUpdater, "desktopUpdater")
+				.checkForUpdatesQuietly()
+				.catch((error) => {
+					console.error("Initial update check failed", error);
+				});
 		}
 
 		app.on("activate", async () => {
-			if (isMeetingWidgetVisible() && !mainWindow?.isVisible()) {
+			const window = getExistingMainWindow();
+			if (isMeetingWidgetVisible() && !window?.isVisible()) {
 				return;
 			}
 
@@ -3374,7 +3450,10 @@ if (!singleInstanceLock) {
 
 		if (
 			process.platform !== "darwin" ||
-			!desktopTray?.isKeepOpenInMenuBarEnabled()
+			!requireDesktopService(
+				desktopTray,
+				"desktopTray",
+			).isKeepOpenInMenuBarEnabled()
 		) {
 			quitCompletely();
 		}

@@ -1,25 +1,16 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { ConvexHttpClient } from "convex/browser";
-import { Menu, Notification, nativeImage, shell, Tray } from "electron";
-import { api } from "../../../convex/_generated/api.js";
-import { toErrorLogDetails } from "./network.mjs";
+import { Menu, nativeImage, Tray } from "electron";
+import {
+	createDesktopTrayCalendar,
+	getTrayTodayEvents,
+	isTrayEventLive,
+} from "./desktop-tray-calendar.mjs";
 
-const scheduledMeetingNotificationLeadTimeMs = 5 * 60 * 1000;
-const trayCalendarActiveRefreshMs = 60 * 1000;
-const trayCalendarIdleRefreshMs = 5 * 60 * 1000;
-const trayCalendarUnavailableRefreshMs = 15 * 60 * 1000;
-const trayCalendarUpcomingRefreshWindowMs = 30 * 60 * 1000;
 const trayCalendarMenuEventLimit = 5;
 
 const defaultTraySettings = {
 	keepOpenInMenuBar: true,
 };
-
-const createInitialTrayCalendarState = () => ({
-	status: "idle",
-	events: [],
-	connectedCalendarCount: 0,
-});
 
 const trayDateFormatter = new Intl.DateTimeFormat(undefined, {
 	day: "numeric",
@@ -31,36 +22,6 @@ const trayTimeFormatter = new Intl.DateTimeFormat(undefined, {
 	hour: "numeric",
 	minute: "2-digit",
 });
-
-const isSameCalendarDay = (left, right) =>
-	left.getFullYear() === right.getFullYear() &&
-	left.getMonth() === right.getMonth() &&
-	left.getDate() === right.getDate();
-
-const isTrayEventLive = (event, currentDate) => {
-	const startAt = new Date(event.startAt).getTime();
-	const endAt = new Date(event.endAt).getTime();
-	const now = currentDate.getTime();
-
-	return now >= startAt && now <= endAt;
-};
-
-const isTrayEventToday = (event, currentDate) => {
-	const startAt = new Date(event.startAt);
-	const endAt = new Date(event.endAt).getTime();
-
-	return (
-		isSameCalendarDay(startAt, currentDate) && endAt >= currentDate.getTime()
-	);
-};
-
-const getTrayTodayEvents = (events, currentDate) =>
-	events
-		.filter((event) => isTrayEventToday(event, currentDate))
-		.sort(
-			(left, right) =>
-				new Date(left.startAt).getTime() - new Date(right.startAt).getTime(),
-		);
 
 const truncateTrayLabel = (value, maxLength) =>
 	value.length > maxLength
@@ -111,28 +72,6 @@ const formatTrayNextEventHeader = (event, currentDate) => {
 const formatTrayEventMenuLabel = (event) =>
 	`${truncateTrayLabel(event.title, 42)} • ${formatTrayEventTimeRange(event)}`;
 
-const getCurrentDayWindow = () => {
-	const now = new Date();
-	const timeMin = new Date(now);
-	timeMin.setHours(0, 0, 0, 0);
-	const timeMax = new Date(now);
-	timeMax.setHours(23, 59, 59, 999);
-
-	return {
-		timeMin: timeMin.toISOString(),
-		timeMax: timeMax.toISOString(),
-	};
-};
-
-const createScheduledMeetingNotificationKey = (workspaceId, event) =>
-	`${workspaceId}:${event.id}:${event.startAt}`;
-
-const formatScheduledMeetingNotificationTime = (value) =>
-	new Intl.DateTimeFormat(undefined, {
-		hour: "numeric",
-		minute: "2-digit",
-	}).format(new Date(value));
-
 export const createDesktopTray = ({
 	app,
 	confirmAndQuitCompletely,
@@ -149,12 +88,15 @@ export const createDesktopTray = ({
 }) => {
 	let tray = null;
 	let traySettings = { ...defaultTraySettings };
-	let trayCalendarState = createInitialTrayCalendarState();
-	let trayCalendarWorkspaceId = null;
-	let trayCalendarRefreshTimeoutId = null;
-	let trayCalendarRefreshPromise = null;
 	let trayStatusLabel = "Updates are unavailable in development builds";
-	const shownScheduledMeetingNotificationKeys = new Set();
+	const calendar = createDesktopTrayCalendar({
+		dockIconPath,
+		getConvexUrl,
+		getDesktopConvexToken,
+		getNotificationPreferences,
+		onOpenMainWindow,
+		onStateChange: () => refreshMenu(),
+	});
 
 	const saveSettings = async () => {
 		try {
@@ -194,125 +136,18 @@ export const createDesktopTray = ({
 		}
 	};
 
-	const getDetectedMeetingCalendarEvent = (currentDate = new Date()) => {
-		if (trayCalendarState.status !== "ready") {
-			return null;
-		}
-
-		const currentTimestamp = currentDate.getTime();
-		const liveMeeting = getTrayTodayEvents(
-			trayCalendarState.events,
-			currentDate,
-		)
-			.filter((event) => event?.isMeeting)
-			.find((event) => {
-				const startAt = new Date(event.startAt).getTime();
-				const endAt = new Date(event.endAt).getTime();
-
-				return (
-					Number.isFinite(startAt) &&
-					Number.isFinite(endAt) &&
-					startAt <= currentTimestamp &&
-					endAt >= currentTimestamp
-				);
-			});
-
-		if (liveMeeting) {
-			return liveMeeting;
-		}
-
-		return getTrayTodayEvents(trayCalendarState.events, currentDate)
-			.filter((event) => event?.isMeeting)
-			.find((event) => {
-				const startAt = new Date(event.startAt).getTime();
-
-				return (
-					Number.isFinite(startAt) &&
-					Math.abs(startAt - currentTimestamp) <=
-						scheduledMeetingNotificationLeadTimeMs
-				);
-			});
-	};
-
-	const openTrayMeetingLink = async (event) => {
-		if (!event?.meetingUrl) {
-			return;
-		}
-
-		await shell.openExternal(event.meetingUrl);
-	};
-
-	const createCalendarEventNoteSearch = (event, options = {}) => {
-		const searchParams = new URLSearchParams();
-		const autoStartCapture = options.autoStartCapture === true;
-		const stopCaptureWhenMeetingEnds =
-			options.stopCaptureWhenMeetingEnds === true;
-
-		if (autoStartCapture) {
-			searchParams.set("capture", "1");
-		}
-
-		if (stopCaptureWhenMeetingEnds) {
-			searchParams.set("meeting", "1");
-		}
-
-		searchParams.set("calendarEventId", event.id);
-		searchParams.set("calendarId", event.calendarId);
-		searchParams.set("calendarName", event.calendarName);
-		searchParams.set("eventTitle", event.title);
-		searchParams.set("startAt", event.startAt);
-		searchParams.set("endAt", event.endAt);
-		searchParams.set("isAllDay", event.isAllDay ? "1" : "0");
-
-		if (event.meetingUrl) {
-			searchParams.set("meetingUrl", event.meetingUrl);
-		}
-
-		if (event.location) {
-			searchParams.set("location", event.location);
-		}
-
-		if (event.htmlLink) {
-			searchParams.set("htmlLink", event.htmlLink);
-		}
-
-		return `?${searchParams.toString()}`;
-	};
-
-	const openCalendarEventNote = async (event, options = {}) => {
-		const hasStarted = new Date(event.startAt).getTime() <= Date.now();
-
-		await onOpenMainWindow({
-			pathname: "/note",
-			search: createCalendarEventNoteSearch(event, {
-				autoStartCapture:
-					options.autoStartCapture === true ||
-					(options.autoStartCapture == null && hasStarted),
-				stopCaptureWhenMeetingEnds:
-					options.stopCaptureWhenMeetingEnds === true ||
-					(options.stopCaptureWhenMeetingEnds == null && event.isMeeting),
-			}),
-		});
-
-		if (options.openMeetingLink !== false && event.meetingUrl) {
-			await openTrayMeetingLink(event);
-		}
-	};
-
 	const buildTrayEventMenuItem = (event) => ({
 		label: formatTrayEventMenuLabel(event),
 		enabled: event?.isMeeting === true,
 		click: () => {
-			void openCalendarEventNote(event);
+			void calendar.openCalendarEventNote(event);
 		},
 	});
 
 	const getTrayTitle = () => {
 		const currentDate = new Date();
-		const todayEvents = getTrayTodayEvents(
-			trayCalendarState.events,
-			currentDate,
-		);
+		const calendarState = calendar.getState();
+		const todayEvents = getTrayTodayEvents(calendarState.events, currentDate);
 
 		if (todayEvents.length === 0) {
 			return "";
@@ -333,20 +168,21 @@ export const createDesktopTray = ({
 
 	const buildTrayCalendarMenuItems = () => {
 		const currentDate = new Date();
+		const calendarState = calendar.getState();
 		const todayLabel = `Today (${trayDateFormatter.format(currentDate)})`;
 		const todayEvents = getTrayTodayEvents(
-			trayCalendarState.events,
+			calendarState.events,
 			currentDate,
 		).slice(0, trayCalendarMenuEventLimit);
 
 		if (
-			trayCalendarState.status === "not_connected" ||
-			trayCalendarState.status === "error"
+			calendarState.status === "not_connected" ||
+			calendarState.status === "error"
 		) {
 			return [];
 		}
 
-		if (trayCalendarState.status === "idle") {
+		if (calendarState.status === "idle") {
 			return [
 				{
 					label: todayLabel,
@@ -455,7 +291,9 @@ export const createDesktopTray = ({
 							};
 							void saveSettings();
 							refreshMenu();
-							void refreshCalendar();
+							void calendar.refresh({
+								keepOpenInMenuBar: traySettings.keepOpenInMenuBar,
+							});
 						},
 					},
 					{
@@ -475,241 +313,6 @@ export const createDesktopTray = ({
 
 		tray.setTitle(getTrayTitle());
 		tray.setContextMenu(buildTrayMenu());
-	};
-
-	const clearCalendarRefresh = () => {
-		if (trayCalendarRefreshTimeoutId != null) {
-			clearTimeout(trayCalendarRefreshTimeoutId);
-			trayCalendarRefreshTimeoutId = null;
-		}
-	};
-
-	const shouldMaintainCalendar = () =>
-		Boolean(trayCalendarWorkspaceId) &&
-		(traySettings.keepOpenInMenuBar ||
-			getNotificationPreferences().notifyForScheduledMeetings);
-
-	const shouldUseActiveCalendarRefresh = (events) => {
-		const now = Date.now();
-
-		return events.some((event) => {
-			if (!event?.isMeeting || event.isAllDay) {
-				return false;
-			}
-
-			const startAt = Date.parse(event.startAt);
-			const endAt = Date.parse(event.endAt);
-
-			if (
-				!Number.isFinite(startAt) ||
-				!Number.isFinite(endAt) ||
-				endAt <= now
-			) {
-				return false;
-			}
-
-			return startAt - now <= trayCalendarUpcomingRefreshWindowMs;
-		});
-	};
-
-	const getCalendarRefreshDelay = () => {
-		if (!shouldMaintainCalendar()) {
-			return null;
-		}
-
-		if (
-			trayCalendarState.status === "ready" &&
-			shouldUseActiveCalendarRefresh(trayCalendarState.events)
-		) {
-			return trayCalendarActiveRefreshMs;
-		}
-
-		if (trayCalendarState.status === "ready") {
-			return trayCalendarIdleRefreshMs;
-		}
-
-		return trayCalendarUnavailableRefreshMs;
-	};
-
-	const scheduleCalendarRefresh = (delayMs = getCalendarRefreshDelay()) => {
-		clearCalendarRefresh();
-
-		if (delayMs == null) {
-			return;
-		}
-
-		trayCalendarRefreshTimeoutId = setTimeout(() => {
-			trayCalendarRefreshTimeoutId = null;
-			void refreshCalendar();
-		}, delayMs);
-	};
-
-	const syncShownScheduledMeetingNotifications = (events) => {
-		if (!trayCalendarWorkspaceId) {
-			shownScheduledMeetingNotificationKeys.clear();
-			return;
-		}
-
-		const activeEventKeys = new Set(
-			events.map((event) =>
-				createScheduledMeetingNotificationKey(trayCalendarWorkspaceId, event),
-			),
-		);
-
-		for (const key of shownScheduledMeetingNotificationKeys) {
-			if (
-				key.startsWith(`${trayCalendarWorkspaceId}:`) &&
-				!activeEventKeys.has(key)
-			) {
-				shownScheduledMeetingNotificationKeys.delete(key);
-			}
-		}
-	};
-
-	const maybeShowScheduledMeetingNotifications = (events) => {
-		if (
-			!trayCalendarWorkspaceId ||
-			!getNotificationPreferences().notifyForScheduledMeetings ||
-			!Notification.isSupported()
-		) {
-			return;
-		}
-
-		const now = Date.now();
-		syncShownScheduledMeetingNotifications(events);
-
-		for (const event of events) {
-			if (!event?.isMeeting || event.isAllDay) {
-				continue;
-			}
-
-			const startAt = new Date(event.startAt).getTime();
-			const endAt = new Date(event.endAt).getTime();
-
-			if (
-				!Number.isFinite(startAt) ||
-				!Number.isFinite(endAt) ||
-				endAt <= now ||
-				startAt - now > scheduledMeetingNotificationLeadTimeMs
-			) {
-				continue;
-			}
-
-			const notificationKey = createScheduledMeetingNotificationKey(
-				trayCalendarWorkspaceId,
-				event,
-			);
-
-			if (shownScheduledMeetingNotificationKeys.has(notificationKey)) {
-				continue;
-			}
-
-			shownScheduledMeetingNotificationKeys.add(notificationKey);
-
-			const isStartingNow = startAt <= now;
-			const notification = new Notification({
-				title: isStartingNow ? "Meeting started" : "Meeting starting soon",
-				body: `${event.title}\n${event.calendarName} • ${
-					isStartingNow
-						? "In progress now"
-						: `Starts at ${formatScheduledMeetingNotificationTime(event.startAt)}`
-				}`,
-				icon: dockIconPath,
-			});
-
-			try {
-				notification.on("click", () => {
-					void openCalendarEventNote(event, {
-						autoStartCapture: isStartingNow,
-						openMeetingLink: true,
-						stopCaptureWhenMeetingEnds: true,
-					});
-				});
-				notification.show();
-			} catch (error) {
-				console.warn("Failed to show scheduled meeting notification.", error);
-			}
-		}
-	};
-
-	const refreshCalendar = async () => {
-		if (trayCalendarRefreshPromise) {
-			return await trayCalendarRefreshPromise;
-		}
-
-		trayCalendarRefreshPromise = (async () => {
-			try {
-				if (!shouldMaintainCalendar()) {
-					trayCalendarState = createInitialTrayCalendarState();
-					return;
-				}
-
-				if (!trayCalendarWorkspaceId) {
-					trayCalendarState = {
-						...createInitialTrayCalendarState(),
-						status: "not_connected",
-					};
-					return;
-				}
-
-				const convexToken = await getDesktopConvexToken();
-
-				if (!convexToken) {
-					trayCalendarState = {
-						...createInitialTrayCalendarState(),
-						status: "not_connected",
-					};
-					return;
-				}
-
-				const convexClient = new ConvexHttpClient(getConvexUrl(), {
-					auth: convexToken,
-				});
-				const result = await convexClient.action(
-					api.calendar.listUpcomingGoogleEvents,
-					{
-						workspaceId: trayCalendarWorkspaceId,
-						...getCurrentDayWindow(),
-					},
-				);
-
-				trayCalendarState =
-					result && typeof result === "object" && result.status === "ready"
-						? {
-								status: "ready",
-								events: Array.isArray(result.events) ? result.events : [],
-								connectedCalendarCount:
-									typeof result.connectedCalendarCount === "number"
-										? result.connectedCalendarCount
-										: 0,
-							}
-						: {
-								...createInitialTrayCalendarState(),
-								status: "not_connected",
-							};
-
-				if (trayCalendarState.status === "ready") {
-					maybeShowScheduledMeetingNotifications(trayCalendarState.events);
-				} else {
-					syncShownScheduledMeetingNotifications([]);
-				}
-			} catch (error) {
-				console.warn(
-					"Failed to refresh tray calendar.",
-					toErrorLogDetails(error),
-				);
-				trayCalendarState = {
-					...createInitialTrayCalendarState(),
-					status: "error",
-				};
-			} finally {
-				refreshMenu();
-				scheduleCalendarRefresh();
-				trayCalendarRefreshPromise = null;
-			}
-		})();
-
-		return await trayCalendarRefreshPromise;
 	};
 
 	const create = () => {
@@ -734,17 +337,25 @@ export const createDesktopTray = ({
 	};
 
 	return {
-		clearCalendarRefresh,
+		clearCalendarRefresh: calendar.clearRefresh,
 		create,
-		getDetectedMeetingCalendarEvent,
+		getDetectedMeetingCalendarEvent: calendar.getDetectedMeetingCalendarEvent,
 		isKeepOpenInMenuBarEnabled: () => traySettings.keepOpenInMenuBar,
 		loadSettings,
-		openCalendarEventNote,
-		refreshCalendar,
+		openCalendarEventNote: calendar.openCalendarEventNote,
+		refreshCalendar: () =>
+			calendar.refresh({
+				keepOpenInMenuBar: traySettings.keepOpenInMenuBar,
+			}),
 		refreshMenu,
-		scheduleCalendarRefresh,
+		scheduleCalendarRefresh: (delayMs) => {
+			calendar.scheduleRefresh({
+				delayMs,
+				keepOpenInMenuBar: traySettings.keepOpenInMenuBar,
+			});
+		},
 		setActiveWorkspaceId: (workspaceId) => {
-			trayCalendarWorkspaceId = workspaceId;
+			calendar.setWorkspaceId(workspaceId);
 		},
 		setStatusLabel: (value) => {
 			trayStatusLabel = value;
