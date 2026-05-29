@@ -13,6 +13,15 @@ import {
 	pauseLinkedAutomationForChat,
 	resumeLinkedAutomationForChat,
 } from "./automations";
+import {
+	clampWhitespace,
+	getAuthorName,
+	requireIdentity as requireDomainIdentity,
+	requireOwnedWorkspace,
+	requireTokenIdentifier as requireDomainTokenIdentifier,
+	truncate,
+	uppercaseFirstCharacter,
+} from "./domain";
 
 const chatRoleValidator = v.union(
 	v.literal("system"),
@@ -120,58 +129,11 @@ const REMOVE_ALL_CHATS_BATCH_SIZE = 25;
 const NOTE_CHAT_BATCH_SIZE = 25;
 const CONVEX_STORAGE_PATH_SEGMENT = "/api/storage/";
 
-const requireIdentity = async (ctx: QueryCtx | MutationCtx) => {
-	const identity = await ctx.auth.getUserIdentity();
-
-	if (!identity) {
-		throw new ConvexError({
-			code: "UNAUTHENTICATED",
-			message: "You must be signed in to access chats.",
-		});
-	}
-
-	return identity;
-};
+const requireIdentity = async (ctx: QueryCtx | MutationCtx) =>
+	await requireDomainIdentity(ctx, "chats");
 
 const requireTokenIdentifier = async (ctx: QueryCtx | MutationCtx) => {
-	const identity = await requireIdentity(ctx);
-
-	return identity.tokenIdentifier;
-};
-
-const requireOwnedWorkspace = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	workspaceId: Id<"workspaces">,
-) => {
-	const workspace = await ctx.db.get(workspaceId);
-
-	if (!workspace || workspace.ownerTokenIdentifier !== ownerTokenIdentifier) {
-		throw new ConvexError({
-			code: "WORKSPACE_NOT_FOUND",
-			message: "Workspace not found.",
-		});
-	}
-
-	return workspace;
-};
-
-const getAuthorName = (identity: Awaited<ReturnType<typeof requireIdentity>>) =>
-	identity.name?.trim() || identity.email?.trim() || "Unknown user";
-
-const clampWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
-
-const truncate = (value: string, maxLength: number) =>
-	value.length > maxLength
-		? `${value.slice(0, maxLength - 1).trimEnd()}…`
-		: value;
-
-const uppercaseFirstCharacter = (value: string) => {
-	if (!value) {
-		return value;
-	}
-
-	return value.charAt(0).toUpperCase() + value.slice(1);
+	return await requireDomainTokenIdentifier(ctx, "chats");
 };
 
 const normalizeChatTitle = (value: string | undefined) => {

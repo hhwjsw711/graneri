@@ -19,6 +19,7 @@ import type * as chatAttachments from "../chatAttachments.js";
 import type * as chats from "../chats.js";
 import type * as crons from "../crons.js";
 import type * as desktopApi from "../desktopApi.js";
+import type * as domain from "../domain.js";
 import type * as googleAuth from "../googleAuth.js";
 import type * as googleTools from "../googleTools.js";
 import type * as http from "../http.js";
@@ -59,6 +60,7 @@ declare const fullApi: ApiFromModules<{
   chats: typeof chats;
   crons: typeof crons;
   desktopApi: typeof desktopApi;
+  domain: typeof domain;
   googleAuth: typeof googleAuth;
   googleTools: typeof googleTools;
   http: typeof http;

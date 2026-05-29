@@ -3,6 +3,12 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
+import {
+	getAuthorName,
+	requireIdentity as requireDomainIdentity,
+	requireOwnedWorkspace,
+	requireTokenIdentifier as requireDomainTokenIdentifier,
+} from "./domain";
 import { requireOwnedProject } from "./projects";
 
 const noteVisibilityValidator = v.union(
@@ -65,23 +71,10 @@ const noteVersionValidator = v.object({
 	createdAt: v.number(),
 });
 
-export const requireIdentity = async (ctx: QueryCtx | MutationCtx) => {
-	const identity = await ctx.auth.getUserIdentity();
+export { getAuthorName, requireOwnedWorkspace };
 
-	if (!identity) {
-		throw new ConvexError({
-			code: "UNAUTHENTICATED",
-			message: "You must be signed in to access notes.",
-		});
-	}
-
-	return identity;
-};
-
-export const getAuthorName = (
-	identity: Awaited<ReturnType<typeof requireIdentity>>,
-) =>
-	identity.name?.trim() || identity.email?.trim() || "Unknown user";
+export const requireIdentity = async (ctx: QueryCtx | MutationCtx) =>
+	await requireDomainIdentity(ctx, "notes");
 
 const normalizeNote = (note: Doc<"notes">) => ({
 	...note,
@@ -91,26 +84,7 @@ const normalizeNote = (note: Doc<"notes">) => ({
 });
 
 const requireTokenIdentifier = async (ctx: QueryCtx | MutationCtx) => {
-	const identity = await requireIdentity(ctx);
-
-	return identity.tokenIdentifier;
-};
-
-export const requireOwnedWorkspace = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	workspaceId: Id<"workspaces">,
-) => {
-	const workspace = await ctx.db.get(workspaceId);
-
-	if (!workspace || workspace.ownerTokenIdentifier !== ownerTokenIdentifier) {
-		throw new ConvexError({
-			code: "WORKSPACE_NOT_FOUND",
-			message: "Workspace not found.",
-		});
-	}
-
-	return workspace;
+	return await requireDomainTokenIdentifier(ctx, "notes");
 };
 
 export const ensureOwnedNote = ({
