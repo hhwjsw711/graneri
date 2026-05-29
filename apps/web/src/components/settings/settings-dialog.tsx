@@ -328,6 +328,30 @@ type ZoomConnectionFormState = {
 	oauthClientSecret: string;
 };
 
+type RemoteMcpFormStateKey =
+	| "jiraMcpFormState"
+	| "context7FormState"
+	| "figmaFormState"
+	| "linearFormState"
+	| "posthogFormState"
+	| "notionFormState"
+	| "zoomFormState";
+
+type RemoteMcpOAuthFields = {
+	oauthClientId: string;
+	oauthClientSecret: string;
+};
+
+type RemoteMcpFormPatch = Partial<
+	RemoteMcpConnectionFormState & RemoteMcpOAuthFields
+>;
+
+type RemoteMcpFormPatchAction = {
+	type: "patchRemoteMcpFormState";
+	key: RemoteMcpFormStateKey;
+	value: RemoteMcpFormPatch;
+};
+
 type YandexCalendarConnectionFormState = {
 	email: string;
 	password: string;
@@ -640,6 +664,7 @@ type ConnectionsSettingsAction =
 			type: "patchJiraMcpFormState";
 			value: Partial<JiraMcpConnectionFormState>;
 	  }
+	| RemoteMcpFormPatchAction
 	| {
 			type: "setContext7FormState";
 			value: Context7ConnectionFormState;
@@ -874,6 +899,49 @@ const calendarSettingsReducer = (
 	}
 };
 
+const patchRemoteMcpFormState = (
+	state: ConnectionsSettingsState,
+	action: RemoteMcpFormPatchAction,
+): ConnectionsSettingsState => {
+	switch (action.key) {
+		case "jiraMcpFormState":
+			return {
+				...state,
+				jiraMcpFormState: { ...state.jiraMcpFormState, ...action.value },
+			};
+		case "context7FormState":
+			return {
+				...state,
+				context7FormState: { ...state.context7FormState, ...action.value },
+			};
+		case "figmaFormState":
+			return {
+				...state,
+				figmaFormState: { ...state.figmaFormState, ...action.value },
+			};
+		case "linearFormState":
+			return {
+				...state,
+				linearFormState: { ...state.linearFormState, ...action.value },
+			};
+		case "posthogFormState":
+			return {
+				...state,
+				posthogFormState: { ...state.posthogFormState, ...action.value },
+			};
+		case "notionFormState":
+			return {
+				...state,
+				notionFormState: { ...state.notionFormState, ...action.value },
+			};
+		case "zoomFormState":
+			return {
+				...state,
+				zoomFormState: { ...state.zoomFormState, ...action.value },
+			};
+	}
+};
+
 const connectionsSettingsReducer = (
 	state: ConnectionsSettingsState,
 	action: ConnectionsSettingsAction,
@@ -947,6 +1015,8 @@ const connectionsSettingsReducer = (
 					...action.value,
 				},
 			};
+		case "patchRemoteMcpFormState":
+			return patchRemoteMcpFormState(state, action);
 		case "setContext7FormState":
 			return { ...state, context7FormState: action.value };
 		case "patchContext7FormState":
@@ -2827,146 +2897,6 @@ function useConnectionsSettingsController() {
 		});
 	};
 
-	const addJiraMcpEnvVar = () =>
-		dispatch({
-			type: "patchJiraMcpFormState",
-			value: {
-				envVars: [
-					...jiraMcpFormState.envVars,
-					{ id: crypto.randomUUID(), key: "", value: "" },
-				],
-			},
-		});
-
-	const removeJiraMcpEnvVar = (id: string) =>
-		dispatch({
-			type: "patchJiraMcpFormState",
-			value: {
-				envVars: jiraMcpFormState.envVars.filter((envVar) => envVar.id !== id),
-			},
-		});
-
-	const updateJiraMcpEnvVar = (
-		id: string,
-		key: "key" | "value",
-		value: string,
-	) =>
-		dispatch({
-			type: "patchJiraMcpFormState",
-			value: {
-				envVars: jiraMcpFormState.envVars.map((envVar) =>
-					envVar.id === id ? { ...envVar, [key]: value } : envVar,
-				),
-			},
-		});
-
-	const setJiraMcpOAuthClientId = (oauthClientId: string) =>
-		dispatch({
-			type: "patchJiraMcpFormState",
-			value: { oauthClientId },
-		});
-
-	const setJiraMcpOAuthClientSecret = (oauthClientSecret: string) =>
-		dispatch({
-			type: "patchJiraMcpFormState",
-			value: { oauthClientSecret },
-		});
-
-	const addContext7EnvVar = () =>
-		dispatch({
-			type: "patchContext7FormState",
-			value: {
-				envVars: [
-					...context7FormState.envVars,
-					{ id: crypto.randomUUID(), key: "", value: "" },
-				],
-			},
-		});
-
-	const removeContext7EnvVar = (id: string) =>
-		dispatch({
-			type: "patchContext7FormState",
-			value: {
-				envVars: context7FormState.envVars.filter((envVar) => envVar.id !== id),
-			},
-		});
-
-	const updateContext7EnvVar = (
-		id: string,
-		key: "key" | "value",
-		value: string,
-	) =>
-		dispatch({
-			type: "patchContext7FormState",
-			value: {
-				envVars: context7FormState.envVars.map((envVar) =>
-					envVar.id === id ? { ...envVar, [key]: value } : envVar,
-				),
-			},
-		});
-
-	const addFigmaEnvVar = () =>
-		dispatch({
-			type: "patchFigmaFormState",
-			value: {
-				envVars: [
-					...figmaFormState.envVars,
-					{ id: crypto.randomUUID(), key: "", value: "" },
-				],
-			},
-		});
-
-	const removeFigmaEnvVar = (id: string) =>
-		dispatch({
-			type: "patchFigmaFormState",
-			value: {
-				envVars: figmaFormState.envVars.filter((envVar) => envVar.id !== id),
-			},
-		});
-
-	const updateFigmaEnvVar = (id: string, key: "key" | "value", value: string) =>
-		dispatch({
-			type: "patchFigmaFormState",
-			value: {
-				envVars: figmaFormState.envVars.map((envVar) =>
-					envVar.id === id ? { ...envVar, [key]: value } : envVar,
-				),
-			},
-		});
-
-	const addLinearEnvVar = () =>
-		dispatch({
-			type: "patchLinearFormState",
-			value: {
-				envVars: [
-					...linearFormState.envVars,
-					{ id: crypto.randomUUID(), key: "", value: "" },
-				],
-			},
-		});
-
-	const removeLinearEnvVar = (id: string) =>
-		dispatch({
-			type: "patchLinearFormState",
-			value: {
-				envVars: linearFormState.envVars.filter((envVar) => envVar.id !== id),
-			},
-		});
-
-	const updateLinearEnvVar = (
-		id: string,
-		key: "key" | "value",
-		value: string,
-	) =>
-		dispatch({
-			type: "patchLinearFormState",
-			value: {
-				envVars: linearFormState.envVars.map((envVar) =>
-					envVar.id === id ? { ...envVar, [key]: value } : envVar,
-				),
-			},
-		});
-
 	const handlePostHogDialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsPostHogDialogOpen", value: open });
 
@@ -3036,51 +2966,6 @@ function useConnectionsSettingsController() {
 		posthogFormState.name.trim().length > 0 &&
 		posthogFormState.baseUrl.trim().length > 0;
 
-	const addPostHogEnvVar = () =>
-		dispatch({
-			type: "patchPostHogFormState",
-			value: {
-				envVars: [
-					...posthogFormState.envVars,
-					{ id: crypto.randomUUID(), key: "", value: "" },
-				],
-			},
-		});
-
-	const removePostHogEnvVar = (id: string) =>
-		dispatch({
-			type: "patchPostHogFormState",
-			value: {
-				envVars: posthogFormState.envVars.filter((envVar) => envVar.id !== id),
-			},
-		});
-
-	const updatePostHogEnvVar = (
-		id: string,
-		key: "key" | "value",
-		value: string,
-	) =>
-		dispatch({
-			type: "patchPostHogFormState",
-			value: {
-				envVars: posthogFormState.envVars.map((envVar) =>
-					envVar.id === id ? { ...envVar, [key]: value } : envVar,
-				),
-			},
-		});
-
-	const setPostHogOAuthClientId = (oauthClientId: string) =>
-		dispatch({
-			type: "patchPostHogFormState",
-			value: { oauthClientId },
-		});
-
-	const setPostHogOAuthClientSecret = (oauthClientSecret: string) =>
-		dispatch({
-			type: "patchPostHogFormState",
-			value: { oauthClientSecret },
-		});
-
 	const handleNotionDialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsNotionDialogOpen", value: open });
 
@@ -3148,51 +3033,6 @@ function useConnectionsSettingsController() {
 		notionFormState.name.trim().length > 0 &&
 		notionFormState.baseUrl.trim().length > 0;
 
-	const addNotionEnvVar = () =>
-		dispatch({
-			type: "patchNotionFormState",
-			value: {
-				envVars: [
-					...notionFormState.envVars,
-					{ id: crypto.randomUUID(), key: "", value: "" },
-				],
-			},
-		});
-
-	const removeNotionEnvVar = (id: string) =>
-		dispatch({
-			type: "patchNotionFormState",
-			value: {
-				envVars: notionFormState.envVars.filter((envVar) => envVar.id !== id),
-			},
-		});
-
-	const updateNotionEnvVar = (
-		id: string,
-		key: "key" | "value",
-		value: string,
-	) =>
-		dispatch({
-			type: "patchNotionFormState",
-			value: {
-				envVars: notionFormState.envVars.map((envVar) =>
-					envVar.id === id ? { ...envVar, [key]: value } : envVar,
-				),
-			},
-		});
-
-	const setNotionOAuthClientId = (oauthClientId: string) =>
-		dispatch({
-			type: "patchNotionFormState",
-			value: { oauthClientId },
-		});
-
-	const setNotionOAuthClientSecret = (oauthClientSecret: string) =>
-		dispatch({
-			type: "patchNotionFormState",
-			value: { oauthClientSecret },
-		});
-
 	const handleZoomDialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsZoomDialogOpen", value: open });
 
@@ -3259,34 +3099,73 @@ function useConnectionsSettingsController() {
 		zoomFormState.name.trim().length > 0 &&
 		zoomFormState.baseUrl.trim().length > 0;
 
-	const addZoomEnvVar = () =>
+	const patchRemoteMcpForm = (
+		key: RemoteMcpFormStateKey,
+		value: RemoteMcpFormPatch,
+	) =>
 		dispatch({
-			type: "patchZoomFormState",
-			value: {
+			type: "patchRemoteMcpFormState",
+			key,
+			value,
+		});
+
+	const createRemoteMcpFormControls = (
+		key: RemoteMcpFormStateKey,
+		formState: RemoteMcpConnectionFormState,
+	) => ({
+		addEnvVar: () =>
+			patchRemoteMcpForm(key, {
 				envVars: [
-					...zoomFormState.envVars,
+					...formState.envVars,
 					{ id: crypto.randomUUID(), key: "", value: "" },
 				],
-			},
-		});
-
-	const removeZoomEnvVar = (id: string) =>
-		dispatch({
-			type: "patchZoomFormState",
-			value: {
-				envVars: zoomFormState.envVars.filter((envVar) => envVar.id !== id),
-			},
-		});
-
-	const updateZoomEnvVar = (id: string, key: "key" | "value", value: string) =>
-		dispatch({
-			type: "patchZoomFormState",
-			value: {
-				envVars: zoomFormState.envVars.map((envVar) =>
-					envVar.id === id ? { ...envVar, [key]: value } : envVar,
+			}),
+		removeEnvVar: (id: string) =>
+			patchRemoteMcpForm(key, {
+				envVars: formState.envVars.filter((envVar) => envVar.id !== id),
+			}),
+		updateEnvVar: (id: string, field: "key" | "value", value: string) =>
+			patchRemoteMcpForm(key, {
+				envVars: formState.envVars.map((envVar) =>
+					envVar.id === id ? { ...envVar, [field]: value } : envVar,
 				),
-			},
-		});
+			}),
+		setBaseUrl: (baseUrl: string) => patchRemoteMcpForm(key, { baseUrl }),
+		setName: (name: string) => patchRemoteMcpForm(key, { name }),
+		setOAuthClientId: (oauthClientId: string) =>
+			patchRemoteMcpForm(key, { oauthClientId }),
+		setOAuthClientSecret: (oauthClientSecret: string) =>
+			patchRemoteMcpForm(key, { oauthClientSecret }),
+	});
+
+	const jiraMcpFormControls = createRemoteMcpFormControls(
+		"jiraMcpFormState",
+		jiraMcpFormState,
+	);
+	const context7FormControls = createRemoteMcpFormControls(
+		"context7FormState",
+		context7FormState,
+	);
+	const figmaFormControls = createRemoteMcpFormControls(
+		"figmaFormState",
+		figmaFormState,
+	);
+	const linearFormControls = createRemoteMcpFormControls(
+		"linearFormState",
+		linearFormState,
+	);
+	const posthogFormControls = createRemoteMcpFormControls(
+		"posthogFormState",
+		posthogFormState,
+	);
+	const notionFormControls = createRemoteMcpFormControls(
+		"notionFormState",
+		notionFormState,
+	);
+	const zoomFormControls = createRemoteMcpFormControls(
+		"zoomFormState",
+		zoomFormState,
+	);
 
 	const connectGoogleTool = async ({
 		enableForWorkspace,
@@ -3598,27 +3477,27 @@ function useConnectionsSettingsController() {
 		handlePostHogDialogOpenChange,
 		handleYandexTrackerDialogOpenChange,
 		handleZoomDialogOpenChange,
-		addPostHogEnvVar,
-		addContext7EnvVar,
-		addFigmaEnvVar,
-		addLinearEnvVar,
-		addJiraMcpEnvVar,
-		addNotionEnvVar,
-		addZoomEnvVar,
-		removePostHogEnvVar,
-		removeContext7EnvVar,
-		removeFigmaEnvVar,
-		removeLinearEnvVar,
-		removeJiraMcpEnvVar,
-		removeNotionEnvVar,
-		removeZoomEnvVar,
-		updatePostHogEnvVar,
-		updateContext7EnvVar,
-		updateFigmaEnvVar,
-		updateLinearEnvVar,
-		updateJiraMcpEnvVar,
-		updateNotionEnvVar,
-		updateZoomEnvVar,
+		addPostHogEnvVar: posthogFormControls.addEnvVar,
+		addContext7EnvVar: context7FormControls.addEnvVar,
+		addFigmaEnvVar: figmaFormControls.addEnvVar,
+		addLinearEnvVar: linearFormControls.addEnvVar,
+		addJiraMcpEnvVar: jiraMcpFormControls.addEnvVar,
+		addNotionEnvVar: notionFormControls.addEnvVar,
+		addZoomEnvVar: zoomFormControls.addEnvVar,
+		removePostHogEnvVar: posthogFormControls.removeEnvVar,
+		removeContext7EnvVar: context7FormControls.removeEnvVar,
+		removeFigmaEnvVar: figmaFormControls.removeEnvVar,
+		removeLinearEnvVar: linearFormControls.removeEnvVar,
+		removeJiraMcpEnvVar: jiraMcpFormControls.removeEnvVar,
+		removeNotionEnvVar: notionFormControls.removeEnvVar,
+		removeZoomEnvVar: zoomFormControls.removeEnvVar,
+		updatePostHogEnvVar: posthogFormControls.updateEnvVar,
+		updateContext7EnvVar: context7FormControls.updateEnvVar,
+		updateFigmaEnvVar: figmaFormControls.updateEnvVar,
+		updateLinearEnvVar: linearFormControls.updateEnvVar,
+		updateJiraMcpEnvVar: jiraMcpFormControls.updateEnvVar,
+		updateNotionEnvVar: notionFormControls.updateEnvVar,
+		updateZoomEnvVar: zoomFormControls.updateEnvVar,
 		isJiraDialogOpen,
 		isJiraFormValid,
 		isJiraMcpDialogOpen,
@@ -3682,112 +3561,32 @@ function useConnectionsSettingsController() {
 				type: "patchJiraFormState",
 				value: { token },
 			}),
-		setJiraMcpBaseUrl: (baseUrl: string) =>
-			dispatch({
-				type: "patchJiraMcpFormState",
-				value: { baseUrl },
-			}),
-		setJiraMcpName: (name: string) =>
-			dispatch({
-				type: "patchJiraMcpFormState",
-				value: { name },
-			}),
-		setJiraMcpOAuthClientId,
-		setJiraMcpOAuthClientSecret,
-		setContext7BaseUrl: (baseUrl: string) =>
-			dispatch({
-				type: "patchContext7FormState",
-				value: { baseUrl },
-			}),
-		setContext7Name: (name: string) =>
-			dispatch({
-				type: "patchContext7FormState",
-				value: { name },
-			}),
-		setFigmaBaseUrl: (baseUrl: string) =>
-			dispatch({
-				type: "patchFigmaFormState",
-				value: { baseUrl },
-			}),
-		setFigmaName: (name: string) =>
-			dispatch({
-				type: "patchFigmaFormState",
-				value: { name },
-			}),
-		setFigmaOAuthClientId: (oauthClientId: string) =>
-			dispatch({
-				type: "patchFigmaFormState",
-				value: { oauthClientId },
-			}),
-		setFigmaOAuthClientSecret: (oauthClientSecret: string) =>
-			dispatch({
-				type: "patchFigmaFormState",
-				value: { oauthClientSecret },
-			}),
-		setLinearBaseUrl: (baseUrl: string) =>
-			dispatch({
-				type: "patchLinearFormState",
-				value: { baseUrl },
-			}),
-		setLinearName: (name: string) =>
-			dispatch({
-				type: "patchLinearFormState",
-				value: { name },
-			}),
-		setLinearOAuthClientId: (oauthClientId: string) =>
-			dispatch({
-				type: "patchLinearFormState",
-				value: { oauthClientId },
-			}),
-		setLinearOAuthClientSecret: (oauthClientSecret: string) =>
-			dispatch({
-				type: "patchLinearFormState",
-				value: { oauthClientSecret },
-			}),
-		setPostHogBaseUrl: (baseUrl: string) =>
-			dispatch({
-				type: "patchPostHogFormState",
-				value: { baseUrl },
-			}),
-		setPostHogName: (name: string) =>
-			dispatch({
-				type: "patchPostHogFormState",
-				value: { name },
-			}),
-		setPostHogOAuthClientId,
-		setPostHogOAuthClientSecret,
-		setNotionBaseUrl: (baseUrl: string) =>
-			dispatch({
-				type: "patchNotionFormState",
-				value: { baseUrl },
-			}),
-		setNotionName: (name: string) =>
-			dispatch({
-				type: "patchNotionFormState",
-				value: { name },
-			}),
-		setNotionOAuthClientId,
-		setNotionOAuthClientSecret,
-		setZoomBaseUrl: (baseUrl: string) =>
-			dispatch({
-				type: "patchZoomFormState",
-				value: { baseUrl },
-			}),
-		setZoomName: (name: string) =>
-			dispatch({
-				type: "patchZoomFormState",
-				value: { name },
-			}),
-		setZoomOAuthClientId: (oauthClientId: string) =>
-			dispatch({
-				type: "patchZoomFormState",
-				value: { oauthClientId },
-			}),
-		setZoomOAuthClientSecret: (oauthClientSecret: string) =>
-			dispatch({
-				type: "patchZoomFormState",
-				value: { oauthClientSecret },
-			}),
+		setJiraMcpBaseUrl: jiraMcpFormControls.setBaseUrl,
+		setJiraMcpName: jiraMcpFormControls.setName,
+		setJiraMcpOAuthClientId: jiraMcpFormControls.setOAuthClientId,
+		setJiraMcpOAuthClientSecret: jiraMcpFormControls.setOAuthClientSecret,
+		setContext7BaseUrl: context7FormControls.setBaseUrl,
+		setContext7Name: context7FormControls.setName,
+		setFigmaBaseUrl: figmaFormControls.setBaseUrl,
+		setFigmaName: figmaFormControls.setName,
+		setFigmaOAuthClientId: figmaFormControls.setOAuthClientId,
+		setFigmaOAuthClientSecret: figmaFormControls.setOAuthClientSecret,
+		setLinearBaseUrl: linearFormControls.setBaseUrl,
+		setLinearName: linearFormControls.setName,
+		setLinearOAuthClientId: linearFormControls.setOAuthClientId,
+		setLinearOAuthClientSecret: linearFormControls.setOAuthClientSecret,
+		setPostHogBaseUrl: posthogFormControls.setBaseUrl,
+		setPostHogName: posthogFormControls.setName,
+		setPostHogOAuthClientId: posthogFormControls.setOAuthClientId,
+		setPostHogOAuthClientSecret: posthogFormControls.setOAuthClientSecret,
+		setNotionBaseUrl: notionFormControls.setBaseUrl,
+		setNotionName: notionFormControls.setName,
+		setNotionOAuthClientId: notionFormControls.setOAuthClientId,
+		setNotionOAuthClientSecret: notionFormControls.setOAuthClientSecret,
+		setZoomBaseUrl: zoomFormControls.setBaseUrl,
+		setZoomName: zoomFormControls.setName,
+		setZoomOAuthClientId: zoomFormControls.setOAuthClientId,
+		setZoomOAuthClientSecret: zoomFormControls.setOAuthClientSecret,
 		setYandexTrackerOrgId: (orgId: string) =>
 			dispatch({
 				type: "patchYandexTrackerFormState",
