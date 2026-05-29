@@ -4,10 +4,7 @@ import type {
 	TableOfContentDataItem,
 } from "@tiptap/extension-table-of-contents";
 import { Tiptap, useEditor } from "@tiptap/react";
-import {
-	isDesktopRuntime,
-	saveDesktopTextFile,
-} from "@workspace/platform/desktop";
+import { isDesktopRuntime } from "@workspace/platform/desktop";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { Textarea } from "@workspace/ui/components/textarea";
@@ -24,6 +21,13 @@ import { COMPOSER_DOCK_WRAPPER_CLASS } from "@/components/layout/composer-dock";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
 import {
+	getExportFileName,
+	getMarkdownContent,
+	getPlainTextContent,
+	getRichTextContent,
+	plainTextToDocumentNodes,
+} from "@/lib/note-document-content";
+import {
 	loadNoteDraft,
 	removeNoteDraft,
 	saveNoteDraft,
@@ -39,6 +43,7 @@ import {
 	parseMarkdownToDocument,
 	parseStoredNoteContent,
 } from "@/lib/note-editor";
+import { exportTextFile } from "@/lib/note-export";
 import {
 	canFlushQueuedNoteSave,
 	createNoteSnapshot,
@@ -68,50 +73,6 @@ import { NoteSelectionMenu } from "./note-selection-menu";
 import { NoteTableOfContents } from "./note-table-of-contents";
 import { optimisticPatchNote } from "./optimistic-patch-note";
 import { writeRichTextToClipboard } from "./share-note";
-
-const getPlainTextContent = ({
-	editor,
-	title,
-	searchableText,
-}: {
-	editor: NonNullable<ReturnType<typeof useEditor>>;
-	title: string;
-	searchableText: string;
-}) => {
-	const editorText = editor.getText({ blockSeparator: "\n\n" }).trim();
-	return [title.trim(), editorText || searchableText.trim()]
-		.filter(Boolean)
-		.join("\n\n");
-};
-
-const getMarkdownContent = ({
-	editor,
-	title,
-	searchableText,
-}: {
-	editor: NonNullable<ReturnType<typeof useEditor>>;
-	title: string;
-	searchableText: string;
-}) => {
-	const editorMarkdown = editor.getMarkdown().trim();
-	const titleText = title.trim();
-
-	return [
-		titleText ? `# ${titleText}` : "",
-		editorMarkdown || searchableText.trim(),
-	]
-		.filter(Boolean)
-		.join("\n\n");
-};
-
-const getExportFileName = (title: string) =>
-	`${
-		title
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, "-")
-			.replace(/^-+|-+$/g, "") || "note"
-	}.md`;
 
 type CssHighlightRegistry = {
 	set: (name: string, highlight: Highlight) => void;
@@ -170,94 +131,6 @@ const createTextMatchRanges = ({
 	}
 
 	return ranges;
-};
-
-const escapeHtml = (value: string) =>
-	value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
-
-const getRichTextContent = ({
-	editor,
-	title,
-	searchableText,
-}: {
-	editor: NonNullable<ReturnType<typeof useEditor>>;
-	title: string;
-	searchableText: string;
-}) => {
-	const plainText = getPlainTextContent({
-		editor,
-		title,
-		searchableText,
-	});
-	const titleText = title.trim();
-	const editorHtml = editor.getHTML().trim();
-	const titleHtml = titleText ? `<h1>${escapeHtml(titleText)}</h1>` : "";
-	const bodyHtml =
-		editorHtml && editorHtml !== "<p></p>"
-			? editorHtml
-			: searchableText
-					.trim()
-					.split(/\n{2,}/)
-					.flatMap((paragraph) => {
-						const trimmedParagraph = paragraph.trim();
-						return trimmedParagraph
-							? [`<p>${escapeHtml(trimmedParagraph)}</p>`]
-							: [];
-					})
-					.join("");
-
-	return {
-		text: plainText,
-		html: `<article>${titleHtml}${bodyHtml}</article>`,
-	};
-};
-
-const plainTextToDocumentNodes = (text: string): JSONContent[] =>
-	text.split(/\n{2,}/).flatMap((chunk) => {
-		const trimmedChunk = chunk.trim();
-		return trimmedChunk
-			? [
-					{
-						type: "paragraph",
-						content: [{ type: "text", text: trimmedChunk }],
-					} satisfies JSONContent,
-				]
-			: [];
-	});
-
-const exportTextFile = async ({
-	fileName,
-	content,
-}: {
-	fileName: string;
-	content: string;
-}) => {
-	const desktopResult = await saveDesktopTextFile(fileName, content);
-
-	if (desktopResult) {
-		return desktopResult;
-	}
-
-	const blob = new Blob([content], {
-		type: "text/plain;charset=utf-8",
-	});
-	const downloadUrl = URL.createObjectURL(blob);
-	const anchor = document.createElement("a");
-	anchor.href = downloadUrl;
-	anchor.download = fileName;
-	anchor.click();
-	URL.revokeObjectURL(downloadUrl);
-
-	return {
-		ok: true,
-		canceled: false,
-		filePath: fileName,
-	};
 };
 
 const showActionError = (message: string, error: unknown) => {
