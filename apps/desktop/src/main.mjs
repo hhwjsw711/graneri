@@ -6,7 +6,6 @@ import {
 	app,
 	BrowserWindow,
 	clipboard,
-	desktopCapturer,
 	dialog,
 	ipcMain,
 	Menu,
@@ -37,6 +36,7 @@ import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
 import { createDesktopUpdater } from "./desktop-updater.mjs";
+import { createDesktopWindow } from "./desktop-window.mjs";
 import { loadRootEnv } from "./env.mjs";
 import { startLocalServer } from "./local-server.mjs";
 import {
@@ -92,14 +92,6 @@ const transcriptionDebugLogPath = join(
 	"opengran-transcription-debug.log",
 );
 let hasLoggedDesktopTurnDebugSessionHeader = false;
-const minimumWindowSize = {
-	width: 420,
-	height: 700,
-};
-const defaultWindowSize = {
-	width: 1200,
-	height: 840,
-};
 const getMainWindowBackgroundColor = () => {
 	if (process.platform === "darwin") {
 		return "#00000000";
@@ -207,13 +199,13 @@ let localServer = null;
 let desktopShell = null;
 let desktopTray = null;
 let desktopUpdater = null;
+let desktopWindow = null;
 let isQuitting = false;
 let isBypassingQuitConfirmation = false;
 let isPromptingForQuitConfirmation = false;
 let activeWorkspaceId = null;
 let activeWorkspaceNotificationPreferences =
 	createInitialNotificationPreferences();
-let hasConfiguredDisplayMediaHandler = false;
 const desktopStorage = createDesktopStorage({
 	noteDraftsDirPath,
 	transcriptDraftsDirPath,
@@ -2420,29 +2412,33 @@ const getDesktopAuthCallbackUrl = async () => {
 	return `${server.origin}/auth/callback`;
 };
 
+desktopWindow = createDesktopWindow({
+	desktopNavigationChannel,
+	dockIconPath,
+	getBackgroundColor: getMainWindowBackgroundColor,
+	getDefaultNavigation: () =>
+		desktopNavigationState?.get() ?? getDefaultDesktopNavigation(),
+	getNavigationUrl,
+	isQuitting: () => isQuitting,
+	onClosed: () => {
+		mainWindow = null;
+	},
+	onHideRequested: () => hideMainWindow(),
+	onWindowCreated: (window) => {
+		mainWindow = window;
+	},
+	preloadPath: join(runtimeDir, "preload.cjs"),
+	rememberNavigation: rememberRendererNavigation,
+	shell: {
+		ensureAppActive,
+		ensureDockVisible,
+	},
+	shouldHideInsteadOfClose: () =>
+		process.platform === "darwin" && desktopTray?.isKeepOpenInMenuBarEnabled(),
+});
+
 const showMainWindow = async (options = {}) => {
-	const hasExplicitNavigation =
-		"pathname" in options || "search" in options || "hash" in options;
-
-	if (!mainWindow) {
-		const targetUrl = await getNavigationUrl(
-			hasExplicitNavigation
-				? options
-				: (desktopNavigationState?.get() ?? getDefaultDesktopNavigation()),
-		);
-		await createMainWindow(targetUrl);
-	} else if (hasExplicitNavigation) {
-		await navigateMainWindow(options);
-	}
-
-	if (mainWindow.isMinimized()) {
-		mainWindow.restore();
-	}
-
-	ensureDockVisible();
-	ensureAppActive();
-	mainWindow.show();
-	mainWindow.focus();
+	await desktopWindow?.show(options);
 };
 
 desktopTray = createDesktopTray({
@@ -2499,46 +2495,6 @@ meetingDetection = createMeetingDetection({
 	showMainWindow,
 });
 
-const navigateMainWindow = async (options = {}) => {
-	if (!mainWindow) {
-		return;
-	}
-
-	const targetUrl = new URL(await getNavigationUrl(options));
-	const currentUrlString = mainWindow.webContents.getURL();
-
-	if (!currentUrlString || mainWindow.webContents.isLoadingMainFrame()) {
-		await mainWindow.loadURL(targetUrl.toString());
-		return;
-	}
-
-	try {
-		const currentUrl = new URL(currentUrlString);
-
-		if (
-			currentUrl.origin !== targetUrl.origin ||
-			(currentUrl.pathname === targetUrl.pathname &&
-				currentUrl.search === targetUrl.search &&
-				currentUrl.hash === targetUrl.hash)
-		) {
-			if (currentUrl.toString() !== targetUrl.toString()) {
-				await mainWindow.loadURL(targetUrl.toString());
-			}
-			return;
-		}
-	} catch {
-		await mainWindow.loadURL(targetUrl.toString());
-		return;
-	}
-
-	mainWindow.webContents.send(desktopNavigationChannel, {
-		hash: targetUrl.hash,
-		pathname: targetUrl.pathname,
-		search: targetUrl.search,
-	});
-	await rememberRendererNavigation(targetUrl.toString());
-};
-
 const handleDesktopAuthCallback = async (callbackUrl) => {
 	const incomingUrl = new URL(callbackUrl);
 	const oneTimeToken = incomingUrl.searchParams.get("ott");
@@ -2549,120 +2505,11 @@ const handleDesktopAuthCallback = async (callbackUrl) => {
 
 	const targetUrl = await buildAuthCallbackUrl(callbackUrl);
 
-	if (!mainWindow) {
-		await createMainWindow(targetUrl);
-	} else {
-		await mainWindow.loadURL(targetUrl);
-	}
-
-	if (mainWindow.isMinimized()) {
-		mainWindow.restore();
-	}
-
-	ensureDockVisible();
-	ensureAppActive();
-	mainWindow.show();
-	mainWindow.focus();
+	await desktopWindow?.loadUrlAndFocus(targetUrl);
 };
 
 const createMainWindow = async (targetUrl) => {
-	const navigationUrl =
-		targetUrl ??
-		(await getNavigationUrl(
-			desktopNavigationState?.get() ?? getDefaultDesktopNavigation(),
-		));
-	const isMac = process.platform === "darwin";
-
-	mainWindow = new BrowserWindow({
-		width: defaultWindowSize.width,
-		height: defaultWindowSize.height,
-		minWidth: minimumWindowSize.width,
-		minHeight: minimumWindowSize.height,
-		title: "OpenGran",
-		icon: dockIconPath,
-		backgroundColor: getMainWindowBackgroundColor(),
-		autoHideMenuBar: true,
-		titleBarStyle: isMac ? "hiddenInset" : "default",
-		trafficLightPosition: isMac ? { x: 16, y: 14 } : undefined,
-		vibrancy: isMac ? "sidebar" : undefined,
-		visualEffectState: isMac ? "active" : undefined,
-		webPreferences: {
-			preload: join(runtimeDir, "preload.cjs"),
-			contextIsolation: true,
-			nodeIntegration: false,
-			sandbox: false,
-		},
-	});
-
-	if (!hasConfiguredDisplayMediaHandler) {
-		hasConfiguredDisplayMediaHandler = true;
-		mainWindow.webContents.session.setDisplayMediaRequestHandler(
-			async (_request, callback) => {
-				const sources = await desktopCapturer.getSources({
-					types: ["screen"],
-					thumbnailSize: {
-						width: 1,
-						height: 1,
-					},
-				});
-				const primarySource = sources[0];
-
-				if (!primarySource) {
-					callback({});
-					return;
-				}
-
-				callback(
-					process.platform === "win32"
-						? {
-								video: primarySource,
-								audio: "loopback",
-							}
-						: {
-								video: primarySource,
-							},
-				);
-			},
-			{
-				useSystemPicker: true,
-			},
-		);
-	}
-
-	mainWindow.on("close", (event) => {
-		if (
-			isQuitting ||
-			process.platform !== "darwin" ||
-			!desktopTray?.isKeepOpenInMenuBarEnabled()
-		) {
-			return;
-		}
-
-		event.preventDefault();
-		hideMainWindow();
-	});
-
-	mainWindow.on("closed", () => {
-		mainWindow = null;
-	});
-
-	mainWindow.webContents.on("before-input-event", (event, input) => {
-		const key = input.key?.toLowerCase();
-
-		if (key === "r" && (input.meta || input.control)) {
-			event.preventDefault();
-		}
-	});
-
-	mainWindow.webContents.on("did-navigate", (_event, url) => {
-		void rememberRendererNavigation(url);
-	});
-	mainWindow.webContents.on("did-navigate-in-page", (_event, url) => {
-		void rememberRendererNavigation(url);
-	});
-
-	await mainWindow.loadURL(navigationUrl);
-	ensureDockVisible();
+	return await desktopWindow?.create(targetUrl);
 };
 
 const getMicrophonePermission = () => {
