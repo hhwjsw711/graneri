@@ -45,6 +45,7 @@ const chatFields = {
 	chatId: v.string(),
 	noteId: v.optional(v.id("notes")),
 	isStarred: v.optional(v.boolean()),
+	starredSortOrder: v.number(),
 	title: v.string(),
 	preview: v.string(),
 	model: v.optional(v.string()),
@@ -544,6 +545,7 @@ const saveMessageForOwnerInternal = async (
 			chatId: storedChatId,
 			noteId: storedNoteId,
 			isStarred: false,
+			starredSortOrder: now,
 			title: normalizedTitle ?? "New chat",
 			preview: normalizedPreview,
 			model: args.model,
@@ -742,10 +744,12 @@ export const toggleStar = mutation({
 		}
 
 		const isStarred = !(chat.isStarred ?? false);
+		const now = Date.now();
 
 		await ctx.db.patch(chat._id, {
 			isStarred,
-			updatedAt: Date.now(),
+			starredSortOrder: isStarred ? now : chat.starredSortOrder,
+			updatedAt: now,
 		});
 
 		return {

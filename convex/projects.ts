@@ -12,6 +12,8 @@ const projectFields = {
 	name: v.string(),
 	normalizedName: v.string(),
 	isStarred: v.boolean(),
+	sortOrder: v.number(),
+	starredSortOrder: v.number(),
 	createdAt: v.number(),
 	updatedAt: v.number(),
 };
@@ -247,7 +249,7 @@ export const list = query({
 
 		const projects = await ctx.db
 			.query("projects")
-			.withIndex("by_owner_ws_normalizedName", (q) =>
+			.withIndex("by_owner_ws_sortOrder", (q) =>
 				q
 					.eq("ownerTokenIdentifier", identity.tokenIdentifier)
 					.eq("workspaceId", args.workspaceId),
@@ -297,6 +299,8 @@ export const create = mutation({
 			name,
 			normalizedName,
 			isStarred: false,
+			sortOrder: now,
+			starredSortOrder: now,
 			createdAt: now,
 			updatedAt: now,
 		});
@@ -310,6 +314,60 @@ export const create = mutation({
 		}
 
 		return withProjectDefaults(project);
+	},
+});
+
+export const reorder = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		projectIds: v.array(v.id("projects")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const ownerTokenIdentifier = identity.tokenIdentifier;
+		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
+
+		const uniqueProjectIds = [...new Set(args.projectIds)];
+		if (uniqueProjectIds.length !== args.projectIds.length) {
+			throw new ConvexError({
+				code: "PROJECT_ORDER_DUPLICATE_ID",
+				message: "Project order contains duplicate projects.",
+			});
+		}
+
+		const projects = await ctx.db
+			.query("projects")
+			.withIndex("by_owner_ws_sortOrder", (q) =>
+				q
+					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+					.eq("workspaceId", args.workspaceId),
+			)
+			.take(100);
+		if (projects.length !== args.projectIds.length) {
+			throw new ConvexError({
+				code: "PROJECT_ORDER_MISMATCH",
+				message: "Project order must include every project.",
+			});
+		}
+
+		const projectIds = new Set(projects.map((project) => project._id));
+		if (args.projectIds.some((projectId) => !projectIds.has(projectId))) {
+			throw new ConvexError({
+				code: "PROJECT_NOT_FOUND",
+				message: "Project not found.",
+			});
+		}
+
+		await Promise.all(
+			args.projectIds.map((projectId, index) =>
+				ctx.db.patch(projectId, {
+					sortOrder: index,
+				}),
+			),
+		);
+
+		return null;
 	},
 });
 
@@ -380,10 +438,12 @@ export const toggleStar = mutation({
 	handler: async (ctx, args) => {
 		const project = await requireOwnedProject(ctx, args.id, args.workspaceId);
 		const isStarred = !(project.isStarred ?? false);
+		const now = Date.now();
 
 		await ctx.db.patch(project._id, {
 			isStarred,
-			updatedAt: Date.now(),
+			starredSortOrder: isStarred ? now : project.starredSortOrder,
+			updatedAt: now,
 		});
 
 		return {

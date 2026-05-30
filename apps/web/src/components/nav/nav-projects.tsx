@@ -83,6 +83,11 @@ import {
 	SIDEBAR_COLLAPSIBLE_GROUP_ACTION_CLASS_NAME,
 	SidebarCollapsibleGroup,
 } from "./sidebar-collapsible-group";
+import {
+	type SidebarSortableBindings,
+	SidebarSortableList,
+	useSidebarSortableBindings,
+} from "./sidebar-sortable-list";
 
 const SIDEBAR_PROJECT_SKELETON_IDS = [
 	"sidebar-project-skeleton-1",
@@ -102,7 +107,7 @@ type ProjectWithNotes = {
 	lastActivityAt: number;
 };
 
-type ProjectListSort = "name" | "created" | "updated";
+type ProjectListSort = "custom" | "name" | "created" | "updated";
 
 type NavProjectsState = {
 	collapsedProjectIds: Array<Id<"projects">>;
@@ -137,7 +142,37 @@ const initialNavProjectsState: NavProjectsState = {
 	expandedProjectIds: [],
 	filtersOpen: false,
 	name: "",
-	sortBy: "name",
+	sortBy: "custom",
+};
+
+type NavProjectsProps = {
+	autoRevealActiveNoteProject?: boolean;
+	currentNoteId: Id<"notes"> | null;
+	currentNoteTitle?: string;
+	notes: Array<Doc<"notes">> | undefined;
+	onNoteSelect: (noteId: Id<"notes">) => void;
+	onNoteTitleChange?: (title: string) => void;
+	onNoteTrashed?: (noteId: Id<"notes">) => void;
+	onPrefetchNote: (noteId: Id<"notes">) => void;
+	projects: Array<Doc<"projects">> | undefined;
+	recordingNoteId?: Id<"notes"> | null;
+	workspaceId: Id<"workspaces"> | null;
+};
+
+type ProjectSidebarItemProps = {
+	currentNoteId: Id<"notes"> | null;
+	currentNoteTitle?: string;
+	notes: Array<Doc<"notes">>;
+	onNoteSelect: (noteId: Id<"notes">) => void;
+	onNoteTitleChange?: (title: string) => void;
+	onNoteTrashed?: (noteId: Id<"notes">) => void;
+	onOpenChange: (open: boolean) => void;
+	onPrefetchNote: (noteId: Id<"notes">) => void;
+	open: boolean;
+	project: Doc<"projects">;
+	recordingNoteId: Id<"notes"> | null;
+	sortable?: SidebarSortableBindings;
+	workspaceId: Id<"workspaces"> | null;
 };
 
 function navProjectsReducer(
@@ -316,19 +351,7 @@ export function NavProjects({
 	onNoteSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
-}: {
-	projects: Array<Doc<"projects">> | undefined;
-	notes: Array<Doc<"notes">> | undefined;
-	currentNoteId: Id<"notes"> | null;
-	currentNoteTitle?: string;
-	recordingNoteId?: Id<"notes"> | null;
-	autoRevealActiveNoteProject?: boolean;
-	workspaceId: Id<"workspaces"> | null;
-	onPrefetchNote: (noteId: Id<"notes">) => void;
-	onNoteSelect: (noteId: Id<"notes">) => void;
-	onNoteTitleChange?: (title: string) => void;
-	onNoteTrashed?: (noteId: Id<"notes">) => void;
-}) {
+}: NavProjectsProps) {
 	const [state, dispatch] = React.useReducer(
 		navProjectsReducer,
 		initialNavProjectsState,
@@ -344,6 +367,26 @@ export function NavProjects({
 	} = state;
 	const [isCreatingProject, startProjectCreation] = React.useTransition();
 	const createProject = useMutation(api.projects.create);
+	const reorderProjects = useMutation(
+		api.projects.reorder,
+	).withOptimisticUpdate((localStore, args) => {
+		optimisticUpdateProjectList(localStore, args.workspaceId, (projects) => {
+			const projectsById = new Map(
+				projects.map((project) => [project._id, project]),
+			);
+			return args.projectIds.flatMap((projectId, index) => {
+				const project = projectsById.get(projectId);
+				return project
+					? [
+							{
+								...project,
+								sortOrder: index,
+							},
+						]
+					: [];
+			});
+		});
+	});
 	const projectEntries = React.useMemo(
 		() => buildProjectEntries(projects ?? [], notes ?? []),
 		[notes, projects],
@@ -370,6 +413,8 @@ export function NavProjects({
 		projectTreeToggleTargetCount > 1 &&
 		expandedProjectCount < projectTreeToggleTargetCount;
 	const isPending = projects === undefined || notes === undefined;
+	const canReorderProjects =
+		sortBy === "custom" && !isPending && visibleProjectEntries.length > 1;
 
 	React.useEffect(() => {
 		dispatch({ type: "reconcileProjectIds", value: visibleProjectIds });
@@ -419,6 +464,23 @@ export function NavProjects({
 			}
 		});
 	}, [createProject, name, workspaceId]);
+
+	const handleProjectReorder = React.useCallback(
+		(projectIds: Array<Id<"projects">>) => {
+			if (!workspaceId) {
+				return;
+			}
+
+			void reorderProjects({
+				workspaceId,
+				projectIds,
+			}).catch((error) => {
+				console.error("Failed to reorder projects", error);
+				toast.error("Failed to reorder projects");
+			});
+		},
+		[reorderProjects, workspaceId],
+	);
 
 	return (
 		<>
@@ -498,31 +560,28 @@ export function NavProjects({
 					</div>
 				) : null}
 				{isPending ? null : (
-					<SidebarMenu>
-						{visibleProjectEntries.map(({ project, notes: projectNotes }) => (
-							<ProjectSidebarItem
-								key={project._id}
-								project={project}
-								notes={projectNotes}
-								open={expandedProjectIdSet.has(project._id)}
-								workspaceId={workspaceId}
-								currentNoteId={currentNoteId}
-								currentNoteTitle={currentNoteTitle}
-								recordingNoteId={recordingNoteId}
-								onPrefetchNote={onPrefetchNote}
-								onNoteSelect={onNoteSelect}
-								onNoteTitleChange={onNoteTitleChange}
-								onNoteTrashed={onNoteTrashed}
-								onOpenChange={(open) =>
-									dispatch({
-										type: "setProjectOpen",
-										id: project._id,
-										value: open,
-									})
-								}
-							/>
-						))}
-					</SidebarMenu>
+					<ProjectSidebarList
+						canReorder={canReorderProjects}
+						currentNoteId={currentNoteId}
+						currentNoteTitle={currentNoteTitle}
+						entries={visibleProjectEntries}
+						expandedProjectIdSet={expandedProjectIdSet}
+						onNoteSelect={onNoteSelect}
+						onNoteTitleChange={onNoteTitleChange}
+						onNoteTrashed={onNoteTrashed}
+						onOpenChange={(projectId, open) =>
+							dispatch({
+								type: "setProjectOpen",
+								id: projectId,
+								value: open,
+							})
+						}
+						onPrefetchNote={onPrefetchNote}
+						onReorder={handleProjectReorder}
+						recordingNoteId={recordingNoteId}
+						visibleProjectIds={visibleProjectIds}
+						workspaceId={workspaceId}
+					/>
 				)}
 			</SidebarCollapsibleGroup>
 			<Dialog
@@ -612,6 +671,12 @@ function ProjectsFilterMenu({
 				className={SIDEBAR_FILTER_MENU_CONTENT_CLASS_NAME}
 			>
 				<ProjectFilterItem
+					icon={Folder}
+					label="Custom"
+					selected={sortBy === "custom"}
+					onSelect={() => onSortChange("custom")}
+				/>
+				<ProjectFilterItem
 					icon={ArrowUpAZ}
 					label="Name"
 					selected={sortBy === "name"}
@@ -659,6 +724,88 @@ function ProjectFilterItem({
 	);
 }
 
+function ProjectSidebarList({
+	canReorder,
+	currentNoteId,
+	currentNoteTitle,
+	entries,
+	expandedProjectIdSet,
+	onNoteSelect,
+	onNoteTitleChange,
+	onNoteTrashed,
+	onOpenChange,
+	onPrefetchNote,
+	onReorder,
+	recordingNoteId,
+	visibleProjectIds,
+	workspaceId,
+}: {
+	canReorder: boolean;
+	currentNoteId: Id<"notes"> | null;
+	currentNoteTitle?: string;
+	entries: Array<ProjectWithNotes>;
+	expandedProjectIdSet: Set<Id<"projects">>;
+	onNoteSelect: (noteId: Id<"notes">) => void;
+	onNoteTitleChange?: (title: string) => void;
+	onNoteTrashed?: (noteId: Id<"notes">) => void;
+	onOpenChange: (projectId: Id<"projects">, open: boolean) => void;
+	onPrefetchNote: (noteId: Id<"notes">) => void;
+	onReorder: (projectIds: Array<Id<"projects">>) => void;
+	recordingNoteId: Id<"notes"> | null;
+	visibleProjectIds: Array<Id<"projects">>;
+	workspaceId: Id<"workspaces"> | null;
+}) {
+	const projectIdsBySortableId = React.useMemo(
+		() => new Map(visibleProjectIds.map((id) => [String(id), id])),
+		[visibleProjectIds],
+	);
+	const sortableIds = React.useMemo(
+		() => visibleProjectIds.map((id) => String(id)),
+		[visibleProjectIds],
+	);
+	const handleReorder = React.useCallback(
+		(ids: Array<string>) => {
+			onReorder(ids.flatMap((id) => projectIdsBySortableId.get(id) ?? []));
+		},
+		[onReorder, projectIdsBySortableId],
+	);
+	const list = (
+		<SidebarMenu>
+			{entries.map(({ project, notes: projectNotes }) => {
+				const Item = canReorder
+					? SortableProjectSidebarItem
+					: ProjectSidebarItem;
+
+				return (
+					<Item
+						key={project._id}
+						project={project}
+						notes={projectNotes}
+						open={expandedProjectIdSet.has(project._id)}
+						workspaceId={workspaceId}
+						currentNoteId={currentNoteId}
+						currentNoteTitle={currentNoteTitle}
+						recordingNoteId={recordingNoteId}
+						onPrefetchNote={onPrefetchNote}
+						onNoteSelect={onNoteSelect}
+						onNoteTitleChange={onNoteTitleChange}
+						onNoteTrashed={onNoteTrashed}
+						onOpenChange={(open) => onOpenChange(project._id, open)}
+					/>
+				);
+			})}
+		</SidebarMenu>
+	);
+
+	return canReorder ? (
+		<SidebarSortableList ids={sortableIds} onReorder={handleReorder}>
+			{list}
+		</SidebarSortableList>
+	) : (
+		list
+	);
+}
+
 export function ProjectSidebarItem({
 	project,
 	notes,
@@ -672,20 +819,8 @@ export function ProjectSidebarItem({
 	onNoteTitleChange,
 	onNoteTrashed,
 	onOpenChange,
-}: {
-	project: Doc<"projects">;
-	notes: Array<Doc<"notes">>;
-	open: boolean;
-	workspaceId: Id<"workspaces"> | null;
-	currentNoteId: Id<"notes"> | null;
-	currentNoteTitle?: string;
-	recordingNoteId: Id<"notes"> | null;
-	onPrefetchNote: (noteId: Id<"notes">) => void;
-	onNoteSelect: (noteId: Id<"notes">) => void;
-	onNoteTitleChange?: (title: string) => void;
-	onNoteTrashed?: (noteId: Id<"notes">) => void;
-	onOpenChange: (open: boolean) => void;
-}) {
+	sortable,
+}: ProjectSidebarItemProps) {
 	const hasNotes = notes.length > 0;
 	const [state, dispatch] = React.useReducer(
 		projectItemReducer,
@@ -889,7 +1024,15 @@ export function ProjectSidebarItem({
 	return (
 		<>
 			<Collapsible asChild open={open} onOpenChange={onOpenChange}>
-				<SidebarMenuItem className="group/project-item group/collapsible">
+				<SidebarMenuItem
+					ref={sortable?.ref}
+					style={sortable?.style}
+					className={
+						sortable?.isDragging
+							? "group/project-item group/collapsible relative z-10 opacity-80"
+							: "group/project-item group/collapsible"
+					}
+				>
 					<ProjectSidebarRow
 						projectName={project.name}
 						hasNotes={hasNotes}
@@ -904,6 +1047,7 @@ export function ProjectSidebarItem({
 						ignoreInitialRenameInteractOutsideRef={
 							ignoreInitialRenameInteractOutsideRef
 						}
+						sortableButtonProps={sortable?.buttonProps}
 						onMenuOpenChange={(nextOpen) =>
 							dispatch({ type: "setMenuOpen", value: nextOpen })
 						}
@@ -959,6 +1103,14 @@ export function ProjectSidebarItem({
 	);
 }
 
+function SortableProjectSidebarItem(
+	props: Omit<React.ComponentProps<typeof ProjectSidebarItem>, "sortable">,
+) {
+	const sortable = useSidebarSortableBindings(String(props.project._id));
+
+	return <ProjectSidebarItem {...props} sortable={sortable} />;
+}
+
 function ProjectSidebarItemDialogs({
 	open,
 	isRemoving,
@@ -1011,6 +1163,7 @@ function ProjectSidebarRow({
 	renameInputRef,
 	preventMenuCloseAutoFocusRef,
 	ignoreInitialRenameInteractOutsideRef,
+	sortableButtonProps,
 	onMenuOpenChange,
 	onToggleOpen,
 	onRenameOpenChange,
@@ -1033,6 +1186,7 @@ function ProjectSidebarRow({
 	renameInputRef: React.RefObject<HTMLInputElement | null>;
 	preventMenuCloseAutoFocusRef: React.MutableRefObject<boolean>;
 	ignoreInitialRenameInteractOutsideRef: React.MutableRefObject<boolean>;
+	sortableButtonProps?: React.HTMLAttributes<HTMLButtonElement>;
 	onMenuOpenChange: (open: boolean) => void;
 	onToggleOpen: () => void;
 	onRenameOpenChange: (open: boolean) => void;
@@ -1049,9 +1203,14 @@ function ProjectSidebarRow({
 			<PopoverAnchor asChild>
 				<div className="group/project-row relative">
 					<SidebarMenuButton
-						className="pr-8"
+						className={
+							sortableButtonProps
+								? "cursor-grab pr-8 active:cursor-grabbing"
+								: "pr-8"
+						}
 						aria-expanded={isOpen}
 						onClick={onToggleOpen}
+						{...sortableButtonProps}
 					>
 						<span className="relative size-4 shrink-0">
 							<span className="absolute inset-0 flex items-center justify-center transition-opacity opacity-100 group-hover/menu-button:opacity-0">
@@ -1482,7 +1641,7 @@ const normalizeProjectName = (value: string) =>
 const toNormalizedProjectKey = (value: string) =>
 	normalizeProjectName(value).toLowerCase();
 
-function sortProjectsByNormalizedName(
+function sortProjectsBySortOrder(
 	projects: Array<Doc<"projects"> & { isStarred?: boolean }>,
 ) {
 	return projects
@@ -1491,11 +1650,8 @@ function sortProjectsByNormalizedName(
 			isStarred: project.isStarred ?? false,
 		}))
 		.sort((left, right) => {
-			const normalizedComparison = left.normalizedName.localeCompare(
-				right.normalizedName,
-			);
-			if (normalizedComparison !== 0) {
-				return normalizedComparison;
+			if (left.sortOrder !== right.sortOrder) {
+				return left.sortOrder - right.sortOrder;
 			}
 
 			return left._creationTime - right._creationTime;
@@ -1507,6 +1663,14 @@ function sortProjectEntries(
 	sortBy: ProjectListSort,
 ) {
 	return entries.slice().sort((left, right) => {
+		if (sortBy === "custom") {
+			if (left.project.sortOrder !== right.project.sortOrder) {
+				return left.project.sortOrder - right.project.sortOrder;
+			}
+
+			return left.project._creationTime - right.project._creationTime;
+		}
+
 		if (sortBy === "created") {
 			return compareProjectsByTimestamp(
 				left.project.createdAt,
@@ -1569,7 +1733,7 @@ function optimisticUpdateProjectList(
 	localStore.setQuery(
 		api.projects.list,
 		{ workspaceId },
-		sortProjectsByNormalizedName(updateProjects(projects)),
+		sortProjectsBySortOrder(updateProjects(projects)),
 	);
 }
 

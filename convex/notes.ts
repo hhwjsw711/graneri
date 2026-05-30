@@ -25,6 +25,7 @@ const noteFields = {
 	calendarEventKey: v.optional(v.string()),
 	authorName: v.optional(v.string()),
 	isStarred: v.optional(v.boolean()),
+	starredSortOrder: v.number(),
 	title: v.string(),
 	templateSlug: v.optional(v.string()),
 	content: v.string(),
@@ -669,6 +670,7 @@ export const create = mutation({
 			projectId: undefined,
 			authorName: getAuthorName(identity),
 			isStarred: false,
+			starredSortOrder: now,
 			title: "",
 			content: JSON.stringify({
 				type: "doc",
@@ -732,6 +734,7 @@ export const createFromCalendarEvent = mutation({
 			calendarEventKey,
 			authorName,
 			isStarred: false,
+			starredSortOrder: now,
 			title: args.title,
 			content: args.content,
 			searchableText: args.searchableText,
@@ -787,6 +790,7 @@ export const save = mutation({
 			await ctx.db.patch(args.id, {
 				authorName: existing.authorName ?? authorName,
 				isStarred: existing.isStarred ?? false,
+				starredSortOrder: existing.starredSortOrder,
 				projectId: existing.projectId,
 				title: args.title,
 				content: args.content,
@@ -830,6 +834,7 @@ export const save = mutation({
 			projectId: undefined,
 			authorName,
 			isStarred: false,
+			starredSortOrder: now,
 			title: args.title,
 			content: args.content,
 			searchableText: args.searchableText,
@@ -963,10 +968,12 @@ export const toggleStar = mutation({
 		}
 
 		const isStarred = !(note.isStarred ?? false);
+		const now = Date.now();
 
 		await ctx.db.patch(args.id, {
 			isStarred,
-			updatedAt: Date.now(),
+			starredSortOrder: isStarred ? now : note.starredSortOrder,
+			updatedAt: now,
 		});
 
 		return {

@@ -33,7 +33,7 @@ const createWorkspace = async () => {
 	};
 };
 
-test("projects.create trims names and projects.list sorts them by normalized name", async () => {
+test("projects.create trims names and projects.list keeps custom order", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 
 	const zebraId = await asOwner.mutation(api.projects.create, {
@@ -52,7 +52,40 @@ test("projects.create trims names and projects.list sorts them by normalized nam
 		workspaceId,
 	});
 
-	expect(projects.map((project) => project.name)).toEqual(["Alpha", "Zebra"]);
+	expect(projects.map((project) => project.name)).toEqual(["Zebra", "Alpha"]);
+});
+
+test("projects.reorder persists the custom project order", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+
+	const product = await asOwner.mutation(api.projects.create, {
+		workspaceId,
+		name: "Product",
+	});
+	const research = await asOwner.mutation(api.projects.create, {
+		workspaceId,
+		name: "Research",
+	});
+	const sales = await asOwner.mutation(api.projects.create, {
+		workspaceId,
+		name: "Sales",
+	});
+
+	await asOwner.mutation(api.projects.reorder, {
+		workspaceId,
+		projectIds: [sales._id, product._id, research._id],
+	});
+
+	const projects = await asOwner.query(api.projects.list, {
+		workspaceId,
+	});
+
+	expect(projects.map((project) => project.name)).toEqual([
+		"Sales",
+		"Product",
+		"Research",
+	]);
+	expect(projects.map((project) => project.sortOrder)).toEqual([0, 1, 2]);
 });
 
 test("projects.create rejects duplicate names in the same workspace", async () => {
@@ -168,6 +201,7 @@ test("projects.moveNotesToTrash archives active project notes and keeps the proj
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
 			projectId: project._id,
+			starredSortOrder: 0,
 			title: "Active note",
 			content: "",
 			searchableText: "",
@@ -180,6 +214,7 @@ test("projects.moveNotesToTrash archives active project notes and keeps the proj
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
 			projectId: project._id,
+			starredSortOrder: 0,
 			title: "Archived note",
 			content: "",
 			searchableText: "",
@@ -226,6 +261,7 @@ test("projects.remove deletes the project and clears it from assigned notes", as
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
 			projectId: project._id,
+			starredSortOrder: 0,
 			title: "Current note",
 			content: "",
 			searchableText: "",
@@ -238,6 +274,7 @@ test("projects.remove deletes the project and clears it from assigned notes", as
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
 			projectId: project._id,
+			starredSortOrder: 0,
 			title: "Archived note",
 			content: "",
 			searchableText: "",

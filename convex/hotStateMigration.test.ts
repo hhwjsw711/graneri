@@ -35,6 +35,7 @@ test("workspace removal clears scheduled Convex cleanup across notes, chats, tra
 		const noteId = await ctx.db.insert("notes", {
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
+			starredSortOrder: 0,
 			title: "Note",
 			content: "Body",
 			searchableText: "Body",
@@ -48,6 +49,7 @@ test("workspace removal clears scheduled Convex cleanup across notes, chats, tra
 			workspaceId,
 			chatId: "chat-1",
 			noteId,
+			starredSortOrder: 0,
 			title: "Chat",
 			preview: "Preview",
 			isArchived: false,
@@ -245,6 +247,7 @@ test("transcript sessions read hot state only from transcriptSessionStates", asy
 		const noteId = await ctx.db.insert("notes", {
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
+			starredSortOrder: 0,
 			title: "Transcript note",
 			content: "",
 			searchableText: "",
@@ -326,6 +329,7 @@ test("transcript session summaries only reflect the latest session for a note", 
 		const noteId = await ctx.db.insert("notes", {
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
+			starredSortOrder: 0,
 			title: "Transcript note",
 			content: "",
 			searchableText: "",

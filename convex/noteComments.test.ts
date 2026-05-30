@@ -34,6 +34,7 @@ const createWorkspaceAndNote = async () => {
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
 			authorName: "Owner",
+			starredSortOrder: 0,
 			title: "Draft note",
 			content: JSON.stringify({
 				type: "doc",

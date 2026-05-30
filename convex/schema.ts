@@ -202,9 +202,16 @@ export default defineSchema({
 		name: v.string(),
 		normalizedName: v.string(),
 		isStarred: v.optional(v.boolean()),
+		sortOrder: v.number(),
+		starredSortOrder: v.number(),
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	})
+		.index("by_owner_ws_sortOrder", [
+			"ownerTokenIdentifier",
+			"workspaceId",
+			"sortOrder",
+		])
 		.index("by_owner_ws_normalizedName", [
 			"ownerTokenIdentifier",
 			"workspaceId",
@@ -227,6 +234,7 @@ export default defineSchema({
 		calendarEventKey: v.optional(v.string()),
 		authorName: v.optional(v.string()),
 		isStarred: v.optional(v.boolean()),
+		starredSortOrder: v.number(),
 		title: v.string(),
 		templateSlug: v.optional(v.string()),
 		content: v.string(),
@@ -389,6 +397,7 @@ export default defineSchema({
 		chatId: v.string(),
 		noteId: v.optional(v.id("notes")),
 		isStarred: v.optional(v.boolean()),
+		starredSortOrder: v.number(),
 		title: v.string(),
 		preview: v.string(),
 		model: v.optional(v.string()),

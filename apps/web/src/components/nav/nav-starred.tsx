@@ -5,6 +5,8 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
+import type { OptimisticLocalStore } from "convex/browser";
+import { useMutation } from "convex/react";
 import {
 	Clock,
 	FileText,
@@ -13,34 +15,46 @@ import {
 	MoreHorizontal,
 } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
 import { ChatActionsMenu } from "@/components/chat/chat-actions-menu";
 import { ProjectSidebarItem } from "@/components/nav/nav-projects";
 import { SidebarCollapsibleGroup } from "@/components/nav/sidebar-collapsible-group";
+import {
+	type SidebarSortableBindings,
+	SidebarSortableList,
+	useSidebarSortableBindings,
+} from "@/components/nav/sidebar-sortable-list";
 import { NoteActionsMenu } from "@/components/note/note-actions-menu";
 import { getChatId } from "@/lib/chat";
 import { getNoteDisplayTitle } from "@/lib/note-title";
+import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 
 type StarredItem =
 	| {
 			kind: "note";
 			id: string;
-			updatedAt: number;
+			starredSortOrder: number;
 			note: Doc<"notes">;
 	  }
 	| {
 			kind: "chat";
 			id: string;
-			updatedAt: number;
+			starredSortOrder: number;
 			chat: Doc<"chats">;
 	  }
 	| {
 			kind: "project";
 			id: string;
-			updatedAt: number;
+			starredSortOrder: number;
 			project: Doc<"projects">;
 			notes: Array<Doc<"notes">>;
 	  };
+
+type StarredReorderItem =
+	| { kind: "note"; id: Id<"notes"> }
+	| { kind: "chat"; id: Id<"chats"> }
+	| { kind: "project"; id: Id<"projects"> };
 
 const getChatDisplayTitle = (title?: string) => {
 	const trimmed = title?.trim();
@@ -48,6 +62,71 @@ const getChatDisplayTitle = (title?: string) => {
 };
 
 const SidebarRecordingSpinner = Icons.sidebarRecordingSpinner;
+
+const getStarredSortableId = (item: StarredReorderItem) =>
+	`${item.kind}:${item.id}`;
+
+const toStarredReorderItem = (item: StarredItem): StarredReorderItem => {
+	if (item.kind === "note") {
+		return { kind: "note", id: item.note._id };
+	}
+
+	if (item.kind === "chat") {
+		return { kind: "chat", id: item.chat._id };
+	}
+
+	return { kind: "project", id: item.project._id };
+};
+
+const updateStarredSortOrder = <TDoc extends { _id: string }>(
+	docs: Array<TDoc>,
+	items: Array<StarredReorderItem>,
+	kind: StarredReorderItem["kind"],
+) => {
+	const orderById = new Map(
+		items.flatMap((item, index) =>
+			item.kind === kind ? [[item.id, index] as const] : [],
+		),
+	);
+
+	return docs.map((doc) => {
+		const starredSortOrder = orderById.get(doc._id);
+		return starredSortOrder === undefined ? doc : { ...doc, starredSortOrder };
+	});
+};
+
+const optimisticUpdateStarredOrder = (
+	localStore: OptimisticLocalStore,
+	workspaceId: Id<"workspaces">,
+	items: Array<StarredReorderItem>,
+) => {
+	const notes = localStore.getQuery(api.notes.list, { workspaceId });
+	if (notes) {
+		localStore.setQuery(
+			api.notes.list,
+			{ workspaceId },
+			updateStarredSortOrder(notes, items, "note"),
+		);
+	}
+
+	const chats = localStore.getQuery(api.chats.list, { workspaceId });
+	if (chats) {
+		localStore.setQuery(
+			api.chats.list,
+			{ workspaceId },
+			updateStarredSortOrder(chats, items, "chat"),
+		);
+	}
+
+	const projects = localStore.getQuery(api.projects.list, { workspaceId });
+	if (projects) {
+		localStore.setQuery(
+			api.projects.list,
+			{ workspaceId },
+			updateStarredSortOrder(projects, items, "project"),
+		);
+	}
+};
 
 export function NavStarred({
 	chats,
@@ -86,6 +165,11 @@ export function NavStarred({
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 }) {
+	const reorderStarred = useMutation(api.starred.reorder).withOptimisticUpdate(
+		(localStore, args) => {
+			optimisticUpdateStarredOrder(localStore, args.workspaceId, args.items);
+		},
+	);
 	const starredItems = React.useMemo<StarredItem[]>(() => {
 		const nextItems: StarredItem[] = [];
 		const starredProjects = (projects ?? []).filter(
@@ -97,7 +181,7 @@ export function NavStarred({
 				nextItems.push({
 					kind: "note" as const,
 					id: note._id,
-					updatedAt: note.updatedAt,
+					starredSortOrder: note.starredSortOrder,
 					note,
 				});
 			}
@@ -107,8 +191,8 @@ export function NavStarred({
 			if (chat.isStarred) {
 				nextItems.push({
 					kind: "chat" as const,
-					id: getChatId(chat),
-					updatedAt: chat.updatedAt,
+					id: chat._id,
+					starredSortOrder: chat.starredSortOrder,
 					chat,
 				});
 			}
@@ -118,117 +202,336 @@ export function NavStarred({
 			nextItems.push({
 				kind: "project" as const,
 				id: project._id,
-				updatedAt: project.updatedAt,
+				starredSortOrder: project.starredSortOrder,
 				project,
 				notes: (notes ?? []).filter((note) => note.projectId === project._id),
 			});
 		}
 
-		return nextItems.sort((left, right) => right.updatedAt - left.updatedAt);
+		return nextItems.sort((left, right) => {
+			if (left.starredSortOrder !== right.starredSortOrder) {
+				return left.starredSortOrder - right.starredSortOrder;
+			}
+
+			return left.id.localeCompare(right.id);
+		});
 	}, [chats, notes, projects]);
+	const starredReorderItems = React.useMemo(
+		() => starredItems.map(toStarredReorderItem),
+		[starredItems],
+	);
+	const starredSortableIds = React.useMemo(
+		() => starredReorderItems.map(getStarredSortableId),
+		[starredReorderItems],
+	);
+	const starredReorderItemsBySortableId = React.useMemo(
+		() =>
+			new Map(
+				starredReorderItems.map((item) => [getStarredSortableId(item), item]),
+			),
+		[starredReorderItems],
+	);
+	const canReorderStarred = workspaceId !== null && starredItems.length > 1;
+	const handleStarredReorder = React.useCallback(
+		(sortableIds: Array<string>) => {
+			if (!workspaceId) {
+				return;
+			}
+
+			const items = sortableIds.flatMap((id) => {
+				const item = starredReorderItemsBySortableId.get(id);
+				return item ? [item] : [];
+			});
+
+			void reorderStarred({ workspaceId, items }).catch((error) => {
+				console.error("Failed to reorder starred items", error);
+				toast.error("Failed to reorder starred items");
+			});
+		},
+		[reorderStarred, starredReorderItemsBySortableId, workspaceId],
+	);
 
 	if (starredItems.length === 0) {
 		return null;
 	}
+
+	const list = (
+		<SidebarMenu>
+			{starredItems.map((item) => (
+				<StarredItemRow
+					key={`${item.kind}:${item.id}`}
+					item={item}
+					activeStreamingChatIds={activeStreamingChatIds}
+					automationChatIds={automationChatIds}
+					currentChatId={currentChatId}
+					currentChatTitle={currentChatTitle}
+					currentNoteId={currentNoteId}
+					currentNoteTitle={currentNoteTitle}
+					onAddAutomation={onAddAutomation}
+					onChatSelect={onChatSelect}
+					onNotePrefetch={onNotePrefetch}
+					onNoteSelect={onNoteSelect}
+					onNoteTitleChange={onNoteTitleChange}
+					onNoteTrashed={onNoteTrashed}
+					recordingNoteId={recordingNoteId}
+					sortableId={
+						canReorderStarred
+							? getStarredSortableId(toStarredReorderItem(item))
+							: undefined
+					}
+					workspaceId={workspaceId}
+				/>
+			))}
+		</SidebarMenu>
+	);
 
 	return (
 		<SidebarCollapsibleGroup
 			title="Starred"
 			className="group-data-[collapsible=icon]:hidden"
 		>
-			<SidebarMenu>
-				{starredItems.map((item) => {
-					if (item.kind === "note") {
-						return (
-							<StarredNoteItem
-								key={`note:${item.note._id}`}
-								note={item.note}
-								currentNoteId={currentNoteId}
-								currentNoteTitle={currentNoteTitle}
-								recordingNoteId={recordingNoteId}
-								onNotePrefetch={onNotePrefetch}
-								onNoteSelect={onNoteSelect}
-								onNoteTitleChange={onNoteTitleChange}
-								onNoteTrashed={onNoteTrashed}
-							/>
-						);
-					}
-
-					if (item.kind === "chat") {
-						const chat = item.chat;
-						const chatId = getChatId(chat);
-						const isActive = chatId === currentChatId;
-						const title =
-							isActive && currentChatTitle?.trim()
-								? currentChatTitle
-								: chat.title;
-						const displayTitle = getChatDisplayTitle(title);
-						const hasAutomation = automationChatIds?.has(chatId) ?? false;
-						const isStreaming = activeStreamingChatIds?.has(chatId) ?? false;
-
-						return (
-							<SidebarMenuItem key={`chat:${chat._id}`}>
-								<ChatActionsMenu
-									chat={chat}
-									hasAutomation={hasAutomation}
-									onAddAutomation={onAddAutomation}
-									align="start"
-									side="right"
-								>
-									<SidebarMenuAction
-										className="cursor-pointer opacity-0 pointer-events-none transition-opacity group-hover/menu-item:opacity-100 group-hover/menu-item:pointer-events-auto"
-										aria-label={`Open actions for ${displayTitle}`}
-									>
-										<MoreHorizontal />
-									</SidebarMenuAction>
-								</ChatActionsMenu>
-								<SidebarMenuButton
-									className="min-w-0"
-									isActive={isActive}
-									onClick={() => onChatSelect(chatId)}
-								>
-									{isStreaming ? (
-										<LoaderCircle
-											className="animate-spin"
-											aria-label="Chat is generating"
-										/>
-									) : (
-										<MessageCircle />
-									)}
-									<span className="min-w-0 flex-1 truncate">
-										{displayTitle}
-									</span>
-									{hasAutomation ? (
-										<Clock
-											className="ml-auto size-4 shrink-0 text-muted-foreground"
-											aria-label="Automation set"
-										/>
-									) : null}
-								</SidebarMenuButton>
-							</SidebarMenuItem>
-						);
-					}
-
-					const project = item.project;
-
-					return (
-						<StarredProjectItem
-							key={`project:${project._id}`}
-							project={project}
-							notes={item.notes}
-							workspaceId={workspaceId}
-							currentNoteId={currentNoteId}
-							currentNoteTitle={currentNoteTitle}
-							recordingNoteId={recordingNoteId}
-							onNotePrefetch={onNotePrefetch}
-							onNoteSelect={onNoteSelect}
-							onNoteTitleChange={onNoteTitleChange}
-							onNoteTrashed={onNoteTrashed}
-						/>
-					);
-				})}
-			</SidebarMenu>
+			{canReorderStarred ? (
+				<SidebarSortableList
+					ids={starredSortableIds}
+					onReorder={handleStarredReorder}
+				>
+					{list}
+				</SidebarSortableList>
+			) : (
+				list
+			)}
 		</SidebarCollapsibleGroup>
+	);
+}
+
+function StarredItemRow({
+	item,
+	sortableId,
+	activeStreamingChatIds,
+	automationChatIds,
+	currentChatId,
+	currentChatTitle,
+	currentNoteId,
+	currentNoteTitle,
+	onAddAutomation,
+	onChatSelect,
+	onNotePrefetch,
+	onNoteSelect,
+	onNoteTitleChange,
+	onNoteTrashed,
+	recordingNoteId,
+	workspaceId,
+}: {
+	item: StarredItem;
+	sortableId?: string;
+	activeStreamingChatIds?: ReadonlySet<string>;
+	automationChatIds?: ReadonlySet<string>;
+	currentChatId: string | null;
+	currentChatTitle?: string;
+	currentNoteId: Id<"notes"> | null;
+	currentNoteTitle?: string;
+	onAddAutomation?: (chatId: string) => void;
+	onChatSelect: (chatId: string) => void;
+	onNotePrefetch: (noteId: Id<"notes">) => void;
+	onNoteSelect: (noteId: Id<"notes">) => void;
+	onNoteTitleChange?: (title: string) => void;
+	onNoteTrashed?: (noteId: Id<"notes">) => void;
+	recordingNoteId: Id<"notes"> | null;
+	workspaceId: Id<"workspaces"> | null;
+}) {
+	if (sortableId) {
+		return (
+			<SortableStarredItem
+				item={item}
+				activeStreamingChatIds={activeStreamingChatIds}
+				automationChatIds={automationChatIds}
+				currentChatId={currentChatId}
+				currentChatTitle={currentChatTitle}
+				currentNoteId={currentNoteId}
+				currentNoteTitle={currentNoteTitle}
+				onAddAutomation={onAddAutomation}
+				onChatSelect={onChatSelect}
+				onNotePrefetch={onNotePrefetch}
+				onNoteSelect={onNoteSelect}
+				onNoteTitleChange={onNoteTitleChange}
+				onNoteTrashed={onNoteTrashed}
+				recordingNoteId={recordingNoteId}
+				sortableId={sortableId}
+				workspaceId={workspaceId}
+			/>
+		);
+	}
+
+	return (
+		<StarredItemContent
+			item={item}
+			activeStreamingChatIds={activeStreamingChatIds}
+			automationChatIds={automationChatIds}
+			currentChatId={currentChatId}
+			currentChatTitle={currentChatTitle}
+			currentNoteId={currentNoteId}
+			currentNoteTitle={currentNoteTitle}
+			onAddAutomation={onAddAutomation}
+			onChatSelect={onChatSelect}
+			onNotePrefetch={onNotePrefetch}
+			onNoteSelect={onNoteSelect}
+			onNoteTitleChange={onNoteTitleChange}
+			onNoteTrashed={onNoteTrashed}
+			recordingNoteId={recordingNoteId}
+			workspaceId={workspaceId}
+		/>
+	);
+}
+
+function SortableStarredItem({
+	sortableId,
+	...props
+}: React.ComponentProps<typeof StarredItemRow> & { sortableId: string }) {
+	const sortable = useSidebarSortableBindings(sortableId);
+
+	return <StarredItemContent {...props} sortable={sortable} />;
+}
+
+function StarredItemContent({
+	item,
+	sortable,
+	activeStreamingChatIds,
+	automationChatIds,
+	currentChatId,
+	currentChatTitle,
+	currentNoteId,
+	currentNoteTitle,
+	onAddAutomation,
+	onChatSelect,
+	onNotePrefetch,
+	onNoteSelect,
+	onNoteTitleChange,
+	onNoteTrashed,
+	recordingNoteId,
+	workspaceId,
+}: Omit<React.ComponentProps<typeof StarredItemRow>, "sortableId"> & {
+	sortable?: SidebarSortableBindings;
+}) {
+	if (item.kind === "note") {
+		return (
+			<StarredNoteItem
+				note={item.note}
+				currentNoteId={currentNoteId}
+				currentNoteTitle={currentNoteTitle}
+				recordingNoteId={recordingNoteId}
+				sortable={sortable}
+				onNotePrefetch={onNotePrefetch}
+				onNoteSelect={onNoteSelect}
+				onNoteTitleChange={onNoteTitleChange}
+				onNoteTrashed={onNoteTrashed}
+			/>
+		);
+	}
+
+	if (item.kind === "chat") {
+		return (
+			<StarredChatItem
+				chat={item.chat}
+				activeStreamingChatIds={activeStreamingChatIds}
+				automationChatIds={automationChatIds}
+				currentChatId={currentChatId}
+				currentChatTitle={currentChatTitle}
+				sortable={sortable}
+				onAddAutomation={onAddAutomation}
+				onChatSelect={onChatSelect}
+			/>
+		);
+	}
+
+	return (
+		<StarredProjectItem
+			project={item.project}
+			notes={item.notes}
+			workspaceId={workspaceId}
+			currentNoteId={currentNoteId}
+			currentNoteTitle={currentNoteTitle}
+			recordingNoteId={recordingNoteId}
+			sortable={sortable}
+			onNotePrefetch={onNotePrefetch}
+			onNoteSelect={onNoteSelect}
+			onNoteTitleChange={onNoteTitleChange}
+			onNoteTrashed={onNoteTrashed}
+		/>
+	);
+}
+
+function StarredChatItem({
+	chat,
+	activeStreamingChatIds,
+	automationChatIds,
+	currentChatId,
+	currentChatTitle,
+	sortable,
+	onAddAutomation,
+	onChatSelect,
+}: {
+	chat: Doc<"chats">;
+	activeStreamingChatIds?: ReadonlySet<string>;
+	automationChatIds?: ReadonlySet<string>;
+	currentChatId: string | null;
+	currentChatTitle?: string;
+	sortable?: SidebarSortableBindings;
+	onAddAutomation?: (chatId: string) => void;
+	onChatSelect: (chatId: string) => void;
+}) {
+	const chatId = getChatId(chat);
+	const isActive = chatId === currentChatId;
+	const title =
+		isActive && currentChatTitle?.trim() ? currentChatTitle : chat.title;
+	const displayTitle = getChatDisplayTitle(title);
+	const hasAutomation = automationChatIds?.has(chatId) ?? false;
+	const isStreaming = activeStreamingChatIds?.has(chatId) ?? false;
+
+	return (
+		<SidebarMenuItem
+			ref={sortable?.ref}
+			style={sortable?.style}
+			className={sortable?.isDragging ? "relative z-10 opacity-80" : undefined}
+		>
+			<ChatActionsMenu
+				chat={chat}
+				hasAutomation={hasAutomation}
+				onAddAutomation={onAddAutomation}
+				align="start"
+				side="right"
+			>
+				<SidebarMenuAction
+					className="cursor-pointer opacity-0 pointer-events-none transition-opacity group-hover/menu-item:opacity-100 group-hover/menu-item:pointer-events-auto"
+					aria-label={`Open actions for ${displayTitle}`}
+				>
+					<MoreHorizontal />
+				</SidebarMenuAction>
+			</ChatActionsMenu>
+			<SidebarMenuButton
+				className={
+					sortable ? "min-w-0 cursor-grab active:cursor-grabbing" : "min-w-0"
+				}
+				isActive={isActive}
+				onClick={() => onChatSelect(chatId)}
+				{...sortable?.buttonProps}
+			>
+				{isStreaming ? (
+					<LoaderCircle
+						className="animate-spin"
+						aria-label="Chat is generating"
+					/>
+				) : (
+					<MessageCircle />
+				)}
+				<span className="min-w-0 flex-1 truncate">{displayTitle}</span>
+				{hasAutomation ? (
+					<Clock
+						className="ml-auto size-4 shrink-0 text-muted-foreground"
+						aria-label="Automation set"
+					/>
+				) : null}
+			</SidebarMenuButton>
+		</SidebarMenuItem>
 	);
 }
 
@@ -243,6 +546,7 @@ function StarredProjectItem({
 	onNoteSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
+	sortable,
 }: {
 	project: Doc<"projects">;
 	notes: Array<Doc<"notes">>;
@@ -254,6 +558,7 @@ function StarredProjectItem({
 	onNoteSelect: (noteId: Id<"notes">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
+	sortable?: SidebarSortableBindings;
 }) {
 	const [open, setOpen] = React.useState(false);
 
@@ -271,6 +576,7 @@ function StarredProjectItem({
 			onNoteTitleChange={onNoteTitleChange}
 			onNoteTrashed={onNoteTrashed}
 			onOpenChange={setOpen}
+			sortable={sortable}
 		/>
 	);
 }
@@ -284,11 +590,13 @@ function StarredNoteItem({
 	onNoteSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
+	sortable,
 }: {
 	note: Doc<"notes">;
 	currentNoteId: Id<"notes"> | null;
 	currentNoteTitle?: string;
 	recordingNoteId: Id<"notes"> | null;
+	sortable?: SidebarSortableBindings;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
 	onNoteTitleChange?: (title: string) => void;
@@ -307,6 +615,7 @@ function StarredNoteItem({
 				recordingNoteId={recordingNoteId}
 				onNotePrefetch={onNotePrefetch}
 				onNoteSelect={onNoteSelect}
+				sortableButtonProps={sortable?.buttonProps}
 			/>
 		),
 		[
@@ -316,11 +625,16 @@ function StarredNoteItem({
 			recordingNoteId,
 			onNotePrefetch,
 			onNoteSelect,
+			sortable?.buttonProps,
 		],
 	);
 
 	return (
-		<SidebarMenuItem>
+		<SidebarMenuItem
+			ref={sortable?.ref}
+			style={sortable?.style}
+			className={sortable?.isDragging ? "relative z-10 opacity-80" : undefined}
+		>
 			<NoteActionsMenu
 				noteId={note._id}
 				onMoveToTrash={onNoteTrashed}
@@ -354,6 +668,7 @@ function StarredNoteButton({
 	recordingNoteId,
 	onNotePrefetch,
 	onNoteSelect,
+	sortableButtonProps,
 }: {
 	note: Doc<"notes">;
 	currentNoteId: Id<"notes"> | null;
@@ -361,6 +676,7 @@ function StarredNoteButton({
 	recordingNoteId: Id<"notes"> | null;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	sortableButtonProps?: React.HTMLAttributes<HTMLButtonElement>;
 }) {
 	const isActive = note._id === currentNoteId;
 	const isRecording = note._id === recordingNoteId;
@@ -370,11 +686,15 @@ function StarredNoteButton({
 
 	return (
 		<SidebarMenuButton
+			className={
+				sortableButtonProps ? "cursor-grab active:cursor-grabbing" : undefined
+			}
 			isActive={isActive}
 			onFocus={() => onNotePrefetch(note._id)}
 			onMouseEnter={() => onNotePrefetch(note._id)}
 			onPointerDown={() => onNotePrefetch(note._id)}
 			onClick={() => onNoteSelect(note._id)}
+			{...sortableButtonProps}
 		>
 			{isRecording ? <SidebarRecordingSpinner /> : <FileText />}
 			<span>{displayTitle}</span>
