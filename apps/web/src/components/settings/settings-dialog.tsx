@@ -85,11 +85,11 @@ import {
 	Database,
 	FolderKanban,
 	ImageUp,
+	LayoutGrid,
 	LoaderCircle,
 	Paintbrush,
 	SlidersHorizontal,
 	UserRound,
-	Workflow,
 } from "lucide-react";
 import {
 	useCallback,
@@ -172,7 +172,7 @@ const settingsNav = [
 	{ name: "Notifications", icon: Bell },
 	{ name: "Workspace", icon: FolderKanban },
 	{ name: "Calendar", icon: CalendarDays },
-	{ name: "Connections", icon: Workflow },
+	{ name: "Connections", icon: LayoutGrid },
 	{ name: "Data controls", icon: Database },
 ] as const;
 

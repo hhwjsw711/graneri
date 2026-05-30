@@ -97,7 +97,7 @@ const SIDEBAR_PROJECT_SKELETON_IDS = [
 const MAX_VISIBLE_PROJECT_NOTES = 5;
 const MAX_PROJECT_NAME_LENGTH = 48;
 const SIDEBAR_HEADER_ACTION_ROW_CLASS_NAME =
-	"aspect-auto w-auto gap-0.5 rounded-xl p-0 hover:bg-transparent [&_button]:flex [&_button]:size-5 [&_button]:cursor-pointer [&_button]:items-center [&_button]:justify-center [&_button]:rounded-md [&_button]:p-0 [&_button]:text-inherit [&_button]:outline-hidden [&_button]:transition-colors [&_button:hover]:bg-sidebar-accent [&_button:hover]:text-sidebar-accent-foreground [&_button[data-state=open]]:bg-sidebar-accent [&_button[data-state=open]]:text-sidebar-accent-foreground [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-sidebar-ring [&_button>svg]:size-4 [&_button>svg]:shrink-0";
+	"aspect-auto w-auto gap-0.5 rounded-xl bg-transparent p-0 hover:bg-transparent focus-visible:bg-transparent data-[state=open]:bg-transparent [&>div]:flex [&>div]:items-center [&>div]:gap-0.5 [&_button]:flex [&_button]:size-5 [&_button]:cursor-pointer [&_button]:items-center [&_button]:justify-center [&_button]:rounded-md [&_button]:p-0 [&_button]:text-sidebar-foreground/55 [&_button]:outline-hidden [&_button]:transition-colors [&_button:hover]:bg-sidebar-accent [&_button:hover]:text-sidebar-accent-foreground [&_button[data-state=open]]:bg-sidebar-accent [&_button[data-state=open]]:text-sidebar-accent-foreground [&_button:focus-visible]:ring-2 [&_button:focus-visible]:ring-sidebar-ring [&_button>svg]:size-4 [&_button>svg]:shrink-0";
 const SIDEBAR_FILTER_MENU_CONTENT_CLASS_NAME =
 	"w-56 overflow-hidden rounded-lg p-1";
 const SidebarRecordingSpinner = Icons.sidebarRecordingSpinner;
@@ -143,7 +143,7 @@ const initialNavProjectsState: NavProjectsState = {
 	expandedProjectIds: [],
 	filtersOpen: false,
 	name: "",
-	sortBy: "custom",
+	sortBy: "name",
 };
 
 type NavProjectsProps = {
@@ -672,12 +672,6 @@ function ProjectsFilterMenu({
 				className={SIDEBAR_FILTER_MENU_CONTENT_CLASS_NAME}
 			>
 				<ProjectFilterItem
-					icon={Folder}
-					label="Custom"
-					selected={sortBy === "custom"}
-					onSelect={() => onSortChange("custom")}
-				/>
-				<ProjectFilterItem
 					icon={ArrowUpAZ}
 					label="Name"
 					selected={sortBy === "name"}
@@ -692,7 +686,7 @@ function ProjectsFilterMenu({
 				<ProjectFilterItem
 					icon={Clock3}
 					label="Updated"
-					selected={sortBy === "updated"}
+					selected={sortBy === "updated" || sortBy === "custom"}
 					onSelect={() => onSortChange("updated")}
 				/>
 			</DropdownMenuContent>
