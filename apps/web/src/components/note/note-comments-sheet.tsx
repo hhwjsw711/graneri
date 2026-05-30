@@ -1548,6 +1548,7 @@ function useNoteCommentsSheetController({
 	if (prefetchedThreadDetailsRef.current === null) {
 		prefetchedThreadDetailsRef.current = new Map();
 	}
+	const prefetchedThreadDetails = prefetchedThreadDetailsRef.current;
 	const inFlightThreadDetailPrefetchesRef = React.useRef<Map<
 		string,
 		Promise<ThreadDetail | null>
@@ -1555,6 +1556,8 @@ function useNoteCommentsSheetController({
 	if (inFlightThreadDetailPrefetchesRef.current === null) {
 		inFlightThreadDetailPrefetchesRef.current = new Map();
 	}
+	const inFlightThreadDetailPrefetches =
+		inFlightThreadDetailPrefetchesRef.current;
 	const [, forceThreadDetailCacheRender] = React.useReducer(
 		(count: number) => count + 1,
 		0,
@@ -1653,7 +1656,7 @@ function useNoteCommentsSheetController({
 		);
 	}, [threads, visibleThreadIdSet, visibleThreadOrder]);
 	const cachedExpandedThread = expandedThreadId
-		? prefetchedThreadDetailsRef.current.get(String(expandedThreadId))
+		? prefetchedThreadDetails.get(String(expandedThreadId))
 		: undefined;
 	const resolvedExpandedThread =
 		expandedThread !== undefined ? expandedThread : cachedExpandedThread;
@@ -1662,20 +1665,20 @@ function useNoteCommentsSheetController({
 	const commitPrefetchedThreadDetail = React.useCallback(
 		(threadId: Id<"noteCommentThreads">, detail: ThreadDetail | null) => {
 			const cacheKey = String(threadId);
-			const cachedDetail = prefetchedThreadDetailsRef.current.get(cacheKey);
+			const cachedDetail = prefetchedThreadDetails.get(cacheKey);
 
 			if (cachedDetail === detail) {
 				return detail;
 			}
 
-			prefetchedThreadDetailsRef.current.set(cacheKey, detail);
+			prefetchedThreadDetails.set(cacheKey, detail);
 			React.startTransition(() => {
 				forceThreadDetailCacheRender();
 			});
 
 			return detail;
 		},
-		[],
+		[prefetchedThreadDetails],
 	);
 
 	const prefetchThreadDetail = React.useCallback(
@@ -1685,13 +1688,12 @@ function useNoteCommentsSheetController({
 			}
 
 			const cacheKey = String(threadId);
-			const cachedDetail = prefetchedThreadDetailsRef.current.get(cacheKey);
+			const cachedDetail = prefetchedThreadDetails.get(cacheKey);
 			if (cachedDetail !== undefined) {
 				return Promise.resolve(cachedDetail);
 			}
 
-			const inFlightRequest =
-				inFlightThreadDetailPrefetchesRef.current.get(cacheKey);
+			const inFlightRequest = inFlightThreadDetailPrefetches.get(cacheKey);
 			if (inFlightRequest) {
 				return inFlightRequest;
 			}
@@ -1708,13 +1710,20 @@ function useNoteCommentsSheetController({
 					return commitPrefetchedThreadDetail(threadId, null);
 				})
 				.finally(() => {
-					inFlightThreadDetailPrefetchesRef.current.delete(cacheKey);
+					inFlightThreadDetailPrefetches.delete(cacheKey);
 				});
 
-			inFlightThreadDetailPrefetchesRef.current.set(cacheKey, request);
+			inFlightThreadDetailPrefetches.set(cacheKey, request);
 			return request;
 		},
-		[commitPrefetchedThreadDetail, convex, noteId, workspaceId],
+		[
+			commitPrefetchedThreadDetail,
+			convex,
+			inFlightThreadDetailPrefetches,
+			noteId,
+			prefetchedThreadDetails,
+			workspaceId,
+		],
 	);
 
 	React.useEffect(() => {
@@ -1736,12 +1745,16 @@ function useNoteCommentsSheetController({
 		}
 
 		lastThreadDetailCacheScopeKeyRef.current = threadDetailCacheScopeKey;
-		prefetchedThreadDetailsRef.current.clear();
-		inFlightThreadDetailPrefetchesRef.current.clear();
+		prefetchedThreadDetails.clear();
+		inFlightThreadDetailPrefetches.clear();
 		React.startTransition(() => {
 			forceThreadDetailCacheRender();
 		});
-	}, [threadDetailCacheScopeKey]);
+	}, [
+		inFlightThreadDetailPrefetches,
+		prefetchedThreadDetails,
+		threadDetailCacheScopeKey,
+	]);
 
 	React.useEffect(() => {
 		if (!visibleThreads?.length) {

@@ -696,7 +696,8 @@ export const useNoteTranscriptSession = ({
 		const intervalId = window.setInterval(() => {
 			if (
 				hasRequestedAutomaticStopRef.current ||
-				Date.now() - lastAudioActivityAtRef.current < granolaIdleStopMs
+				Date.now() - (lastAudioActivityAtRef.current ?? Date.now()) <
+					granolaIdleStopMs
 			) {
 				return;
 			}

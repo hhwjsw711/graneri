@@ -86,12 +86,12 @@ const updateStarredSortOrder = <TDoc extends { _id: string }>(
 ) => {
 	const orderById = new Map(
 		items.flatMap((item, index) =>
-			item.kind === kind ? [[item.id, index] as const] : [],
+			item.kind === kind ? [[String(item.id), index] as const] : [],
 		),
 	);
 
 	return docs.map((doc) => {
-		const starredSortOrder = orderById.get(doc._id);
+		const starredSortOrder = orderById.get(String(doc._id));
 		return starredSortOrder === undefined ? doc : { ...doc, starredSortOrder };
 	});
 };

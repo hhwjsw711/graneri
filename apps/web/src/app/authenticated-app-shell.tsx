@@ -686,7 +686,7 @@ const useAppShellState = ({
 			}
 
 			const contentUrl = nextSettingsOpen
-				? new URL(lastNonSettingsLocationRef.current, url.origin)
+				? new URL(lastNonSettingsLocationRef.current ?? "/home", url.origin)
 				: url;
 			const nextLocationState = getAppLocationState(contentUrl);
 			const nextChatId = nextLocationState.chatId;
