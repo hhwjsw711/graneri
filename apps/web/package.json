@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 3000 --strictPort",
     "build": "tsc -b && vite build",
     "build:desktop": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b",
     "test": "vitest run --environment jsdom",
     "preview": "vite preview",
     "lint": "biome lint .",
