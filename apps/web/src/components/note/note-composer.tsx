@@ -170,6 +170,10 @@ import {
 import { NoteChatMessagesEntry } from "./note-chat-messages-entry";
 
 type NoteChatPresentation = "inline" | "floating" | "sidebar";
+const noteRecipePickerListboxProps = {
+	role: "listbox" as const,
+	"aria-label": "Recipe suggestions",
+};
 const NOTE_CHAT_FLOATING_WIDTH = "min(28rem, calc(100vw - 2rem))";
 const NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX =
 	"opengran.noteComposer.floatingHeight";
@@ -3085,14 +3089,9 @@ function NoteRecipeMentionPicker({
 		return null;
 	}
 
-	const listboxProps = {
-		role: "listbox" as const,
-		"aria-label": "Recipe suggestions",
-	};
-
 	return createPortal(
 		<div
-			{...listboxProps}
+			{...noteRecipePickerListboxProps}
 			className="fixed z-[70] flex w-72 flex-col rounded-lg bg-popover p-0 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 pointer-events-auto"
 			style={{
 				top: position.top,

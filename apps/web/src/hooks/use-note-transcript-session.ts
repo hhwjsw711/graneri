@@ -74,7 +74,10 @@ export const useNoteTranscriptSession = ({
 	const hasHydratedStoredTranscriptSessionRef = React.useRef(false);
 	const hasLoadedTranscriptDraftContentRef = React.useRef(false);
 	const loadedTranscriptDraftUpdatedAtRef = React.useRef<number | null>(null);
-	const lastAudioActivityAtRef = React.useRef(Date.now());
+	const lastAudioActivityAtRef = React.useRef<number | null>(null);
+	if (lastAudioActivityAtRef.current === null) {
+		lastAudioActivityAtRef.current = Date.now();
+	}
 	const transcriptUtterancesRef = React.useRef<TranscriptUtterance[]>([]);
 	const listeningStartedAtRef = React.useRef<number | null>(null);
 	const transcriptSessionStartPromiseRef =
@@ -83,8 +86,9 @@ export const useNoteTranscriptSession = ({
 		React.useRef<Id<"transcriptSessions"> | null>(null);
 	const lastCompletedTranscriptSessionIdRef =
 		React.useRef<Id<"transcriptSessions"> | null>(null);
-	const persistedTranscriptUtteranceIdsRef = React.useRef<Set<string>>(
-		new Set(),
+	const persistedTranscriptUtteranceIds = React.useMemo(
+		() => new Set<string>(),
+		[],
 	);
 	const queuedTranscriptUtterancesRef = React.useRef<TranscriptUtterance[]>([]);
 	const sessionSystemAudioModePersistedRef =
@@ -104,7 +108,9 @@ export const useNoteTranscriptSession = ({
 		setCaptureScopeKey,
 		transcriptionSession,
 	} = useNoteTranscriptScope({
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		noteId,
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		shouldLoadStoredTranscriptHistory,
 	});
 	const previousTranscriptDraftKeyRef = React.useRef(captureTranscriptDraftKey);
@@ -207,7 +213,7 @@ export const useNoteTranscriptSession = ({
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
+		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 		setCaptureScopeKey((currentScopeKey) =>
 			currentScopeKey === resolvedCaptureScopeKey
 				? currentScopeKey
@@ -315,7 +321,7 @@ export const useNoteTranscriptSession = ({
 			activeTranscriptSessionIdRef.current = null;
 			lastCompletedTranscriptSessionIdRef.current = null;
 			sessionSystemAudioModePersistedRef.current = null;
-			persistedTranscriptUtteranceIdsRef.current = new Set();
+			persistedTranscriptUtteranceIds.clear();
 			queuedTranscriptUtterancesRef.current = [];
 
 			if (clearDraft) {
@@ -324,7 +330,11 @@ export const useNoteTranscriptSession = ({
 				);
 			}
 		},
-		[captureTranscriptDraftKey, captureTranscriptSessionRepository],
+		[
+			captureTranscriptDraftKey,
+			captureTranscriptSessionRepository,
+			persistedTranscriptUtteranceIds,
+		],
 	);
 
 	const restoreTranscriptDraft = React.useCallback(
@@ -335,16 +345,17 @@ export const useNoteTranscriptSession = ({
 		}) => {
 			hasLoadedTranscriptDraftContentRef.current = true;
 			loadedTranscriptDraftUpdatedAtRef.current = draft.updatedAt;
-			persistedTranscriptUtteranceIdsRef.current = new Set(
-				draft.utterances.map((utterance) => utterance.id),
-			);
+			persistedTranscriptUtteranceIds.clear();
+			for (const utterance of draft.utterances) {
+				persistedTranscriptUtteranceIds.add(utterance.id);
+			}
 			setTranscriptUtterances(draft.utterances);
 			setPendingGenerateTranscript(
 				draft.pendingGenerateTranscript.trim() ||
 					createTranscriptText(draft.utterances),
 			);
 		},
-		[],
+		[persistedTranscriptUtteranceIds],
 	);
 
 	const hydrateStoredTranscriptSession = React.useCallback(
@@ -365,9 +376,10 @@ export const useNoteTranscriptSession = ({
 			activeTranscriptSessionIdRef.current = null;
 			lastCompletedTranscriptSessionIdRef.current = latestSession.sessionId;
 			setActiveTranscriptSessionId(null);
-			persistedTranscriptUtteranceIdsRef.current = new Set(
-				latestSession.utterances.map((utterance) => utterance.id),
-			);
+			persistedTranscriptUtteranceIds.clear();
+			for (const utterance of latestSession.utterances) {
+				persistedTranscriptUtteranceIds.add(utterance.id);
+			}
 			setTranscriptUtterances(latestSession.utterances);
 			setPendingGenerateTranscript(
 				latestSession.generatedNoteAt ||
@@ -376,7 +388,7 @@ export const useNoteTranscriptSession = ({
 					: latestServerTranscript,
 			);
 		},
-		[],
+		[persistedTranscriptUtteranceIds],
 	);
 
 	const markSpeechListeningStarted = React.useCallback(() => {
@@ -411,7 +423,7 @@ export const useNoteTranscriptSession = ({
 			utterance: TranscriptUtterance,
 			source: "live" | "refined",
 		) => {
-			if (persistedTranscriptUtteranceIdsRef.current.has(utterance.id)) {
+			if (persistedTranscriptUtteranceIds.has(utterance.id)) {
 				return;
 			}
 
@@ -420,9 +432,9 @@ export const useNoteTranscriptSession = ({
 				source,
 				utterance,
 			});
-			persistedTranscriptUtteranceIdsRef.current.add(utterance.id);
+			persistedTranscriptUtteranceIds.add(utterance.id);
 		},
-		[captureTranscriptSessionRepository],
+		[captureTranscriptSessionRepository, persistedTranscriptUtteranceIds],
 	);
 
 	const flushQueuedTranscriptUtterances = React.useCallback(
@@ -452,7 +464,7 @@ export const useNoteTranscriptSession = ({
 			return await transcriptSessionStartPromiseRef.current;
 		}
 
-		persistedTranscriptUtteranceIdsRef.current = new Set();
+		persistedTranscriptUtteranceIds.clear();
 		const nextSessionPromise = captureTranscriptSessionRepository
 			.startSession({
 				noteId: captureScopeNoteId,
@@ -486,6 +498,7 @@ export const useNoteTranscriptSession = ({
 		systemAudioStatus.sourceMode,
 		systemAudioStatus.state,
 		captureTranscriptSessionRepository,
+		persistedTranscriptUtteranceIds,
 	]);
 
 	React.useEffect(() => {
@@ -509,9 +522,9 @@ export const useNoteTranscriptSession = ({
 		}
 
 		previousTranscriptDraftKeyRef.current = captureTranscriptDraftKey;
-		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
+		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 		setGeneratedTranscriptSessionId(null);
-		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
+		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 		resetTranscriptSessionState();
 	}, [
 		captureTranscriptDraftKey,

@@ -32,6 +32,14 @@ import { getAvatarSrc } from "@/lib/avatar";
 import { getWorkspaceRoleOption, type WorkspaceRecord } from "@/lib/workspaces";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
+const getWorkspaceInitials = (workspaceName: string) =>
+	workspaceName
+		.split(" ")
+		.map((part) => part[0])
+		.join("")
+		.slice(0, 2)
+		.toUpperCase();
+
 export function WorkspaceSwitcher({
 	workspaces,
 	activeWorkspaceId,
@@ -63,13 +71,6 @@ export function WorkspaceSwitcher({
 		getAvatarSrc({
 			name: activeWorkspace.name,
 		});
-	const getWorkspaceInitials = (workspaceName: string) =>
-		workspaceName
-			.split(" ")
-			.map((part) => part[0])
-			.join("")
-			.slice(0, 2)
-			.toUpperCase();
 	const handleCreateWorkspace = () => {
 		startWorkspaceCreation(async () => {
 			try {

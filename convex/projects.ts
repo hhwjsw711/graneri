@@ -3,6 +3,11 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
+import {
+	assertSidebarReorderInputSize,
+	assertSidebarStoredReorderSize,
+	MAX_SIDEBAR_REORDER_ITEMS,
+} from "./reorderLimits";
 
 const projectFields = {
 	_id: v.id("projects"),
@@ -336,6 +341,11 @@ export const reorder = mutation({
 			});
 		}
 
+		assertSidebarReorderInputSize({
+			count: args.projectIds.length,
+			errorCode: "PROJECT_ORDER_TOO_LARGE",
+		});
+
 		const projects = await ctx.db
 			.query("projects")
 			.withIndex("by_owner_ws_sortOrder", (q) =>
@@ -343,7 +353,12 @@ export const reorder = mutation({
 					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
 					.eq("workspaceId", args.workspaceId),
 			)
-			.take(100);
+			.take(MAX_SIDEBAR_REORDER_ITEMS + 1);
+		assertSidebarStoredReorderSize({
+			count: projects.length,
+			errorCode: "PROJECT_ORDER_TOO_LARGE",
+		});
+
 		if (projects.length !== args.projectIds.length) {
 			throw new ConvexError({
 				code: "PROJECT_ORDER_MISMATCH",
@@ -359,10 +374,22 @@ export const reorder = mutation({
 			});
 		}
 
+		const projectsById = new Map(
+			projects.map((project) => [project._id, project]),
+		);
+		const orderUpdates = args.projectIds.flatMap((projectId, index) => {
+			const project = projectsById.get(projectId);
+			if (project?.sortOrder === index) {
+				return [];
+			}
+
+			return [{ projectId, sortOrder: index }];
+		});
+
 		await Promise.all(
-			args.projectIds.map((projectId, index) =>
+			orderUpdates.map(({ projectId, sortOrder }) =>
 				ctx.db.patch(projectId, {
-					sortOrder: index,
+					sortOrder,
 				}),
 			),
 		);

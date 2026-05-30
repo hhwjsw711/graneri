@@ -98,3 +98,45 @@ test("starred.reorder persists mixed starred item order", async () => {
 		project: 2,
 	});
 });
+
+test("starred.reorder rejects oversized starred lists instead of partially reordering", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+	const noteIds = await asOwner.run(async (ctx) => {
+		const ids = [];
+		for (let index = 0; index < 101; index += 1) {
+			ids.push(
+				await ctx.db.insert("notes", {
+					ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+					workspaceId,
+					isStarred: true,
+					starredSortOrder: index,
+					title: `Note ${index}`,
+					content: "",
+					searchableText: "",
+					visibility: "private",
+					isArchived: false,
+					createdAt: index,
+					updatedAt: index,
+				}),
+			);
+		}
+		return ids;
+	});
+
+	await expect(
+		asOwner
+			.mutation(api.starred.reorder, {
+				workspaceId,
+				items: noteIds
+					.slice(0, 100)
+					.map((id) => ({ kind: "note" as const, id })),
+			})
+			.catch((error) => {
+				expect(error).toBeInstanceOf(Error);
+				expect(String((error as { data?: string }).data)).toContain(
+					"STARRED_ORDER_TOO_LARGE",
+				);
+				throw error;
+			}),
+	).rejects.toBeInstanceOf(Error);
+});

@@ -88,6 +88,7 @@ import {
 	SidebarSortableList,
 	useSidebarSortableBindings,
 } from "./sidebar-sortable-list";
+import { resolveSidebarSortableItems } from "./sidebar-sortable-utils";
 
 const SIDEBAR_PROJECT_SKELETON_IDS = [
 	"sidebar-project-skeleton-1",
@@ -765,7 +766,16 @@ function ProjectSidebarList({
 	);
 	const handleReorder = React.useCallback(
 		(ids: Array<string>) => {
-			onReorder(ids.flatMap((id) => projectIdsBySortableId.get(id) ?? []));
+			const projectIds = resolveSidebarSortableItems(
+				ids,
+				projectIdsBySortableId,
+			);
+			if (!projectIds) {
+				toast.error("Failed to reorder projects");
+				return;
+			}
+
+			onReorder(projectIds);
 		},
 		[onReorder, projectIdsBySortableId],
 	);

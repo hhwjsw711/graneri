@@ -320,9 +320,10 @@ const useAppShellState = ({
 	}, [userPreferences]);
 	const creatingNoteRef = React.useRef(false);
 	const inboxOpenRef = React.useRef(inboxOpen);
-	const lastNonSettingsLocationRef = React.useRef(
-		getInitialNonSettingsLocation(),
-	);
+	const lastNonSettingsLocationRef = React.useRef<string | null>(null);
+	if (lastNonSettingsLocationRef.current === null) {
+		lastNonSettingsLocationRef.current = getInitialNonSettingsLocation();
+	}
 	const user = React.useMemo(
 		() => toAppUser(session, userPreferences?.avatarUrl),
 		[session, userPreferences?.avatarUrl],

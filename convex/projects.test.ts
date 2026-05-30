@@ -88,6 +88,44 @@ test("projects.reorder persists the custom project order", async () => {
 	expect(projects.map((project) => project.sortOrder)).toEqual([0, 1, 2]);
 });
 
+test("projects.reorder rejects oversized project lists instead of partially reordering", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+	const projectIds = await asOwner.run(async (ctx) => {
+		const ids = [];
+		for (let index = 0; index < 101; index += 1) {
+			ids.push(
+				await ctx.db.insert("projects", {
+					ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+					workspaceId,
+					name: `Project ${index}`,
+					normalizedName: `project ${index}`,
+					isStarred: false,
+					sortOrder: index,
+					starredSortOrder: index,
+					createdAt: index,
+					updatedAt: index,
+				}),
+			);
+		}
+		return ids;
+	});
+
+	await expect(
+		asOwner
+			.mutation(api.projects.reorder, {
+				workspaceId,
+				projectIds: projectIds.slice(0, 100),
+			})
+			.catch((error) => {
+				expect(error).toBeInstanceOf(Error);
+				expect(String((error as { data?: string }).data)).toContain(
+					"PROJECT_ORDER_TOO_LARGE",
+				);
+				throw error;
+			}),
+	).rejects.toBeInstanceOf(Error);
+});
+
 test("projects.create rejects duplicate names in the same workspace", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 

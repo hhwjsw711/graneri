@@ -745,6 +745,11 @@ const initialDataControlsState: DataControlsState = {
 	isDeletingAllChats: false,
 };
 
+const navigateTo = (pathname: string) => {
+	window.history.pushState(null, "", pathname);
+	window.dispatchEvent(new PopStateEvent("popstate"));
+};
+
 const initialYandexTrackerConnectionFormState: YandexTrackerConnectionFormState =
 	{
 		orgType: "x-org-id",
@@ -4247,11 +4252,6 @@ function DataControlsSettings({
 		showDeleteAllChatsDialog,
 		isDeletingAllChats,
 	} = state;
-
-	const navigateTo = (pathname: string) => {
-		window.history.pushState(null, "", pathname);
-		window.dispatchEvent(new PopStateEvent("popstate"));
-	};
 
 	const handleDeleteAccount = async () => {
 		setState((currentState) => ({

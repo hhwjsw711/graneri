@@ -24,6 +24,7 @@ import {
 	SidebarSortableList,
 	useSidebarSortableBindings,
 } from "@/components/nav/sidebar-sortable-list";
+import { resolveSidebarSortableItems } from "@/components/nav/sidebar-sortable-utils";
 import { NoteActionsMenu } from "@/components/note/note-actions-menu";
 import { getChatId } from "@/lib/chat";
 import { getNoteDisplayTitle } from "@/lib/note-title";
@@ -238,10 +239,14 @@ export function NavStarred({
 				return;
 			}
 
-			const items = sortableIds.flatMap((id) => {
-				const item = starredReorderItemsBySortableId.get(id);
-				return item ? [item] : [];
-			});
+			const items = resolveSidebarSortableItems(
+				sortableIds,
+				starredReorderItemsBySortableId,
+			);
+			if (!items) {
+				toast.error("Failed to reorder starred items");
+				return;
+			}
 
 			void reorderStarred({ workspaceId, items }).catch((error) => {
 				console.error("Failed to reorder starred items", error);

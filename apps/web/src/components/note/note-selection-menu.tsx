@@ -168,6 +168,10 @@ const BLOCK_STYLE_OPTIONS: BlockStyleOption[] = [
 	},
 ];
 
+const preventEditorBlur = (event: React.MouseEvent<HTMLElement>) => {
+	event.preventDefault();
+};
+
 export function NoteSelectionMenu({ onComment }: { onComment: () => void }) {
 	const { editor } = useTiptap();
 	const [blockMenuOpen, setBlockMenuOpen] = React.useState(false);
@@ -193,9 +197,6 @@ export function NoteSelectionMenu({ onComment }: { onComment: () => void }) {
 		BLOCK_STYLE_OPTIONS.find(
 			(option) => option.id === editorState.activeBlockStyleId,
 		) ?? BLOCK_STYLE_OPTIONS[0];
-	const preventEditorBlur = (event: React.MouseEvent<HTMLElement>) => {
-		event.preventDefault();
-	};
 	const dismissBlockSelectionMenu = React.useCallback(() => {
 		const collapsePosition = editor.state.selection.to;
 

@@ -23,7 +23,7 @@ import type { ChatAttachment, UploadResult } from "./file-attachment-utils";
 export type { ChatAttachment } from "./file-attachment-utils";
 
 export function useRevokeAttachmentObjectUrls(attachments: ChatAttachment[]) {
-	const localUrlByIdRef = React.useRef(new Map<string, string>());
+	const localUrlById = React.useMemo(() => new Map<string, string>(), []);
 
 	React.useEffect(() => {
 		const nextLocalUrlById = new Map<string, string>();
@@ -34,23 +34,26 @@ export function useRevokeAttachmentObjectUrls(attachments: ChatAttachment[]) {
 			}
 		}
 
-		for (const [id, localUrl] of localUrlByIdRef.current) {
+		for (const [id, localUrl] of localUrlById) {
 			if (nextLocalUrlById.get(id) !== localUrl) {
 				URL.revokeObjectURL(localUrl);
 			}
 		}
 
-		localUrlByIdRef.current = nextLocalUrlById;
-	}, [attachments]);
+		localUrlById.clear();
+		for (const [id, localUrl] of nextLocalUrlById) {
+			localUrlById.set(id, localUrl);
+		}
+	}, [attachments, localUrlById]);
 
 	React.useEffect(
 		() => () => {
-			for (const localUrl of localUrlByIdRef.current.values()) {
+			for (const localUrl of localUrlById.values()) {
 				URL.revokeObjectURL(localUrl);
 			}
-			localUrlByIdRef.current.clear();
+			localUrlById.clear();
 		},
-		[],
+		[localUrlById],
 	);
 }
 

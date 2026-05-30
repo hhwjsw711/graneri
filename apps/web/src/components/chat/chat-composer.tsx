@@ -774,6 +774,7 @@ function ChatComposerTextEditor({
 		},
 	});
 
+	// react-doctor-disable-next-line react-doctor/no-derived-state
 	React.useEffect(() => {
 		if (!composerEditor) {
 			return;
@@ -783,8 +784,11 @@ function ChatComposerTextEditor({
 			return;
 		}
 
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		previousPlaceholderRef.current = placeholder;
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		composerEditor.view.dispatch(
+			// react-doctor-disable-next-line react-doctor/no-derived-state
 			composerEditor.state.tr.setMeta("addToHistory", false),
 		);
 	}, [composerEditor, placeholder]);

@@ -3,6 +3,11 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { requireOwnedWorkspace, requireTokenIdentifier } from "./domain";
+import {
+	assertSidebarReorderInputSize,
+	assertSidebarStoredReorderSize,
+	MAX_SIDEBAR_REORDER_ITEMS,
+} from "./reorderLimits";
 
 const starredItemValidator = v.union(
 	v.object({
@@ -38,57 +43,50 @@ const getStoredStarredItems = async ({
 	const [notes, chats, projects] = await Promise.all([
 		ctx.db
 			.query("notes")
-			.withIndex("by_owner_ws_arch_upd", (q) =>
-				q
-					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-					.eq("workspaceId", workspaceId)
-					.eq("isArchived", false),
+			.withIndex(
+				"by_owner_workspace_archived_starred_starredOrder",
+				(q) =>
+					q
+						.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+						.eq("workspaceId", workspaceId)
+						.eq("isArchived", false)
+						.eq("isStarred", true),
 			)
-			.take(100),
+			.take(MAX_SIDEBAR_REORDER_ITEMS + 1),
 		ctx.db
 			.query("chats")
-			.withIndex("by_owner_ws_chat_arch_upd", (q) =>
-				q
-					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-					.eq("workspaceId", workspaceId)
-					.eq("isArchived", false),
+			.withIndex(
+				"by_owner_workspace_archived_starred_starredOrder",
+				(q) =>
+					q
+						.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+						.eq("workspaceId", workspaceId)
+						.eq("isArchived", false)
+						.eq("isStarred", true),
 			)
-			.take(100),
+			.take(MAX_SIDEBAR_REORDER_ITEMS + 1),
 		ctx.db
 			.query("projects")
-			.withIndex("by_owner_ws_sortOrder", (q) =>
-				q
-					.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-					.eq("workspaceId", workspaceId),
+			.withIndex(
+				"by_owner_workspace_starred_starredOrder",
+				(q) =>
+					q
+						.eq("ownerTokenIdentifier", ownerTokenIdentifier)
+						.eq("workspaceId", workspaceId)
+						.eq("isStarred", true),
 			)
-			.take(100),
+			.take(MAX_SIDEBAR_REORDER_ITEMS + 1),
 	]);
 
 	return [
-		...notes.flatMap((note) =>
-			note.isStarred ? [{ kind: "note" as const, id: note._id, doc: note }] : [],
-		),
-		...chats.flatMap((chat) =>
-			chat.isStarred ? [{ kind: "chat" as const, id: chat._id, doc: chat }] : [],
-		),
-		...projects.flatMap((project) =>
-			project.isStarred
-				? [{ kind: "project" as const, id: project._id, doc: project }]
-				: [],
-		),
+		...notes.map((note) => ({ kind: "note" as const, id: note._id, doc: note })),
+		...chats.map((chat) => ({ kind: "chat" as const, id: chat._id, doc: chat })),
+		...projects.map((project) => ({
+			kind: "project" as const,
+			id: project._id,
+			doc: project,
+		})),
 	];
-};
-
-const patchStarredSortOrder = async ({
-	ctx,
-	item,
-	starredSortOrder,
-}: {
-	ctx: MutationCtx;
-	item: StarredItem;
-	starredSortOrder: number;
-}) => {
-	await ctx.db.patch(item.id, { starredSortOrder });
 };
 
 export const reorder = mutation({
@@ -100,6 +98,11 @@ export const reorder = mutation({
 	handler: async (ctx, args) => {
 		const ownerTokenIdentifier = await requireTokenIdentifier(ctx, "starred");
 		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
+
+		assertSidebarReorderInputSize({
+			count: args.items.length,
+			errorCode: "STARRED_ORDER_TOO_LARGE",
+		});
 
 		const storedItems = await getStoredStarredItems({
 			ctx,
@@ -119,6 +122,11 @@ export const reorder = mutation({
 			});
 		}
 
+		assertSidebarStoredReorderSize({
+			count: storedItems.length,
+			errorCode: "STARRED_ORDER_TOO_LARGE",
+		});
+
 		if (storedItems.length !== args.items.length) {
 			throw new ConvexError({
 				code: "STARRED_ORDER_MISMATCH",
@@ -133,9 +141,20 @@ export const reorder = mutation({
 			});
 		}
 
+		const orderUpdates = args.items.flatMap((item, index) => {
+			const storedItem = storedItemsByKey.get(getStarredItemKey(item));
+			if (storedItem?.starredSortOrder === index) {
+				return [];
+			}
+
+			return [{ item, starredSortOrder: index }];
+		});
+
 		await Promise.all(
-			args.items.map((item, index) =>
-				patchStarredSortOrder({ ctx, item, starredSortOrder: index }),
+			orderUpdates.map(({ item, starredSortOrder }) =>
+				ctx.db.patch(item.id, {
+					starredSortOrder,
+				}),
 			),
 		);
 

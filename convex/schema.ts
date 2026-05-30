@@ -226,6 +226,12 @@ export default defineSchema({
 			"ownerTokenIdentifier",
 			"workspaceId",
 			"updatedAt",
+		])
+		.index("by_owner_workspace_starred_starredOrder", [
+			"ownerTokenIdentifier",
+			"workspaceId",
+			"isStarred",
+			"starredSortOrder",
 		]),
 	notes: defineTable({
 		ownerTokenIdentifier: v.string(),
@@ -287,6 +293,13 @@ export default defineSchema({
 			"projectId",
 			"isArchived",
 			"updatedAt",
+		])
+		.index("by_owner_workspace_archived_starred_starredOrder", [
+			"ownerTokenIdentifier",
+			"workspaceId",
+			"isArchived",
+			"isStarred",
+			"starredSortOrder",
 		])
 		.index("by_ownerTokenIdentifier_and_isArchived_and_updatedAt", [
 			"ownerTokenIdentifier",
@@ -438,6 +451,13 @@ export default defineSchema({
 			"noteId",
 			"isArchived",
 			"updatedAt",
+		])
+		.index("by_owner_workspace_archived_starred_starredOrder", [
+			"ownerTokenIdentifier",
+			"workspaceId",
+			"isArchived",
+			"isStarred",
+			"starredSortOrder",
 		])
 		.index("by_ownerTokenIdentifier_and_workspaceId_and_chatId", [
 			"ownerTokenIdentifier",

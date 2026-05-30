@@ -138,6 +138,11 @@ type AutomationMentionPickerItem =
 			source: AutomationNoteSource;
 	  };
 
+const automationMentionPickerListboxProps = {
+	role: "listbox" as const,
+	"aria-label": "Mention suggestions",
+};
+
 const filterAutomationNotes = (
 	sources: AutomationNoteSource[],
 	query: string,
@@ -1331,14 +1336,9 @@ function AutomationMentionPicker({
 		return null;
 	}
 
-	const listboxProps = {
-		role: "listbox" as const,
-		"aria-label": "Mention suggestions",
-	};
-
 	return createPortal(
 		<div
-			{...listboxProps}
+			{...automationMentionPickerListboxProps}
 			className="fixed z-[70] flex w-56 flex-col rounded-lg bg-popover p-0 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 pointer-events-auto"
 			style={{ top: position.top, left: position.left }}
 			onPointerDown={(event) => {

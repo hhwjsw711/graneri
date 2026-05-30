@@ -7,7 +7,7 @@ import { useTranscriptionSession } from "@/hooks/use-transcription-session";
 import type { TranscriptionControllerState } from "@/lib/transcription-session-types";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
-export const getScopedNoteId = (scopeKey: string): Id<"notes"> | null => {
+const getScopedNoteId = (scopeKey: string): Id<"notes"> | null => {
 	if (!scopeKey.startsWith("note:")) {
 		return null;
 	}

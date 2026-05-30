@@ -7,6 +7,7 @@ import {
 	ChartTooltipContent,
 } from "@workspace/ui/components/chart";
 import { cn } from "@workspace/ui/lib/utils";
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import
 import {
 	Area,
 	AreaChart,

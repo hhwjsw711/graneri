@@ -1541,12 +1541,20 @@ function useNoteCommentsSheetController({
 	const lastSyncedActiveThreadIdRef =
 		React.useRef<Id<"noteCommentThreads"> | null>(null);
 	const lastThreadDetailCacheScopeKeyRef = React.useRef<string>("");
-	const prefetchedThreadDetailsRef = React.useRef<
-		Map<string, ThreadDetail | null>
-	>(new Map());
-	const inFlightThreadDetailPrefetchesRef = React.useRef<
-		Map<string, Promise<ThreadDetail | null>>
-	>(new Map());
+	const prefetchedThreadDetailsRef = React.useRef<Map<
+		string,
+		ThreadDetail | null
+	> | null>(null);
+	if (prefetchedThreadDetailsRef.current === null) {
+		prefetchedThreadDetailsRef.current = new Map();
+	}
+	const inFlightThreadDetailPrefetchesRef = React.useRef<Map<
+		string,
+		Promise<ThreadDetail | null>
+	> | null>(null);
+	if (inFlightThreadDetailPrefetchesRef.current === null) {
+		inFlightThreadDetailPrefetchesRef.current = new Map();
+	}
 	const [, forceThreadDetailCacheRender] = React.useReducer(
 		(count: number) => count + 1,
 		0,

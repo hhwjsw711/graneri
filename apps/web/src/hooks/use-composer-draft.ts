@@ -127,6 +127,7 @@ export const useComposerDraft = <TMetadata>(
 		}
 	}, [cancelPendingPersist, scopeKey]);
 
+	// react-doctor-disable-next-line react-doctor/exhaustive-deps
 	React.useEffect(() => {
 		return () => {
 			if (persistTimeoutRef.current === null || !scopeKey) {

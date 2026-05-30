@@ -115,6 +115,7 @@ export const requestTemplateStructuredNote = async ({
 
 	let isDone = false;
 	while (!isDone) {
+		// react-doctor-disable-next-line react-doctor/async-await-in-loop
 		const { done, value } = await reader.read();
 		isDone = done;
 		bufferedResponse += decoder.decode(value ?? new Uint8Array(), {

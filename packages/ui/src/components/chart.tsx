@@ -1,6 +1,7 @@
 import { cn } from "@workspace/ui/lib/utils";
 import * as React from "react";
 import type { TooltipValueType } from "recharts";
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import
 import * as RechartsPrimitive from "recharts";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
@@ -88,13 +89,9 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
 		return null;
 	}
 
-	return (
-		<style
-			// biome-ignore lint/security/noDangerouslySetInnerHtml: shadcn charts scope generated CSS variables to this chart id.
-			dangerouslySetInnerHTML={{
-				__html: Object.entries(THEMES)
-					.map(
-						([theme, prefix]) => `
+	const style = Object.entries(THEMES)
+		.map(
+			([theme, prefix]) => `
 ${prefix} [data-chart=${id}] {
 ${colorConfig
 	.map(([key, itemConfig]) => {
@@ -106,11 +103,10 @@ ${colorConfig
 	.join("\n")}
 }
 `,
-					)
-					.join("\n"),
-			}}
-		/>
-	);
+		)
+		.join("\n");
+
+	return <style>{style}</style>;
 };
 
 const ChartTooltip = RechartsPrimitive.Tooltip;
@@ -145,8 +141,12 @@ function ChartTooltipContent({
 	>) {
 	const { config } = useChart();
 
-	const tooltipLabel = React.useMemo(() => {
-		if (hideLabel || !payload?.length) {
+	if (!active || !payload?.length) {
+		return null;
+	}
+
+	const tooltipLabel = (() => {
+		if (hideLabel) {
 			return null;
 		}
 
@@ -171,19 +171,7 @@ function ChartTooltipContent({
 		}
 
 		return <div className={cn("font-medium", labelClassName)}>{value}</div>;
-	}, [
-		label,
-		labelFormatter,
-		payload,
-		hideLabel,
-		labelClassName,
-		config,
-		labelKey,
-	]);
-
-	if (!active || !payload?.length) {
-		return null;
-	}
+	})();
 
 	const nestLabel = payload.length === 1 && indicator !== "dot";
 
