@@ -513,9 +513,7 @@ function StarredChatItem({
 				</SidebarMenuAction>
 			</ChatActionsMenu>
 			<SidebarMenuButton
-				className={
-					sortable ? "min-w-0 cursor-grab active:cursor-grabbing" : "min-w-0"
-				}
+				className="min-w-0"
 				isActive={isActive}
 				onClick={() => onChatSelect(chatId)}
 				{...sortable?.buttonProps}
@@ -691,9 +689,6 @@ function StarredNoteButton({
 
 	return (
 		<SidebarMenuButton
-			className={
-				sortableButtonProps ? "cursor-grab active:cursor-grabbing" : undefined
-			}
 			isActive={isActive}
 			onFocus={() => onNotePrefetch(note._id)}
 			onMouseEnter={() => onNotePrefetch(note._id)}

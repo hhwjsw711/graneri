@@ -1207,11 +1207,7 @@ function ProjectSidebarRow({
 			<PopoverAnchor asChild>
 				<div className="group/project-row relative">
 					<SidebarMenuButton
-						className={
-							sortableButtonProps
-								? "cursor-grab pr-8 active:cursor-grabbing"
-								: "pr-8"
-						}
+						className="pr-8"
 						aria-expanded={isOpen}
 						onClick={onToggleOpen}
 						{...sortableButtonProps}
