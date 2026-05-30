@@ -8,8 +8,7 @@ import { forwardElectronOutput } from "./forward-electron-output.mjs";
 const require = createRequire(import.meta.url);
 const electronBinary = require("electron");
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const rendererUrl =
-	process.env.OPENGRAN_RENDERER_URL ?? "http://127.0.0.1:3000";
+const rendererUrl = process.env.GRANERI_RENDERER_URL ?? "http://127.0.0.1:3000";
 
 const sleep = (ms) =>
 	new Promise((resolvePromise) => {
@@ -42,7 +41,7 @@ const child = spawn(electronBinary, ["."], {
 	stdio: ["inherit", "pipe", "pipe"],
 	env: {
 		...process.env,
-		OPENGRAN_RENDERER_URL: rendererUrl,
+		GRANERI_RENDERER_URL: rendererUrl,
 	},
 });
 

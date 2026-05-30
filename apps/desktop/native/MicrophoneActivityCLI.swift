@@ -5,7 +5,7 @@ import Dispatch
 import Foundation
 
 final class StdoutEmitter: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.opengran.microphone-activity.stdout")
+	private let queue = DispatchQueue(label: "com.graneri.microphone-activity.stdout")
 	private let fileHandle = FileHandle.standardOutput
 
 	func send(event: [String: Any]) {
@@ -23,7 +23,7 @@ final class StdoutEmitter: @unchecked Sendable {
 }
 
 final class StderrLogger: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.opengran.microphone-activity.stderr")
+	private let queue = DispatchQueue(label: "com.graneri.microphone-activity.stderr")
 	private let fileHandle = FileHandle.standardError
 
 	func log(_ message: String) {
@@ -46,7 +46,7 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 
 	private let emitter: StdoutEmitter
 	private let logger: StderrLogger
-	private let queue = DispatchQueue(label: "com.opengran.microphone-activity.listener")
+	private let queue = DispatchQueue(label: "com.graneri.microphone-activity.listener")
 	private var deviceIDs: [AudioDeviceID] = []
 	private var lastActive = false
 	private var lastSourceName: String?
@@ -152,7 +152,7 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 
 	private static func preferredActiveInputClientName(matching inputDeviceIDs: Set<AudioDeviceID>) -> String? {
 		let clients = activeInputClients().filter { client in
-			!Self.isOpenGranClient(client) && Self.clientUsesInputDevice(client.pid, matching: inputDeviceIDs)
+			!Self.isGraneriClient(client) && Self.clientUsesInputDevice(client.pid, matching: inputDeviceIDs)
 		}
 
 		return clients.sorted { left, right in
@@ -295,8 +295,8 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 		return status == kAudioHardwareNoError && processID != AudioObjectID(kAudioObjectUnknown) ? processID : nil
 	}
 
-	private static func isOpenGranClient(_ client: ActiveInputClient) -> Bool {
-		client.bundleID?.hasPrefix("com.opengran") == true || client.name == "OpenGran"
+	private static func isGraneriClient(_ client: ActiveInputClient) -> Bool {
+		client.bundleID?.hasPrefix("com.graneri") == true || client.name == "Graneri"
 	}
 
 	private static func canonicalClientName(bundleID: String?, localizedName: String?) -> String? {

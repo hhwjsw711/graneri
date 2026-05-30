@@ -1,4 +1,4 @@
-export function OpenGranMark({ className }: { className?: string }) {
+export function GraneriMark({ className }: { className?: string }) {
 	return (
 		<svg
 			viewBox="0 0 24 24"

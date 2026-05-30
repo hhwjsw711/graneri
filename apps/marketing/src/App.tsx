@@ -1,10 +1,9 @@
 import { Button } from "@workspace/ui/components/button";
+import { GraneriMark } from "@workspace/ui/components/graneri-mark";
 import { Icons } from "@workspace/ui/components/icons";
-import { OpenGranMark } from "@workspace/ui/components/open-gran-mark";
 
-const githubProjectUrl = "https://github.com/murabcd/opengran";
-const desktopDownloadUrl =
-	"https://github.com/murabcd/opengran/releases/latest";
+const githubProjectUrl = "https://github.com/murabcd/graneri";
+const desktopDownloadUrl = "https://github.com/murabcd/graneri/releases/latest";
 const GithubLogo = Icons.githubLogo;
 const MacLogo = Icons.macLogo;
 
@@ -21,11 +20,11 @@ function App() {
 						href={githubProjectUrl}
 						target="_blank"
 						rel="noreferrer"
-						aria-label="OpenGran on GitHub"
+						aria-label="Graneri on GitHub"
 						className="group flex items-center self-center text-foreground transition-opacity hover:opacity-80"
 					>
 						<span className="relative flex size-10 items-center justify-center rounded-xl text-foreground">
-							<OpenGranMark className="size-5 transition-opacity duration-150 group-hover:opacity-0" />
+							<GraneriMark className="size-5 transition-opacity duration-150 group-hover:opacity-0" />
 							<GithubLogo className="absolute size-4.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
 						</span>
 					</a>
@@ -35,7 +34,7 @@ function App() {
 						<span className="block">move fast</span>
 					</h1>
 					<p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground md:text-xl">
-						OpenGran captures the conversation, untangles the noise, and leaves
+						Graneri captures the conversation, untangles the noise, and leaves
 						you with notes that are ready before the next call steals your
 						attention.
 					</p>

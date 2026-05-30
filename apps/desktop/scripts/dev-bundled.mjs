@@ -9,8 +9,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(packageRoot, "..", "..");
 const webPackageRoot = resolve(repoRoot, "apps", "web");
 const releaseDir = resolve(packageRoot, "release");
-const rendererUrl =
-	process.env.OPENGRAN_RENDERER_URL ?? "http://127.0.0.1:3000";
+const rendererUrl = process.env.GRANERI_RENDERER_URL ?? "http://127.0.0.1:3000";
 
 const sleep = (ms) =>
 	new Promise((resolvePromise) => {
@@ -78,10 +77,10 @@ const resolveBundledAppExecutable = async () => {
 		const executablePath = resolve(
 			releaseDir,
 			entry.name,
-			"OpenGran.app",
+			"Graneri.app",
 			"Contents",
 			"MacOS",
-			"OpenGran",
+			"Graneri",
 		);
 
 		if (existsSync(executablePath)) {
@@ -89,7 +88,7 @@ const resolveBundledAppExecutable = async () => {
 		}
 	}
 
-	throw new Error("Unable to locate the unpacked OpenGran.app executable.");
+	throw new Error("Unable to locate the unpacked Graneri.app executable.");
 };
 
 const ensureRendererServer = async () => {
@@ -179,10 +178,10 @@ const child = spawn(bundledAppExecutable, [], {
 	stdio: ["inherit", "pipe", "pipe"],
 	env: {
 		...process.env,
-		OPENGRAN_ENABLE_TRANSCRIPTION_DEBUG:
-			process.env.OPENGRAN_ENABLE_TRANSCRIPTION_DEBUG ?? "1",
-		OPENGRAN_DISABLE_UPDATER: "1",
-		OPENGRAN_RENDERER_URL: rendererUrl,
+		GRANERI_ENABLE_TRANSCRIPTION_DEBUG:
+			process.env.GRANERI_ENABLE_TRANSCRIPTION_DEBUG ?? "1",
+		GRANERI_DISABLE_UPDATER: "1",
+		GRANERI_RENDERER_URL: rendererUrl,
 	},
 });
 

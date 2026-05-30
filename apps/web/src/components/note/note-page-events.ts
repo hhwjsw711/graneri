@@ -1,1 +1,1 @@
-export const OPEN_NOTE_COMMENTS_EVENT = "opengran:open-note-comments";
+export const OPEN_NOTE_COMMENTS_EVENT = "graneri:open-note-comments";

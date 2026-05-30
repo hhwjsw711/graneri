@@ -60,7 +60,7 @@ export const createConvexGeneratedImageUploader =
 			filename: createGeneratedImageFilename(),
 			mediaType: GENERATED_IMAGE_MEDIA_TYPE,
 			providerMetadata: {
-				opengran: {
+				graneri: {
 					generatedBy: "ai",
 					storageId: result.storageId,
 				},

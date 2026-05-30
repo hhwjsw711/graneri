@@ -3,7 +3,7 @@
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 const COMMENTS_PANEL_PINNED_STORAGE_KEY_PREFIX =
-	"opengran.note-comments-panel-pinned.desktop";
+	"graneri.note-comments-panel-pinned.desktop";
 
 const getNoteCommentsPanelScopeKey = (noteId: Id<"notes"> | null) =>
 	noteId ? `note:${noteId}` : "note:draft";

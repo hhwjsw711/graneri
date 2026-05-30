@@ -148,9 +148,9 @@ const deferredOpenAIToolOptions = {
 };
 const MEDIA_TOOL_CANDIDATES = {
 	ffmpeg: [
-		process.env.OPENGRAN_FFMPEG_PATH,
-		process.env.OPENGRAN_MEDIA_TOOLS_DIR
-			? resolve(process.env.OPENGRAN_MEDIA_TOOLS_DIR, "ffmpeg")
+		process.env.GRANERI_FFMPEG_PATH,
+		process.env.GRANERI_MEDIA_TOOLS_DIR
+			? resolve(process.env.GRANERI_MEDIA_TOOLS_DIR, "ffmpeg")
 			: null,
 		process.resourcesPath
 			? resolve(
@@ -181,9 +181,9 @@ const MEDIA_TOOL_CANDIDATES = {
 		"/usr/bin/ffmpeg",
 	].filter(Boolean),
 	ffprobe: [
-		process.env.OPENGRAN_FFPROBE_PATH,
-		process.env.OPENGRAN_MEDIA_TOOLS_DIR
-			? resolve(process.env.OPENGRAN_MEDIA_TOOLS_DIR, "ffprobe")
+		process.env.GRANERI_FFPROBE_PATH,
+		process.env.GRANERI_MEDIA_TOOLS_DIR
+			? resolve(process.env.GRANERI_MEDIA_TOOLS_DIR, "ffprobe")
 			: null,
 		process.resourcesPath
 			? resolve(
@@ -366,7 +366,7 @@ const withDuration = async (operation) => {
 
 const logLocalToolEvent = (event, payload = {}) => {
 	if (
-		process.env.OPENGRAN_LOCAL_TOOLS_DEBUG !== "1" &&
+		process.env.GRANERI_LOCAL_TOOLS_DEBUG !== "1" &&
 		!event.startsWith("image_search_") &&
 		!event.startsWith("image_metadata_")
 	) {
@@ -889,7 +889,7 @@ const transcribeBuffer = async ({ audio, language, mediaType, prompt }) => {
 
 const splitMediaIntoAudioChunks = async ({ durationInSeconds, filePath }) => {
 	const ffmpeg = await findExecutable("ffmpeg");
-	const tempDirectory = await mkdtemp(join(tmpdir(), "opengran-transcribe-"));
+	const tempDirectory = await mkdtemp(join(tmpdir(), "graneri-transcribe-"));
 	const chunkCount = Math.ceil(durationInSeconds / TRANSCRIPTION_CHUNK_SECONDS);
 	const chunks = [];
 

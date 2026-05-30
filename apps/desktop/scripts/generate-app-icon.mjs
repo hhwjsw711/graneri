@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceIconPath = resolve(packageRoot, "src/assets/OpenGranDock.png");
+const sourceIconPath = resolve(packageRoot, "src/assets/GraneriDock.png");
 const buildDir = resolve(packageRoot, "build");
 const iconsetDir = resolve(buildDir, "icon.iconset");
 const outputIconPath = resolve(buildDir, "icon.icns");

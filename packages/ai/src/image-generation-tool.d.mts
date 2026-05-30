@@ -23,7 +23,7 @@ type GeneratedImageArtifact = {
 	filename: string;
 	mediaType: string;
 	providerMetadata: {
-		opengran: {
+		graneri: {
 			generatedBy: "ai";
 			storageId: string;
 		};

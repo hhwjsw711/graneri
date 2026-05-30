@@ -281,7 +281,7 @@ export const createDesktopTray = ({
 				label: "Quit options",
 				submenu: [
 					{
-						label: "Keep OpenGran in the menu bar",
+						label: "Keep Graneri in the menu bar",
 						type: "checkbox",
 						checked: traySettings.keepOpenInMenuBar,
 						click: (menuItem) => {

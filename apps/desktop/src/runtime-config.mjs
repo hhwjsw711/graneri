@@ -8,7 +8,7 @@ const trimConfigValue = (value) =>
 	typeof value === "string" ? value.trim() : "";
 
 const shouldUseHostedDefaults = () =>
-	app.isPackaged === true && process.env.OPENGRAN_ENV_MODE?.trim() !== "local";
+	app.isPackaged === true && process.env.GRANERI_ENV_MODE?.trim() !== "local";
 
 const deriveConvexSiteUrl = (convexUrl) => {
 	if (!convexUrl) {

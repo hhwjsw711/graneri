@@ -9,16 +9,16 @@ describe("pickDesktopReleaseAsset", () => {
 	it("prefers dmg assets over zip assets", () => {
 		const asset = pickDesktopReleaseAsset([
 			{
-				name: "OpenGran-0.1.0-mac.zip",
-				browser_download_url: "https://example.com/OpenGran-0.1.0-mac.zip",
+				name: "Graneri-0.1.0-mac.zip",
+				browser_download_url: "https://example.com/Graneri-0.1.0-mac.zip",
 			},
 			{
-				name: "OpenGran-0.1.0.dmg",
-				browser_download_url: "https://example.com/OpenGran-0.1.0.dmg",
+				name: "Graneri-0.1.0.dmg",
+				browser_download_url: "https://example.com/Graneri-0.1.0.dmg",
 			},
 		]);
 
-		expect(asset?.name).toBe("OpenGran-0.1.0.dmg");
+		expect(asset?.name).toBe("Graneri-0.1.0.dmg");
 	});
 
 	it("returns null when no desktop asset is available", () => {
@@ -38,22 +38,22 @@ describe("resolveLatestDesktopDownloadUrl", () => {
 		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue({
 			ok: true,
 			json: async () => ({
-				html_url: "https://github.com/murabcd/opengran/releases/tag/v0.1.0",
+				html_url: "https://github.com/murabcd/graneri/releases/tag/v0.1.0",
 				assets: [
 					{
-						name: "OpenGran-0.1.0.zip",
-						browser_download_url: "https://example.com/OpenGran-0.1.0.zip",
+						name: "Graneri-0.1.0.zip",
+						browser_download_url: "https://example.com/Graneri-0.1.0.zip",
 					},
 					{
-						name: "OpenGran-0.1.0.dmg",
-						browser_download_url: "https://example.com/OpenGran-0.1.0.dmg",
+						name: "Graneri-0.1.0.dmg",
+						browser_download_url: "https://example.com/Graneri-0.1.0.dmg",
 					},
 				],
 			}),
 		} as Response);
 
 		await expect(resolveLatestDesktopDownloadUrl(fetchMock)).resolves.toBe(
-			"https://example.com/OpenGran-0.1.0.dmg",
+			"https://example.com/Graneri-0.1.0.dmg",
 		);
 	});
 

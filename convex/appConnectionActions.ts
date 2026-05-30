@@ -140,7 +140,7 @@ type RemoteHeaderMcpConnectionResult<
 const ZOOM_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const MCP_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const FIGMA_MCP_CLIENT_REVIEW_MESSAGE =
-	"Figma only allows MCP clients listed in the Figma MCP Catalog to use the hosted remote server. OpenGran needs Figma remote MCP access approval before this connection can be started.";
+	"Figma only allows MCP clients listed in the Figma MCP Catalog to use the hosted remote server. Graneri needs Figma remote MCP access approval before this connection can be started.";
 
 const getConvexSiteUrl = () => {
 	const siteUrl = process.env.CONVEX_SITE_URL?.trim();
@@ -410,7 +410,7 @@ const registerMcpOAuthClient = async ({
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
-			client_name: "OpenGran",
+			client_name: "Graneri",
 			redirect_uris: [redirectUri],
 			grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"],
@@ -472,7 +472,7 @@ const refreshMcpOAuthToken = async ({
 		headers: {
 			Accept: "application/json",
 			"Content-Type": "application/x-www-form-urlencoded",
-			"User-Agent": "OpenGran-MCP-Client/1.0",
+			"User-Agent": "Graneri-MCP-Client/1.0",
 		},
 		body: params.toString(),
 	});

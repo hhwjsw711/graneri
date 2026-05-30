@@ -6,7 +6,7 @@ import test from "node:test";
 import { createDesktopStorage } from "../src/desktop-storage.mjs";
 
 const createTestStorage = async () => {
-	const rootDir = await mkdtemp(join(tmpdir(), "opengran-desktop-storage-"));
+	const rootDir = await mkdtemp(join(tmpdir(), "graneri-desktop-storage-"));
 
 	return {
 		rootDir,

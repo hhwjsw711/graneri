@@ -1,7 +1,7 @@
 import { getDesktopBridge } from "@workspace/platform/desktop";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
-const STORAGE_PREFIX = "opengran:note-draft:";
+const STORAGE_PREFIX = "graneri:note-draft:";
 const STORAGE_VERSION = 1;
 
 export type NoteDraftPayload = {

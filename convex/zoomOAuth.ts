@@ -143,10 +143,10 @@ export const handleZoomOAuthCallbackRequest = async (
 		console.error("Failed to complete Zoom OAuth connection", connectionError);
 		return oauthCallbackHtmlResponse(
 			"Zoom connection failed",
-			"OpenGran could not complete the Zoom connection.",
+			"Graneri could not complete the Zoom connection.",
 			500,
 		);
 	}
 
-	return oauthCallbackHtmlResponse("Zoom connected", "You can close this window and return to OpenGran.");
+	return oauthCallbackHtmlResponse("Zoom connected", "You can close this window and return to Graneri.");
 };

@@ -5,7 +5,7 @@ import {
 	type TranscriptUtterance,
 } from "@/lib/transcript";
 
-const STORAGE_PREFIX = "opengran:transcript-draft:";
+const STORAGE_PREFIX = "graneri:transcript-draft:";
 const STORAGE_VERSION = 1;
 const MAX_DRAFT_AGE_MS = 72 * 60 * 60 * 1000;
 

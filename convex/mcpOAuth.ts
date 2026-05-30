@@ -75,7 +75,7 @@ type McpTokenResponse = {
 
 const getMcpSdkClientMetadata = (redirectUri: string) => ({
 	redirect_uris: [redirectUri],
-	client_name: "OpenGran",
+	client_name: "Graneri",
 	grant_types: ["authorization_code", "refresh_token"],
 	response_types: ["code"],
 });
@@ -315,7 +315,7 @@ const exchangeMcpOAuthCode = async ({
 		headers: {
 			Accept: "application/json",
 			"Content-Type": "application/x-www-form-urlencoded",
-			"User-Agent": "OpenGran-MCP-Client/1.0",
+			"User-Agent": "Graneri-MCP-Client/1.0",
 		},
 		body: params.toString(),
 	});
@@ -492,13 +492,13 @@ export const handleMcpOAuthCallbackRequest = async (
 		console.error(`Failed to complete ${displayName} OAuth connection`, connectionError);
 		return oauthCallbackHtmlResponse(
 			`${displayName} connection failed`,
-			`OpenGran could not complete the ${displayName} connection.`,
+			`Graneri could not complete the ${displayName} connection.`,
 			500,
 		);
 	}
 
 	return oauthCallbackHtmlResponse(
 		`${displayName} connected`,
-		"You can close this window and return to OpenGran.",
+		"You can close this window and return to Graneri.",
 	);
 };

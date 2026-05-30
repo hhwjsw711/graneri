@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
 	channels,
-	createOpenGranDesktopApi,
+	createGraneriDesktopApi,
 	shouldExposeTestHooks,
 } = require("../src/preload-api.cjs");
 
@@ -43,7 +43,7 @@ const createIpcRenderer = () => {
 
 const createApi = (options = {}) => {
 	const ipcRenderer = createIpcRenderer();
-	const api = createOpenGranDesktopApi({
+	const api = createGraneriDesktopApi({
 		env: options.env ?? { NODE_ENV: "test" },
 		ipcRenderer,
 		platform: options.platform ?? "darwin",
@@ -192,7 +192,7 @@ test("exposes desktop test hooks only outside production unless explicitly enabl
 	assert.equal(
 		shouldExposeTestHooks({
 			NODE_ENV: "production",
-			OPENGRAN_ENABLE_TEST_HOOKS: "1",
+			GRANERI_ENABLE_TEST_HOOKS: "1",
 		}),
 		true,
 	);
@@ -201,7 +201,7 @@ test("exposes desktop test hooks only outside production unless explicitly enabl
 	assert.equal(productionApi.test, undefined);
 
 	const { api, ipcRenderer } = createApi({
-		env: { NODE_ENV: "production", OPENGRAN_ENABLE_TEST_HOOKS: "1" },
+		env: { NODE_ENV: "production", GRANERI_ENABLE_TEST_HOOKS: "1" },
 	});
 
 	await api.test.showMeetingWidget();

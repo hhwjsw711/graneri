@@ -1118,10 +1118,10 @@ export function SettingsDialog({
 			<DialogContent className="overflow-hidden p-0 md:max-h-[500px] md:max-w-[700px] lg:max-w-[800px]">
 				<DialogHeader className="sr-only">
 					<DialogTitle>Settings</DialogTitle>
-					<DialogDescription>Manage your OpenGran settings.</DialogDescription>
+					<DialogDescription>Manage your Graneri settings.</DialogDescription>
 				</DialogHeader>
 				<DialogDescription className="sr-only">
-					Manage your OpenGran settings.
+					Manage your Graneri settings.
 				</DialogDescription>
 				<SidebarProvider className="items-start">
 					<Sidebar collapsible="none" className="hidden md:flex">
@@ -1626,7 +1626,7 @@ function YandexCalendarDialog({
 				<DialogHeader>
 					<DialogTitle>Connect Yandex Calendar</DialogTitle>
 					<DialogDescription>
-						Enter the Yandex account OpenGran should use to load your upcoming
+						Enter the Yandex account Graneri should use to load your upcoming
 						meetings.
 					</DialogDescription>
 				</DialogHeader>
@@ -1883,7 +1883,7 @@ function JiraConnectionDialogs({
 				onOpenChange={controller.handleJiraMcpDialogOpenChange}
 				idPrefix="jira-mcp"
 				title="Connect Jira"
-				description="Enter the Jira MCP connection details OpenGran should use for AI tools."
+				description="Enter the Jira MCP connection details Graneri should use for AI tools."
 				keyPlaceholder="key"
 				formState={controller.jiraMcpFormState}
 				onNameChange={controller.setJiraMcpName}
@@ -1919,7 +1919,7 @@ function RemoteHeaderMcpConnectionDialogs({
 				onOpenChange={controller.handleContext7DialogOpenChange}
 				idPrefix="context7-mcp"
 				title="Connect Context7"
-				description="Enter the Context7 MCP connection details OpenGran should use for library documentation."
+				description="Enter the Context7 MCP connection details Graneri should use for library documentation."
 				keyPlaceholder="CONTEXT7_API_KEY"
 				formState={controller.context7FormState}
 				onNameChange={controller.setContext7Name}
@@ -1942,7 +1942,7 @@ function RemoteHeaderMcpConnectionDialogs({
 				onOpenChange={controller.handleFigmaDialogOpenChange}
 				idPrefix="figma-mcp"
 				title="Connect Figma"
-				description="Enter the Figma MCP connection details OpenGran should use for design context."
+				description="Enter the Figma MCP connection details Graneri should use for design context."
 				keyPlaceholder="Authorization"
 				formState={controller.figmaFormState}
 				onNameChange={controller.setFigmaName}
@@ -1967,7 +1967,7 @@ function RemoteHeaderMcpConnectionDialogs({
 				onOpenChange={controller.handleLinearDialogOpenChange}
 				idPrefix="linear-mcp"
 				title="Connect Linear"
-				description="Enter the Linear MCP connection details OpenGran should use for issue and project context."
+				description="Enter the Linear MCP connection details Graneri should use for issue and project context."
 				keyPlaceholder="Authorization"
 				formState={controller.linearFormState}
 				onNameChange={controller.setLinearName}
@@ -2005,7 +2005,7 @@ function OAuthMcpConnectionDialogs({
 				onOpenChange={controller.handlePostHogDialogOpenChange}
 				idPrefix="posthog-mcp"
 				title="Connect PostHog"
-				description="Enter the PostHog MCP connection details OpenGran should use for product analytics context."
+				description="Enter the PostHog MCP connection details Graneri should use for product analytics context."
 				keyPlaceholder="key"
 				formState={controller.posthogFormState}
 				onNameChange={controller.setPostHogName}
@@ -2030,7 +2030,7 @@ function OAuthMcpConnectionDialogs({
 				onOpenChange={controller.handleNotionDialogOpenChange}
 				idPrefix="notion-mcp"
 				title="Connect Notion"
-				description="Enter the Notion MCP connection details OpenGran should use for workspace context."
+				description="Enter the Notion MCP connection details Graneri should use for workspace context."
 				keyPlaceholder="key"
 				formState={controller.notionFormState}
 				onNameChange={controller.setNotionName}
@@ -2055,7 +2055,7 @@ function OAuthMcpConnectionDialogs({
 				onOpenChange={controller.handleZoomDialogOpenChange}
 				idPrefix="zoom-mcp"
 				title="Connect Zoom"
-				description="Enter the Zoom MCP connection details OpenGran should use for meeting context."
+				description="Enter the Zoom MCP connection details Graneri should use for meeting context."
 				keyPlaceholder="key"
 				formState={controller.zoomFormState}
 				onNameChange={controller.setZoomName}
@@ -3737,7 +3737,7 @@ function YandexTrackerDialog({
 				<DialogHeader>
 					<DialogTitle>Connect Yandex Tracker</DialogTitle>
 					<DialogDescription>
-						Enter the credentials OpenGran should use for your Tracker
+						Enter the credentials Graneri should use for your Tracker
 						connection.
 					</DialogDescription>
 				</DialogHeader>
@@ -3852,7 +3852,7 @@ function JiraDialog({
 				<DialogHeader>
 					<DialogTitle>Connect Jira Sync</DialogTitle>
 					<DialogDescription>
-						Enter the Jira API credentials OpenGran should use for mention sync.
+						Enter the Jira API credentials Graneri should use for mention sync.
 					</DialogDescription>
 				</DialogHeader>
 				<FieldGroup className="gap-4">

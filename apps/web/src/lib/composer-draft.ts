@@ -1,4 +1,4 @@
-const STORAGE_PREFIX = "opengran:composer-draft:";
+const STORAGE_PREFIX = "graneri:composer-draft:";
 const STORAGE_VERSION = 1;
 
 type StoredComposerDraft<TMetadata> = {

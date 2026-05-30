@@ -31,7 +31,7 @@ export function MeetingWidgetScreen() {
 	const title = state ? widgetTitleByStatus[state.status] : "Meeting detected";
 
 	React.useEffect(() => {
-		document.title = "OpenGran meeting widget";
+		document.title = "Graneri meeting widget";
 		document.documentElement.setAttribute("style", "background: transparent;");
 		document.body.setAttribute("style", "background: transparent; margin: 0;");
 
@@ -147,7 +147,7 @@ export function MeetingWidgetScreen() {
 							onClick={() => void startDesktopDetectedMeetingNote()}
 						>
 							<img
-								src="/opengran-dock.svg"
+								src="/graneri-dock.svg"
 								alt=""
 								aria-hidden="true"
 								className="size-5 rounded-md"

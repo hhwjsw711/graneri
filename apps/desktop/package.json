@@ -1,9 +1,9 @@
 {
   "name": "desktop",
-  "productName": "OpenGran",
+  "productName": "Graneri",
   "version": "0.1.0",
-  "description": "OpenGran desktop app",
-  "author": "OpenGran",
+  "description": "Graneri desktop app",
+  "author": "Graneri",
   "private": true,
   "type": "module",
   "main": "./src/main.mjs",
@@ -39,8 +39,8 @@
     "web": "workspace:*"
   },
   "build": {
-    "appId": "dev.opengran.desktop",
-    "productName": "OpenGran",
+    "appId": "dev.graneri.desktop",
+    "productName": "Graneri",
     "directories": {
       "output": "release"
     },
@@ -64,8 +64,8 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "During your meetings, OpenGran transcribes your microphone.",
-        "NSAudioCaptureUsageDescription": "During your meetings, OpenGran transcribes your system audio output."
+        "NSMicrophoneUsageDescription": "During your meetings, Graneri transcribes your microphone.",
+        "NSAudioCaptureUsageDescription": "During your meetings, Graneri transcribes your system audio output."
       },
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist"
@@ -74,7 +74,7 @@
       {
         "provider": "github",
         "owner": "murabcd",
-        "repo": "opengran",
+        "repo": "graneri",
         "releaseType": "release"
       }
     ]

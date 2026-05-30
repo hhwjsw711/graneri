@@ -5,7 +5,7 @@ import schema from "./schema";
 import { modules } from "./test.setup";
 
 const ownerIdentity = {
-	issuer: "https://opengran.test",
+	issuer: "https://graneri.test",
 	subject: "owner-subject",
 	tokenIdentifier: "test|owner",
 	name: "Owner",

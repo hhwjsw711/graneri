@@ -169,7 +169,7 @@ export type DesktopLocalFolder = {
 	path: string;
 };
 
-export interface OpenGranDesktopBridge {
+export interface GraneriDesktopBridge {
 	platform: DesktopPlatform;
 	getMeta: () => Promise<{
 		name: string;
@@ -296,6 +296,6 @@ export interface OpenGranDesktopBridge {
 
 declare global {
 	interface Window {
-		openGranDesktop?: OpenGranDesktopBridge;
+		graneriDesktop?: GraneriDesktopBridge;
 	}
 }

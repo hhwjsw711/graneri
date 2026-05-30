@@ -15,7 +15,7 @@ export const createDesktopUpdater = ({
 	const promptToInstallDownloadedUpdate = async (version) => {
 		const { response } = await showMessageBox({
 			type: "question",
-			message: `OpenGran ${version} has finished downloading.`,
+			message: `Graneri ${version} has finished downloading.`,
 			detail: "Install now or keep working and update on quit.",
 			buttons: ["Later", "Install and Restart"],
 			defaultId: 1,
@@ -47,7 +47,7 @@ export const createDesktopUpdater = ({
 		autoUpdater.on("update-available", (info) => {
 			hasPendingUpdateDownload = false;
 			pendingUpdateVersion = info.version;
-			setTrayStatusLabel(`Downloading OpenGran ${info.version}...`);
+			setTrayStatusLabel(`Downloading Graneri ${info.version}...`);
 			setNativeProgress(0.03);
 		});
 
@@ -64,7 +64,7 @@ export const createDesktopUpdater = ({
 			isCheckingForUpdates = false;
 			hasPendingUpdateDownload = false;
 			pendingUpdateVersion = null;
-			setTrayStatusLabel("OpenGran is up to date");
+			setTrayStatusLabel("Graneri is up to date");
 			setNativeProgress(-1);
 
 			if (!shouldShowUpdateResultDialogs) {
@@ -74,7 +74,7 @@ export const createDesktopUpdater = ({
 			shouldShowUpdateResultDialogs = false;
 			await showMessageBox({
 				message: "You're up to date.",
-				detail: `OpenGran ${appVersion()} is currently the newest version available.`,
+				detail: `Graneri ${appVersion()} is currently the newest version available.`,
 			});
 		});
 
@@ -83,7 +83,7 @@ export const createDesktopUpdater = ({
 			hasPendingUpdateDownload = true;
 			pendingUpdateVersion = info.version;
 			shouldShowUpdateResultDialogs = false;
-			setTrayStatusLabel(`OpenGran ${info.version} is ready to install`);
+			setTrayStatusLabel(`Graneri ${info.version} is ready to install`);
 			setNativeProgress(-1);
 			await promptToInstallDownloadedUpdate(info.version);
 		});
@@ -103,7 +103,7 @@ export const createDesktopUpdater = ({
 				type: "error",
 				message: "Update check failed.",
 				detail: [
-					"OpenGran couldn't check for updates.",
+					"Graneri couldn't check for updates.",
 					error instanceof Error ? error.message : String(error),
 				]
 					.filter(Boolean)
@@ -123,7 +123,7 @@ export const createDesktopUpdater = ({
 
 		if (isCheckingForUpdates) {
 			await showMessageBox({
-				message: "OpenGran is already checking for updates.",
+				message: "Graneri is already checking for updates.",
 			});
 			return;
 		}

@@ -46,17 +46,17 @@ import { getRuntimeConfig, hydrateRuntimeConfig } from "./runtime-config.mjs";
 
 const { autoUpdater } = electronUpdater;
 
-app.setName("OpenGran");
+app.setName("Graneri");
 loadRootEnv({
 	includeWorkingDirectory:
 		app.isPackaged !== true ||
-		process.env.OPENGRAN_ENV_MODE?.trim() !== "production",
+		process.env.GRANERI_ENV_MODE?.trim() !== "production",
 });
 await hydrateRuntimeConfig();
 
 const runtimeDir = dirname(fileURLToPath(import.meta.url));
-const trayIconPath = join(runtimeDir, "assets", "OpenGranTemplate.png");
-const dockIconPath = join(runtimeDir, "assets", "OpenGranDock.png");
+const trayIconPath = join(runtimeDir, "assets", "GraneriTemplate.png");
+const dockIconPath = join(runtimeDir, "assets", "GraneriDock.png");
 const traySettingsPath = join(app.getPath("userData"), "tray-settings.json");
 const lastNavigationPath = join(
 	app.getPath("userData"),
@@ -83,10 +83,10 @@ const systemAudioAttachRetryBackoffMs = [750, 1_500, 3_000];
 const realtimeSessionRolloverMs = 29 * 60 * 1000;
 const shouldLogDesktopTurnDebug =
 	app.isPackaged !== true ||
-	process.env.OPENGRAN_ENABLE_TRANSCRIPTION_DEBUG === "1";
+	process.env.GRANERI_ENABLE_TRANSCRIPTION_DEBUG === "1";
 const transcriptionDebugLogPath = join(
 	app.getPath("temp"),
-	"opengran-transcription-debug.log",
+	"graneri-transcription-debug.log",
 );
 let hasLoggedDesktopTurnDebugSessionHeader = false;
 const getMainWindowBackgroundColor = () => {
@@ -243,7 +243,7 @@ let transcriptionPendingStopPromise = null;
 let currentTranscriptionSessionCorrelationId = null;
 let desktopNavigationState = null;
 const areDesktopTestHooksEnabled =
-	app.isPackaged !== true || process.env.OPENGRAN_ENABLE_TEST_HOOKS === "1";
+	app.isPackaged !== true || process.env.GRANERI_ENABLE_TEST_HOOKS === "1";
 
 const requireDesktopService = (service, name) => {
 	if (!service) {
@@ -256,7 +256,7 @@ const requireDesktopService = (service, name) => {
 const isUpdaterAvailable = () =>
 	process.platform === "darwin" &&
 	app.isPackaged === true &&
-	process.env.OPENGRAN_DISABLE_UPDATER !== "1";
+	process.env.GRANERI_DISABLE_UPDATER !== "1";
 
 const applyDockIcon = () => {
 	requireDesktopService(desktopShell, "desktopShell").applyDockIcon();
@@ -1014,7 +1014,7 @@ const ensureLocalServer = async () => {
 	if (!localServer) {
 		localServer = await startLocalServer({
 			getAllowedOrigins: () => {
-				const developmentUrl = process.env.OPENGRAN_RENDERER_URL?.trim();
+				const developmentUrl = process.env.GRANERI_RENDERER_URL?.trim();
 				if (!developmentUrl) {
 					return [];
 				}
@@ -1034,7 +1034,7 @@ const ensureLocalServer = async () => {
 };
 
 const resolveRendererUrl = async () => {
-	const developmentUrl = process.env.OPENGRAN_RENDERER_URL?.trim();
+	const developmentUrl = process.env.GRANERI_RENDERER_URL?.trim();
 	if (developmentUrl) {
 		return developmentUrl;
 	}
@@ -2575,8 +2575,7 @@ const getMicrophonePermission = () => {
 	if (process.platform !== "darwin" && process.platform !== "win32") {
 		return {
 			id: "microphone",
-			description:
-				"During your meetings, OpenGran transcribes your microphone.",
+			description: "During your meetings, Graneri transcribes your microphone.",
 			required: false,
 			state: "unsupported",
 			canRequest: false,
@@ -2601,7 +2600,7 @@ const getMicrophonePermission = () => {
 
 	return {
 		id: "microphone",
-		description: "During your meetings, OpenGran transcribes your microphone.",
+		description: "During your meetings, Graneri transcribes your microphone.",
 		required: true,
 		state:
 			rawStatus === "granted"
@@ -2623,7 +2622,7 @@ const getSystemAudioPermission = () => {
 		return {
 			id: "systemAudio",
 			description:
-				"During your meetings, OpenGran transcribes your system audio output.",
+				"During your meetings, Graneri transcribes your system audio output.",
 			required: false,
 			state: "granted",
 			canRequest: false,
@@ -2637,7 +2636,7 @@ const getSystemAudioPermission = () => {
 		return {
 			id: "systemAudio",
 			description: helperPath
-				? "During your meetings, OpenGran transcribes your system audio output."
+				? "During your meetings, Graneri transcribes your system audio output."
 				: "The macOS system-audio helper is missing from this build.",
 			required: false,
 			state: helperPath ? systemAudioPermissionState : "unsupported",

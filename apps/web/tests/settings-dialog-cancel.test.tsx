@@ -35,7 +35,7 @@ describe("settings dialog cancel actions", () => {
 		useActionMock.mockReturnValue(vi.fn());
 		useQueryMock.mockReturnValue({
 			jobTitle: "PM",
-			companyName: "OpenGran",
+			companyName: "Graneri",
 			avatarStorageId: null,
 			avatarUrl: null,
 		});
@@ -109,8 +109,8 @@ describe("settings dialog cancel actions", () => {
 					_id: "workspace-1",
 					_creationTime: 0,
 					ownerTokenIdentifier: "owner-1",
-					name: "OpenGran",
-					normalizedName: "opengran",
+					name: "Graneri",
+					normalizedName: "graneri",
 					role: "startup-generalist",
 					createdAt: 0,
 					updatedAt: 0,
@@ -132,7 +132,7 @@ describe("settings dialog cancel actions", () => {
 
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
-			"OpenGran",
+			"Graneri",
 		);
 		expect(
 			(screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)

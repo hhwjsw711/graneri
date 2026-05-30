@@ -27,7 +27,7 @@ describe("local folder tools", () => {
 	});
 
 	it("exposes a sandboxed local audio transcription tool", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "opengran-local-tools-"));
+		const directory = await mkdtemp(join(tmpdir(), "graneri-local-tools-"));
 		try {
 			const filePath = join(directory, "notes.txt");
 			await writeFile(filePath, "not audio");
@@ -60,7 +60,7 @@ describe("local folder tools", () => {
 	});
 
 	it("rejects local audio files that exceed the source transcription size cap", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "opengran-local-tools-"));
+		const directory = await mkdtemp(join(tmpdir(), "graneri-local-tools-"));
 		try {
 			const filePath = join(directory, "large.m4a");
 			await writeFile(filePath, "");
@@ -98,7 +98,7 @@ describe("local folder tools", () => {
 	});
 
 	it("exposes local image inspection and semantic search tools", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "opengran-local-tools-"));
+		const directory = await mkdtemp(join(tmpdir(), "graneri-local-tools-"));
 		try {
 			await writeFile(join(directory, "notes.txt"), "not an image");
 
@@ -131,7 +131,7 @@ describe("local folder tools", () => {
 	});
 
 	it("marks local folder tools as deferred for OpenAI tool search", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "opengran-local-tools-"));
+		const directory = await mkdtemp(join(tmpdir(), "graneri-local-tools-"));
 		try {
 			const tools = buildLocalFolderTools([
 				{
@@ -149,7 +149,7 @@ describe("local folder tools", () => {
 	});
 
 	it("runs bash commands against a text-only virtual snapshot", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "opengran-local-tools-"));
+		const directory = await mkdtemp(join(tmpdir(), "graneri-local-tools-"));
 		try {
 			await writeFile(join(directory, "notes.txt"), "alpha\nbeta\nalpha\n");
 			await writeFile(join(directory, "image.png"), "not mounted as text");

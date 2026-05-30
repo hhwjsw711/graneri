@@ -46,7 +46,7 @@ enum CaptureError: Error, LocalizedError {
 }
 
 final class StdoutEmitter: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.opengran.system-audio.stdout")
+	private let queue = DispatchQueue(label: "com.graneri.system-audio.stdout")
 	private let fileHandle = FileHandle.standardOutput
 
 	func send(event: [String: Any]) {
@@ -64,7 +64,7 @@ final class StdoutEmitter: @unchecked Sendable {
 }
 
 final class StderrLogger: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.opengran.system-audio.stderr")
+	private let queue = DispatchQueue(label: "com.graneri.system-audio.stderr")
 	private let fileHandle = FileHandle.standardError
 
 	func log(_ message: String) {
@@ -81,7 +81,7 @@ final class StderrLogger: @unchecked Sendable {
 final class PcmChunkEncoder: @unchecked Sendable {
 	private let emitter: StdoutEmitter
 	private let flushIntervalNanoseconds: UInt64
-	private let queue = DispatchQueue(label: "com.opengran.system-audio.encoder")
+	private let queue = DispatchQueue(label: "com.graneri.system-audio.encoder")
 	private var pendingBytes = Data()
 	private var timer: DispatchSourceTimer?
 
@@ -160,7 +160,7 @@ final class PcmChunkEncoder: @unchecked Sendable {
 final class SystemAudioCapture: @unchecked Sendable {
 	private static let targetSampleRate = 24_000.0
 	private let callbackQueue = DispatchQueue(
-		label: "com.opengran.system-audio.callback",
+		label: "com.graneri.system-audio.callback",
 		qos: .userInteractive
 	)
 	private let encoder: PcmChunkEncoder
@@ -196,7 +196,7 @@ final class SystemAudioCapture: @unchecked Sendable {
 		let tapUUID = UUID()
 		let tapDescription = CATapDescription()
 
-		tapDescription.name = "OpenGran System Audio"
+		tapDescription.name = "Graneri System Audio"
 		tapDescription.uuid = tapUUID
 		tapDescription.processes = Self.currentProcessObjectID().map { [$0] } ?? []
 		tapDescription.isPrivate = true
@@ -216,7 +216,7 @@ final class SystemAudioCapture: @unchecked Sendable {
 
 		let aggregateUID = UUID().uuidString
 		let aggregateDescription: [String: Any] = [
-			kAudioAggregateDeviceNameKey: "OpenGran System Audio",
+			kAudioAggregateDeviceNameKey: "Graneri System Audio",
 			kAudioAggregateDeviceUIDKey: aggregateUID,
 			kAudioAggregateDeviceMainSubDeviceKey: outputUID,
 			kAudioAggregateDeviceIsPrivateKey: true,

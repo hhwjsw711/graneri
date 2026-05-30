@@ -1,4 +1,4 @@
-export const OPEN_CHAT_SUMMARY_EVENT = "opengran:open-chat-summary";
+export const OPEN_CHAT_SUMMARY_EVENT = "graneri:open-chat-summary";
 
 export type ChatSummaryOpenSourceRequest = {
 	sourceId: string;

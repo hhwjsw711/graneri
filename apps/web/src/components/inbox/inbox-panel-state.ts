@@ -1,11 +1,11 @@
 "use client";
 
 export const INBOX_PANEL_STORAGE_KEY_DESKTOP =
-	"opengran.inbox-panel-width.desktop";
+	"graneri.inbox-panel-width.desktop";
 export const INBOX_PANEL_STORAGE_KEY_MOBILE =
-	"opengran.inbox-panel-width.mobile";
+	"graneri.inbox-panel-width.mobile";
 export const INBOX_PANEL_PINNED_STORAGE_KEY =
-	"opengran.inbox-panel-pinned.desktop";
+	"graneri.inbox-panel-pinned.desktop";
 
 export const readDesktopInboxPanelPinnedState = () => {
 	if (typeof window === "undefined") {

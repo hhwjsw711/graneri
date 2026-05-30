@@ -5,7 +5,7 @@ import {
 	mergeLocalFolders,
 } from "../../../../packages/ai/src/local-path-references.mjs";
 
-const STORAGE_KEY_PREFIX = "opengran.sharedLocalFolders";
+const STORAGE_KEY_PREFIX = "graneri.sharedLocalFolders";
 
 const getStorageKey = (scope: string) => `${STORAGE_KEY_PREFIX}.${scope}`;
 

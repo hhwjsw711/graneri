@@ -1,9 +1,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
-const { createOpenGranDesktopApi } = require("./preload-api.cjs");
+const { createGraneriDesktopApi } = require("./preload-api.cjs");
 
 contextBridge.exposeInMainWorld(
-	"openGranDesktop",
-	createOpenGranDesktopApi({
+	"graneriDesktop",
+	createGraneriDesktopApi({
 		ipcRenderer,
 		platform: process.platform,
 		env: process.env,

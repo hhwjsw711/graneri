@@ -20,9 +20,9 @@ const subscribe = (ipcRenderer, channel, listener) => {
 };
 
 const shouldExposeTestHooks = (env) =>
-	env.NODE_ENV !== "production" || env.OPENGRAN_ENABLE_TEST_HOOKS === "1";
+	env.NODE_ENV !== "production" || env.GRANERI_ENABLE_TEST_HOOKS === "1";
 
-const createOpenGranDesktopApi = ({ ipcRenderer, platform, env }) => ({
+const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 	platform,
 	getMeta: () => ipcRenderer.invoke("app:get-meta"),
 	getRuntimeConfig: () => ipcRenderer.invoke("app:get-runtime-config"),
@@ -120,6 +120,6 @@ const createOpenGranDesktopApi = ({ ipcRenderer, platform, env }) => ({
 
 module.exports = {
 	channels,
-	createOpenGranDesktopApi,
+	createGraneriDesktopApi,
 	shouldExposeTestHooks,
 };

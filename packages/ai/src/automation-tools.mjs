@@ -48,7 +48,7 @@ export const createAutomationTool = ({
 		deferLoading: false,
 		name: "create_automation",
 		description:
-			"Create a recurring OpenGran automation from the current chat. Use this when the user asks for a task to run automatically on a schedule.",
+			"Create a recurring Graneri automation from the current chat. Use this when the user asks for a task to run automatically on a schedule.",
 		inputSchema: z.object({
 			title: z.string().min(1).max(80),
 			prompt: z
@@ -74,7 +74,7 @@ export const createAutomationTool = ({
 		policy: {
 			access: "write",
 			capability: "create",
-			provider: "opengran",
+			provider: "graneri",
 		},
 		ui: toolUiMetadata.create_automation,
 		execute: async ({

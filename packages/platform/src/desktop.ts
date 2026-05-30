@@ -4,17 +4,17 @@ import type {
 	DesktopPermissionId,
 	DesktopPlatform,
 	DesktopThemeSource,
-	OpenGranDesktopBridge,
+	GraneriDesktopBridge,
 } from "./desktop-bridge";
 
-export type DesktopBridge = OpenGranDesktopBridge;
+export type DesktopBridge = GraneriDesktopBridge;
 
 export const getDesktopBridge = (): DesktopBridge | null => {
 	if (typeof window === "undefined") {
 		return null;
 	}
 
-	return window.openGranDesktop ?? null;
+	return window.graneriDesktop ?? null;
 };
 
 export const getRequiredDesktopBridge = (): DesktopBridge => {

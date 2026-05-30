@@ -1,6 +1,6 @@
-<a href="https://opengran-oss.vercel.app">
-  <img alt="Open-source Granola-like Notepad Built with Vite, Electron, AI SDK, and Convex." src="./apps/web/public/preview/opengran.png">
-  <h1 align="center">OpenGran</h1>
+<a href="https://graneri-oss.vercel.app">
+  <img alt="Open-source Granola-like Notepad Built with Vite, Electron, AI SDK, and Convex." src="./apps/web/public/preview/graneri.png">
+  <h1 align="center">Graneri</h1>
 </a>
 
 <p align="center">
@@ -30,10 +30,10 @@
 
 - [Vite](https://vite.dev/)
   - Fast local development with a lightweight frontend toolchain
-  - Production builds for the shared OpenGran renderer
+  - Production builds for the shared Graneri renderer
 - [Electron](https://www.electronjs.org/)
   - Native desktop shell for window management and tray support
-  - Packaged app distribution for the OpenGran desktop client
+  - Packaged app distribution for the Graneri desktop client
 - [AI SDK](https://sdk.vercel.ai/docs)
   - Text generation and streaming responses across AI features
   - AI-assisted note workflows for drafting and rewriting
@@ -60,21 +60,21 @@
 - `apps/desktop`
   - Electron desktop app for native transcription and packaged releases
 - `apps/marketing`
-  - Marketing site for the public OpenGran website
+  - Marketing site for the public Graneri website
 
 ## Model providers
 
-OpenGran ships with [OpenAI](https://openai.com/) as the default provider. Because the app uses the [AI SDK](https://sdk.vercel.ai/docs), you can adapt it to other providers such as [Anthropic](https://anthropic.com), [Ollama](https://ollama.com), [Cohere](https://cohere.com/), and [other supported providers](https://sdk.vercel.ai/providers/ai-sdk-providers).
+Graneri ships with [OpenAI](https://openai.com/) as the default provider. Because the app uses the [AI SDK](https://sdk.vercel.ai/docs), you can adapt it to other providers such as [Anthropic](https://anthropic.com), [Ollama](https://ollama.com), [Cohere](https://cohere.com/), and [other supported providers](https://sdk.vercel.ai/providers/ai-sdk-providers).
 
 ## Deploy your own
 
-You can deploy your own version of OpenGran to Vercel with one click:
+You can deploy your own version of Graneri to Vercel with one click:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmurabcd%2Fopengran&env=VITE_CONVEX_URL,VITE_CONVEX_SITE_URL,CONVEX_SITE_URL,OPENAI_API_KEY,SITE_URL,BETTER_AUTH_SECRET&envDescription=Set%20the%20Convex%20URLs%2C%20OpenAI%20API%20key%2C%20site%20URL%2C%20and%20Better%20Auth%20secret%20for%20your%20deployment.&envLink=https%3A%2F%2Fgithub.com%2Fmurabcd%2Fopengran%2Fblob%2Fmain%2F.env.example&demo-title=OpenGran&demo-description=Open-source%20Granola-like%20Notepad%20Built%20with%20Vite%2C%20Electron%2C%20AI%20SDK%2C%20and%20Convex.&demo-url=https%3A%2F%2Fopengran-oss.vercel.app)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fmurabcd%2Fgraneri&env=VITE_CONVEX_URL,VITE_CONVEX_SITE_URL,CONVEX_SITE_URL,OPENAI_API_KEY,SITE_URL,BETTER_AUTH_SECRET&envDescription=Set%20the%20Convex%20URLs%2C%20OpenAI%20API%20key%2C%20site%20URL%2C%20and%20Better%20Auth%20secret%20for%20your%20deployment.&envLink=https%3A%2F%2Fgithub.com%2Fmurabcd%2Fgraneri%2Fblob%2Fmain%2F.env.example&demo-title=Graneri&demo-description=Open-source%20Granola-like%20Notepad%20Built%20with%20Vite%2C%20Electron%2C%20AI%20SDK%2C%20and%20Convex.&demo-url=https%3A%2F%2Fgraneri-oss.vercel.app)
 
 ## Running locally
 
-You will need the environment variables [defined in `.env.example`](.env.example) to run OpenGran. It is recommended to use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables), but a local `.env` file is enough for development.
+You will need the environment variables [defined in `.env.example`](.env.example) to run Graneri. It is recommended to use [Vercel Environment Variables](https://vercel.com/docs/projects/environment-variables), but a local `.env` file is enough for development.
 
 > Do not commit your `.env` file. It contains secrets that can expose your AI provider and authentication accounts.
 

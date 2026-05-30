@@ -90,7 +90,7 @@ function useConvexFileAttachmentUpload() {
 				filename: file.name,
 				url,
 				providerMetadata: {
-					opengran: {
+					graneri: {
 						storageId: result.storageId,
 					},
 				},

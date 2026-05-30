@@ -22,7 +22,7 @@ export function ShimmerText({
 	return (
 		<>
 			<style>{`
-				@keyframes opengran-text-shimmer {
+				@keyframes graneri-text-shimmer {
 					0% {
 						background-position: 100% 50%;
 					}
@@ -42,7 +42,7 @@ export function ShimmerText({
 						backgroundImage:
 							"linear-gradient(90deg, transparent calc(50% - var(--spread)), var(--background) 50%, transparent calc(50% + var(--spread))), linear-gradient(var(--muted-foreground), var(--muted-foreground))",
 						backgroundSize: "250% 100%, auto",
-						animation: `opengran-text-shimmer ${duration}s linear infinite`,
+						animation: `graneri-text-shimmer ${duration}s linear infinite`,
 					} as CSSProperties
 				}
 			>

@@ -1,5 +1,5 @@
 const GITHUB_OWNER = "murabcd";
-const GITHUB_REPO = "opengran";
+const GITHUB_REPO = "graneri";
 
 export const DESKTOP_RELEASES_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const DESKTOP_LATEST_RELEASE_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;

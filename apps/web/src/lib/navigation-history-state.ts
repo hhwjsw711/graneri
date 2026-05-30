@@ -5,8 +5,8 @@ export type NavigationHistoryState = {
 	canGoForward: boolean;
 };
 
-type OpenGranHistoryState = {
-	__openGranNavigationIndex: number;
+type GraneriHistoryState = {
+	__graneriNavigationIndex: number;
 };
 
 type NavigationHistoryStore = {
@@ -19,32 +19,30 @@ type NavigationHistoryStore = {
 
 declare global {
 	interface Window {
-		__openGranNavigationHistoryStore?: NavigationHistoryStore;
+		__graneriNavigationHistoryStore?: NavigationHistoryStore;
 	}
 }
 
-const navigationStateChangedEvent = "opengran:navigation-state-changed";
+const navigationStateChangedEvent = "graneri:navigation-state-changed";
 
 const initialSnapshot: NavigationHistoryState = {
 	canGoBack: false,
 	canGoForward: false,
 };
 
-const isOpenGranHistoryState = (
-	state: unknown,
-): state is OpenGranHistoryState =>
+const isGraneriHistoryState = (state: unknown): state is GraneriHistoryState =>
 	state !== null &&
 	typeof state === "object" &&
-	"__openGranNavigationIndex" in state &&
-	typeof state.__openGranNavigationIndex === "number" &&
-	Number.isInteger(state.__openGranNavigationIndex);
+	"__graneriNavigationIndex" in state &&
+	typeof state.__graneriNavigationIndex === "number" &&
+	Number.isInteger(state.__graneriNavigationIndex);
 
 const markHistoryState = (
 	index: number,
 	state: unknown,
-): OpenGranHistoryState => ({
+): GraneriHistoryState => ({
 	...(state !== null && typeof state === "object" ? state : {}),
-	__openGranNavigationIndex: index,
+	__graneriNavigationIndex: index,
 });
 
 const emitNavigationStateChanged = () => {
@@ -74,12 +72,12 @@ export function installNavigationHistoryState() {
 		return;
 	}
 
-	if (window.__openGranNavigationHistoryStore) {
+	if (window.__graneriNavigationHistoryStore) {
 		return;
 	}
 
-	const initialIndex = isOpenGranHistoryState(window.history.state)
-		? window.history.state.__openGranNavigationIndex
+	const initialIndex = isGraneriHistoryState(window.history.state)
+		? window.history.state.__graneriNavigationIndex
 		: 0;
 	const store: NavigationHistoryStore = {
 		currentIndex: initialIndex,
@@ -89,7 +87,7 @@ export function installNavigationHistoryState() {
 		snapshot: initialSnapshot,
 	};
 
-	window.__openGranNavigationHistoryStore = store;
+	window.__graneriNavigationHistoryStore = store;
 	refreshSnapshot(store);
 
 	store.originalReplaceState(
@@ -119,15 +117,15 @@ export function installNavigationHistoryState() {
 	};
 
 	window.addEventListener("popstate", (event) => {
-		if (isOpenGranHistoryState(event.state)) {
-			store.currentIndex = event.state.__openGranNavigationIndex;
+		if (isGraneriHistoryState(event.state)) {
+			store.currentIndex = event.state.__graneriNavigationIndex;
 		}
 		emitNavigationStateChanged();
 	});
 }
 
 const getNavigationStateSnapshot = (): NavigationHistoryState => {
-	const store = window.__openGranNavigationHistoryStore;
+	const store = window.__graneriNavigationHistoryStore;
 	return store ? refreshSnapshot(store) : initialSnapshot;
 };
 
@@ -150,7 +148,7 @@ export function useNavigationHistoryState(): NavigationHistoryState {
 export function useNavigationHistoryShortcuts() {
 	React.useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
-			const store = window.__openGranNavigationHistoryStore;
+			const store = window.__graneriNavigationHistoryStore;
 			if (
 				!store ||
 				!event.metaKey ||

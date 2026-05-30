@@ -63,9 +63,9 @@ await cp(desktopAssetsDir, resolve(distDir, "assets"), { recursive: true });
 if (process.platform === "darwin") {
 	await mkdir(resolve(distDir, "bin"), { recursive: true });
 	for (const helperName of [
-		"opengran-system-audio-helper",
-		"opengran-microphone-helper",
-		"opengran-microphone-activity-helper",
+		"graneri-system-audio-helper",
+		"graneri-microphone-helper",
+		"graneri-microphone-activity-helper",
 	]) {
 		await cp(
 			resolve(packageRoot, ".generated", "system-audio", helperName),

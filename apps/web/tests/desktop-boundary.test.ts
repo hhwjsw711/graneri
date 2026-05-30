@@ -9,7 +9,7 @@ const allowedDirectBridgeReaders = new Set([
 	"packages/platform/src/desktop-bridge.ts",
 ]);
 const directDesktopBridgeAccessPattern =
-	/\bwindow\s*(?:\.openGranDesktop|\[\s*["']openGranDesktop["']\s*\])/u;
+	/\bwindow\s*(?:\.graneriDesktop|\[\s*["']graneriDesktop["']\s*\])/u;
 
 const collectSourceFiles = async (directory: string): Promise<string[]> => {
 	const entries = await readdir(directory, { withFileTypes: true });

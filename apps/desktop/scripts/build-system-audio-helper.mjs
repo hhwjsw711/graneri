@@ -15,15 +15,15 @@ const clangModuleCacheDir = resolve(cacheRootDir, "clang", "ModuleCache");
 const tmpDir = resolve(outDir, ".tmp");
 const helpers = [
 	{
-		outputFile: resolve(outDir, "opengran-system-audio-helper"),
+		outputFile: resolve(outDir, "graneri-system-audio-helper"),
 		sourceFile: resolve(packageRoot, "native", "SystemAudioCaptureCLI.swift"),
 	},
 	{
-		outputFile: resolve(outDir, "opengran-microphone-helper"),
+		outputFile: resolve(outDir, "graneri-microphone-helper"),
 		sourceFile: resolve(packageRoot, "native", "MicrophoneCaptureCLI.swift"),
 	},
 	{
-		outputFile: resolve(outDir, "opengran-microphone-activity-helper"),
+		outputFile: resolve(outDir, "graneri-microphone-activity-helper"),
 		sourceFile: resolve(packageRoot, "native", "MicrophoneActivityCLI.swift"),
 	},
 ];

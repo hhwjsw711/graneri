@@ -24,7 +24,7 @@ const withRemoteMcpClient = async (connection, callback) => {
 			...(Object.keys(headers).length > 0 ? { headers } : {}),
 			redirect: "error",
 		},
-		clientName: "opengran",
+		clientName: "graneri",
 		version: "0.0.1",
 	});
 

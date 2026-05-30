@@ -11,16 +11,16 @@ import {
 import type { DesktopMeetingDetectionState } from "@workspace/platform/desktop-bridge";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const originalDesktopBridge = window.openGranDesktop;
+const originalDesktopBridge = window.graneriDesktop;
 
 const setDesktopBridge = (
-	bridge: Partial<NonNullable<Window["openGranDesktop"]>> | undefined,
+	bridge: Partial<NonNullable<Window["graneriDesktop"]>> | undefined,
 ) => {
-	window.openGranDesktop = bridge as Window["openGranDesktop"];
+	window.graneriDesktop = bridge as Window["graneriDesktop"];
 };
 
 afterEach(() => {
-	window.openGranDesktop = originalDesktopBridge;
+	window.graneriDesktop = originalDesktopBridge;
 	vi.restoreAllMocks();
 });
 
@@ -48,14 +48,14 @@ describe("desktop platform bridge", () => {
 
 		setDesktopBridge({
 			getAuthCallbackUrl: vi.fn().mockResolvedValue({
-				url: "opengran://auth/callback",
+				url: "graneri://auth/callback",
 			}),
 			platform: "darwin",
 		});
 
 		await expect(
 			getDesktopAuthCallbackUrl("https://app.example/auth"),
-		).resolves.toBe("opengran://auth/callback");
+		).resolves.toBe("graneri://auth/callback");
 	});
 
 	it("opens external URLs through desktop when available", async () => {

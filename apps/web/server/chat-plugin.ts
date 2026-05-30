@@ -58,11 +58,11 @@ const createChatMiddleware = (): Connect.NextHandleFunction => {
 	};
 };
 
-export const openGranChatPlugin = (): Plugin => {
+export const graneriChatPlugin = (): Plugin => {
 	const middleware = createChatMiddleware();
 
 	return {
-		name: "opengran-chat-api",
+		name: "graneri-chat-api",
 		configureServer(server) {
 			server.middlewares.use(middleware);
 		},

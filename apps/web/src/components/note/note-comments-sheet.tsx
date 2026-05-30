@@ -101,9 +101,9 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 
 const COMMENTS_PANEL_STORAGE_KEY_DESKTOP =
-	"opengran.note-comments-panel-width.desktop";
+	"graneri.note-comments-panel-width.desktop";
 const COMMENTS_PANEL_STORAGE_KEY_MOBILE =
-	"opengran.note-comments-panel-width.mobile";
+	"graneri.note-comments-panel-width.mobile";
 const INITIAL_VISIBLE_THREAD_COMMENTS = 2;
 const THREAD_COMMENT_PAGE_SIZE = 4;
 

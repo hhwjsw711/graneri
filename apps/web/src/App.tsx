@@ -27,8 +27,8 @@ import {
 	FieldGroup,
 	FieldLabel,
 } from "@workspace/ui/components/field";
+import { GraneriMark } from "@workspace/ui/components/graneri-mark";
 import { Icons } from "@workspace/ui/components/icons";
-import { OpenGranMark } from "@workspace/ui/components/open-gran-mark";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import { cn } from "@workspace/ui/lib/utils";
 import confetti from "canvas-confetti";
@@ -176,7 +176,7 @@ const useAppBootstrapState = () => {
 					{
 						id: "microphone",
 						description:
-							"During your meetings, OpenGran transcribes your microphone.",
+							"During your meetings, Graneri transcribes your microphone.",
 						required: true,
 						state: "unknown",
 						canRequest: false,
@@ -185,7 +185,7 @@ const useAppBootstrapState = () => {
 					{
 						id: "systemAudio",
 						description:
-							"During your meetings, OpenGran transcribes your system audio output.",
+							"During your meetings, Graneri transcribes your system audio output.",
 						required: false,
 						state: "unknown",
 						canRequest: false,
@@ -908,9 +908,9 @@ function OnboardingStepBrand() {
 	return (
 		<div className="flex items-center gap-2 self-center font-medium">
 			<div className="flex size-6 items-center justify-center rounded-md border bg-card text-foreground">
-				<OpenGranMark className="size-4" />
+				<GraneriMark className="size-4" />
 			</div>
-			OpenGran
+			Graneri
 		</div>
 	);
 }
@@ -1105,10 +1105,10 @@ function AuthBootstrapScreen({
 		<output
 			data-app-region={isDesktopMac ? "drag" : undefined}
 			className="fixed inset-0 grid place-items-center bg-background"
-			aria-label="Loading OpenGran"
+			aria-label="Loading Graneri"
 		>
 			{isDesktopApp ? (
-				<OpenGranMark
+				<GraneriMark
 					className="app-loading-mark block size-[42px] text-foreground"
 					data-app-region={isDesktopMac ? "no-drag" : undefined}
 				/>
@@ -1190,7 +1190,7 @@ function DesktopPermissionsOnboardingScreen({
 		<OnboardingStepLayout isDesktopMac={isDesktopMac}>
 			<OnboardingStepCard
 				title="Transcription permissions"
-				description="When you turn it on, OpenGran transcribes meetings using your computer's audio."
+				description="When you turn it on, Graneri transcribes meetings using your computer's audio."
 				contentClassName="flex flex-col gap-5"
 			>
 				<div>
@@ -1393,9 +1393,9 @@ function LoginForm({
 		>
 			<div className="flex items-center gap-2 self-center font-medium">
 				<div className="flex size-6 items-center justify-center rounded-md border bg-card text-foreground">
-					<OpenGranMark className="size-4" />
+					<GraneriMark className="size-4" />
 				</div>
-				OpenGran
+				Graneri
 			</div>
 			<Card>
 				<CardHeader className="text-center">

@@ -83,9 +83,9 @@ const generateMessageId = createIdGenerator({
 });
 const ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
 const activeChatStreamControllers = new Map<string, AbortController>();
-const AI_LATENCY_DEBUG_ENABLED = process.env.OPENGRAN_AI_LATENCY_DEBUG === "1";
+const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
 
-const canUseLocalFolderTools = () => process.env.OPENGRAN_ENV_MODE === "local";
+const canUseLocalFolderTools = () => process.env.GRANERI_ENV_MODE === "local";
 
 class ActiveChatStreamPersister {
 	#buffer = "";

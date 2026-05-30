@@ -1,4 +1,4 @@
-const CSS_HIGHLIGHT_STYLE_ID = "opengran-css-highlight-styles";
+const CSS_HIGHLIGHT_STYLE_ID = "graneri-css-highlight-styles";
 
 export const ensureCssHighlightStyles = () => {
 	if (typeof document === "undefined") {

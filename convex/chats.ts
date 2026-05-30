@@ -286,12 +286,12 @@ const getStorageIdFromFilePart = (part: unknown): Id<"_storage"> | null => {
 
 	const providerMetadata = part.providerMetadata;
 	if (isRecord(providerMetadata)) {
-		const opengranMetadata = providerMetadata.opengran;
+		const graneriMetadata = providerMetadata.graneri;
 		if (
-			isRecord(opengranMetadata) &&
-			typeof opengranMetadata.storageId === "string"
+			isRecord(graneriMetadata) &&
+			typeof graneriMetadata.storageId === "string"
 		) {
-			return opengranMetadata.storageId as Id<"_storage">;
+			return graneriMetadata.storageId as Id<"_storage">;
 		}
 	}
 

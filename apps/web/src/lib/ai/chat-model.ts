@@ -3,7 +3,7 @@ import { defaultChatModel, findChatModel } from "@/lib/ai/models";
 
 type ChatModel = (typeof chatModels)[number];
 
-const CHAT_MODEL_STORAGE_KEY = "opengran:chat-model";
+const CHAT_MODEL_STORAGE_KEY = "graneri:chat-model";
 
 export const getStoredChatModel = (): ChatModel => {
 	if (typeof window === "undefined") {

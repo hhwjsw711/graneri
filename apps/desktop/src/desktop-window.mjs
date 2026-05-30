@@ -38,7 +38,7 @@ export const createDesktopWindow = ({
 			height: defaultWindowSize.height,
 			minWidth: minimumWindowSize.width,
 			minHeight: minimumWindowSize.height,
-			title: "OpenGran",
+			title: "Graneri",
 			icon: dockIconPath,
 			backgroundColor: getBackgroundColor(),
 			autoHideMenuBar: true,

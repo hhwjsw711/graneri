@@ -9,7 +9,7 @@ import authConfig from "./auth.config";
 
 const LOCAL_SITE_URLS = ["http://127.0.0.1:3000", "http://localhost:3000"];
 const DESKTOP_CALLBACK_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*"];
-const DESKTOP_PROTOCOL_ORIGIN = "opengran:/";
+const DESKTOP_PROTOCOL_ORIGIN = "graneri:/";
 
 function requireEnv(name: string) {
 	const value = process.env[name];
@@ -35,7 +35,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
 	const siteUrl = getSiteUrl();
 
 	return betterAuth({
-		appName: "OpenGran",
+		appName: "Graneri",
 		baseURL: requireEnv("CONVEX_SITE_URL"),
 		trustedOrigins: [
 			siteUrl,

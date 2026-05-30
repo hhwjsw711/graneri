@@ -23,7 +23,7 @@ const clearCaptureHealthTimeout = (session) => {
 };
 
 export const resolveSystemAudioHelperPath = ({ isPackaged, runtimeDir }) => {
-	const envPath = process.env.OPENGRAN_SYSTEM_AUDIO_HELPER_PATH?.trim();
+	const envPath = process.env.GRANERI_SYSTEM_AUDIO_HELPER_PATH?.trim();
 	const unpackedHelperPath = isPackaged
 		? resolve(
 				process.resourcesPath,
@@ -33,19 +33,19 @@ export const resolveSystemAudioHelperPath = ({ isPackaged, runtimeDir }) => {
 				"desktop",
 				"dist",
 				"bin",
-				"opengran-system-audio-helper",
+				"graneri-system-audio-helper",
 			)
 		: null;
 	const candidates = [
 		envPath,
 		unpackedHelperPath,
-		resolve(runtimeDir, "bin", "opengran-system-audio-helper"),
+		resolve(runtimeDir, "bin", "graneri-system-audio-helper"),
 		resolve(
 			runtimeDir,
 			"..",
 			".generated",
 			"system-audio",
-			"opengran-system-audio-helper",
+			"graneri-system-audio-helper",
 		),
 	].filter(Boolean);
 
@@ -53,7 +53,7 @@ export const resolveSystemAudioHelperPath = ({ isPackaged, runtimeDir }) => {
 };
 
 export const resolveMicrophoneHelperPath = ({ isPackaged, runtimeDir }) => {
-	const envPath = process.env.OPENGRAN_MICROPHONE_HELPER_PATH?.trim();
+	const envPath = process.env.GRANERI_MICROPHONE_HELPER_PATH?.trim();
 	const unpackedHelperPath = isPackaged
 		? resolve(
 				process.resourcesPath,
@@ -63,19 +63,19 @@ export const resolveMicrophoneHelperPath = ({ isPackaged, runtimeDir }) => {
 				"desktop",
 				"dist",
 				"bin",
-				"opengran-microphone-helper",
+				"graneri-microphone-helper",
 			)
 		: null;
 	const candidates = [
 		envPath,
 		unpackedHelperPath,
-		resolve(runtimeDir, "bin", "opengran-microphone-helper"),
+		resolve(runtimeDir, "bin", "graneri-microphone-helper"),
 		resolve(
 			runtimeDir,
 			"..",
 			".generated",
 			"system-audio",
-			"opengran-microphone-helper",
+			"graneri-microphone-helper",
 		),
 	].filter(Boolean);
 

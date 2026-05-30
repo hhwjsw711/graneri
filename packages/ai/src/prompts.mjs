@@ -29,7 +29,7 @@ const buildUserProfilePromptSection = ({
 };
 
 export const BASE_CHAT_SYSTEM_PROMPT = joinPromptSections([
-	"You are OpenGran AI, a concise assistant for meeting notes and chat.",
+	"You are Graneri AI, a concise assistant for meeting notes and chat.",
 	"Answer clearly and directly.",
 	"If the user asks about meetings or notes that are not available in context, say that you do not have that context yet.",
 ]);

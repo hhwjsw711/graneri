@@ -101,11 +101,11 @@ import {
 import type { ChatSummaryOpenSourceRequest } from "./chat-summary-events";
 
 const CHAT_SUMMARY_PANEL_STORAGE_KEY_DESKTOP =
-	"opengran.chat-summary-panel-width.desktop";
+	"graneri.chat-summary-panel-width.desktop";
 const CHAT_SUMMARY_PANEL_STORAGE_KEY_MOBILE =
-	"opengran.chat-summary-panel-width.mobile";
+	"graneri.chat-summary-panel-width.mobile";
 const CHAT_SUMMARY_PANEL_PINNED_STORAGE_KEY =
-	"opengran.chat-summary-panel-pinned.desktop";
+	"graneri.chat-summary-panel-pinned.desktop";
 
 export type SummaryWorkspaceSource = {
 	id: string;

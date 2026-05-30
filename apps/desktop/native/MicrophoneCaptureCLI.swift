@@ -27,7 +27,7 @@ enum MicrophoneCaptureError: Error, LocalizedError {
 }
 
 final class StdoutEmitter: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.opengran.microphone.stdout")
+	private let queue = DispatchQueue(label: "com.graneri.microphone.stdout")
 	private let fileHandle = FileHandle.standardOutput
 
 	func send(event: [String: Any]) {
@@ -45,7 +45,7 @@ final class StdoutEmitter: @unchecked Sendable {
 }
 
 final class StderrLogger: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.opengran.microphone.stderr")
+	private let queue = DispatchQueue(label: "com.graneri.microphone.stderr")
 	private let fileHandle = FileHandle.standardError
 
 	func log(_ message: String) {
@@ -62,7 +62,7 @@ final class StderrLogger: @unchecked Sendable {
 final class PcmChunkEncoder: @unchecked Sendable {
 	private let emitter: StdoutEmitter
 	private let flushIntervalNanoseconds: UInt64
-	private let queue = DispatchQueue(label: "com.opengran.microphone.encoder")
+	private let queue = DispatchQueue(label: "com.graneri.microphone.encoder")
 	private var pendingBytes = Data()
 	private var timer: DispatchSourceTimer?
 

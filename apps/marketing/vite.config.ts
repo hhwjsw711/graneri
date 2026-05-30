@@ -9,7 +9,7 @@ const srcDir = fileURLToPath(new URL("./src", import.meta.url));
 export default defineConfig(({ mode }) => {
 	const env = loadEnv(mode, process.cwd(), "");
 	const marketingSiteUrl =
-		env.VITE_MARKETING_SITE_URL?.trim() || "https://opengran-oss.vercel.app";
+		env.VITE_MARKETING_SITE_URL?.trim() || "https://graneri-oss.vercel.app";
 
 	return {
 		plugins: [

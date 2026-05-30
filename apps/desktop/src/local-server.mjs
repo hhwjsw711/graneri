@@ -69,7 +69,7 @@ import {
 
 const runtimeDir = dirname(fileURLToPath(import.meta.url));
 const webDistDir = resolve(runtimeDir, "../../web/dist");
-const AI_LATENCY_DEBUG_ENABLED = process.env.OPENGRAN_AI_LATENCY_DEBUG === "1";
+const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
 
 const mimeTypes = {
 	".css": "text/css; charset=utf-8",
@@ -107,7 +107,7 @@ const structuredNoteSchema = z.object({
 		)
 		.min(1),
 });
-const OPEN_GRAN_MARK_SVG = `
+const GRANERI_MARK_SVG = `
 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
 	<path
 		d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"
@@ -123,7 +123,7 @@ const createAuthCallbackSuccessHtml = () => `<!doctype html>
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>OpenGran</title>
+		<title>Graneri</title>
 		<style>
 			* {
 				box-sizing: border-box;
@@ -185,9 +185,9 @@ const createAuthCallbackSuccessHtml = () => `<!doctype html>
 	</head>
 	<body>
 		<main class="shell">
-			<div class="mark">${OPEN_GRAN_MARK_SVG}</div>
+			<div class="mark">${GRANERI_MARK_SVG}</div>
 			<h1>Authentication complete</h1>
-			<p>Return to OpenGran to continue. You can close this window if it stays open.</p>
+			<p>Return to Graneri to continue. You can close this window if it stays open.</p>
 		</main>
 	</body>
 </html>`;

@@ -3,9 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const getEnvFileName = () =>
-	process.env.OPENGRAN_ENV_MODE?.trim() === "production"
-		? ".env"
-		: ".env.local";
+	process.env.GRANERI_ENV_MODE?.trim() === "production" ? ".env" : ".env.local";
 
 export const getEnvPaths = (options = {}) => {
 	const envFileName = getEnvFileName();

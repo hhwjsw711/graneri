@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import type { HtmlTagDescriptor, Plugin } from "vite";
 import { defineConfig } from "vite";
-import { openGranChatPlugin } from "./server/chat-plugin";
+import { graneriChatPlugin } from "./server/chat-plugin";
 
 const srcDir = fileURLToPath(new URL("./src", import.meta.url));
 const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -13,9 +13,7 @@ const platformSrcDir = fileURLToPath(
 	new URL("../../packages/platform/src", import.meta.url),
 );
 const envFileName =
-	process.env.OPENGRAN_ENV_MODE?.trim() === "production"
-		? ".env"
-		: ".env.local";
+	process.env.GRANERI_ENV_MODE?.trim() === "production" ? ".env" : ".env.local";
 const envFilePath = path.resolve(workspaceRoot, envFileName);
 
 const parseEnvLine = (line: string) => {
@@ -83,7 +81,7 @@ const getOrigin = (name: string) => {
 };
 
 const convexSitePreconnectPlugin = (): Plugin => ({
-	name: "opengran-convex-site-preconnect",
+	name: "graneri-convex-site-preconnect",
 	transformIndexHtml() {
 		const tags: HtmlTagDescriptor[] = [
 			{
@@ -227,7 +225,7 @@ export default defineConfig(() => {
 			convexSitePreconnectPlugin(),
 			react(),
 			tailwindcss(),
-			openGranChatPlugin(),
+			graneriChatPlugin(),
 		],
 		build: {
 			modulePreload: false,

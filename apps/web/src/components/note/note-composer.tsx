@@ -176,7 +176,7 @@ const noteRecipePickerListboxProps = {
 };
 const NOTE_CHAT_FLOATING_WIDTH = "min(28rem, calc(100vw - 2rem))";
 const NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX =
-	"opengran.noteComposer.floatingHeight";
+	"graneri.noteComposer.floatingHeight";
 const NOTE_CHAT_FLOATING_DEFAULT_HEIGHT = 512;
 const NOTE_CHAT_PANEL_MIN_HEIGHT = 320;
 const NOTE_CHAT_PANEL_MAX_HEIGHT = 680;
@@ -198,11 +198,11 @@ const NOTE_COMPOSER_FOOTER_BOTTOM_ROW_CLASS =
 const INLINE_POPOVER_FOOTER_DEFAULT_HEIGHT = 120;
 const INLINE_POPOVER_DEFAULT_HEIGHT = 384;
 const INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX =
-	"opengran.noteComposer.inlinePopoverHeight";
+	"graneri.noteComposer.inlinePopoverHeight";
 const INLINE_POPOVER_HEIGHT_LEGACY_STORAGE_KEY =
-	"opengran.noteComposer.inlinePopoverHeight";
+	"graneri.noteComposer.inlinePopoverHeight";
 const NOTE_CHAT_SIDEBAR_WIDTH_STORAGE_KEY_PREFIX =
-	"opengran.noteComposer.sidebarWidth";
+	"graneri.noteComposer.sidebarWidth";
 const TRANSCRIPT_PROGRESSIVE_RENDER_THRESHOLD = 32;
 const TRANSCRIPT_INITIAL_WINDOW_SIZE = 32;
 

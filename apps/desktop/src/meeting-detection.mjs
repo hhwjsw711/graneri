@@ -136,7 +136,7 @@ export const createMeetingDetection = ({
 			alwaysOnTop: true,
 			focusable: true,
 			acceptFirstMouse: true,
-			title: "OpenGran meeting widget",
+			title: "Graneri meeting widget",
 			icon: dockIconPath,
 			webPreferences: {
 				preload: preloadPath,
@@ -351,8 +351,7 @@ export const createMeetingDetection = ({
 	};
 
 	const resolveMicrophoneActivityHelperPath = () => {
-		const envPath =
-			process.env.OPENGRAN_MICROPHONE_ACTIVITY_HELPER_PATH?.trim();
+		const envPath = process.env.GRANERI_MICROPHONE_ACTIVITY_HELPER_PATH?.trim();
 		const unpackedHelperPath = isPackaged
 			? resolve(
 					process.resourcesPath,
@@ -362,19 +361,19 @@ export const createMeetingDetection = ({
 					"desktop",
 					"dist",
 					"bin",
-					"opengran-microphone-activity-helper",
+					"graneri-microphone-activity-helper",
 				)
 			: null;
 		const candidates = [
 			envPath,
 			unpackedHelperPath,
-			resolve(runtimeDir, "bin", "opengran-microphone-activity-helper"),
+			resolve(runtimeDir, "bin", "graneri-microphone-activity-helper"),
 			resolve(
 				runtimeDir,
 				"..",
 				".generated",
 				"system-audio",
-				"opengran-microphone-activity-helper",
+				"graneri-microphone-activity-helper",
 			),
 		].filter(Boolean);
 
