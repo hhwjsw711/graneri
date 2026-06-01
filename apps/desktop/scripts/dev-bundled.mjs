@@ -168,9 +168,19 @@ await runCommand("bun", ["run", "build:desktop"], {
 	cwd: webPackageRoot,
 });
 await runCommand("bun", ["run", "build"], { cwd: packageRoot });
-await runCommand("bunx", ["electron-builder", "--mac", "dir"], {
-	cwd: packageRoot,
-});
+await runCommand(
+	"bunx",
+	[
+		"electron-builder",
+		"--config",
+		"electron-builder.config.mjs",
+		"--mac",
+		"dir",
+	],
+	{
+		cwd: packageRoot,
+	},
+);
 
 const bundledAppExecutable = await resolveBundledAppExecutable();
 const child = spawn(bundledAppExecutable, [], {

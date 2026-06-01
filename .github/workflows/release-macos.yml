@@ -18,6 +18,8 @@ jobs:
     runs-on: macos-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VITE_GITHUB_OWNER: ${{ github.repository_owner }}
+      VITE_GITHUB_REPO: ${{ github.event.repository.name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -56,18 +58,30 @@ jobs:
 
       - name: Validate Convex production deploy configuration
         env:
+          REQUIRE_CONVEX_DEPLOY: ${{ vars.REQUIRE_CONVEX_DEPLOY || 'false' }}
           CONVEX_DEPLOY_KEY_SECRET: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
         run: |
           if [ -z "$CONVEX_DEPLOY_KEY_SECRET" ]; then
+            if [ "$REQUIRE_CONVEX_DEPLOY" != "true" ]; then
+              echo "CONVEX_DEPLOY_KEY_PROD is not configured; skipping Convex production deploy."
+              exit 0
+            fi
+
             echo "Missing required secret: CONVEX_DEPLOY_KEY_PROD"
-            echo "Generate a production deploy key for precious-crane-700 in the Convex dashboard and add it as a GitHub Actions secret."
+            echo "Generate a production deploy key in the Convex dashboard and add it as a GitHub Actions secret."
             exit 1
           fi
 
       - name: Deploy Convex production backend
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_PROD }}
-        run: bunx convex deploy --typecheck disable
+        run: |
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "Skipping Convex production deploy."
+            exit 0
+          fi
+
+          bunx convex deploy --typecheck disable
 
       - name: Validate signing configuration
         env:

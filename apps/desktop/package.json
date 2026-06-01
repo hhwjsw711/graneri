@@ -11,16 +11,16 @@
     "dev": "node ./scripts/dev.mjs",
     "dev:bundled": "node ./scripts/dev-bundled.mjs",
     "build": "node ./scripts/build.mjs",
-    "package:mac:dir": "electron-builder --mac dir",
-    "package:mac": "electron-builder --mac dmg",
-    "package:mac:release": "electron-builder --mac --publish always",
+    "package:mac:dir": "electron-builder --config electron-builder.config.mjs --mac dir",
+    "package:mac": "electron-builder --config electron-builder.config.mjs --mac dmg",
+    "package:mac:release": "electron-builder --config electron-builder.config.mjs --mac --publish always",
     "generate:app-icon": "node ./scripts/generate-app-icon.mjs",
     "generate:tray-icons": "electron ./scripts/generate-tray-icons.mjs",
-    "lint": "biome lint src scripts package.json",
-    "lint:fix": "biome lint --write src scripts package.json",
-    "check": "biome check src scripts package.json",
-    "check:fix": "biome check --write src scripts package.json",
-    "format": "biome format --write src scripts package.json",
+    "lint": "biome lint src scripts electron-builder.config.mjs package.json",
+    "lint:fix": "biome lint --write src scripts electron-builder.config.mjs package.json",
+    "check": "biome check src scripts electron-builder.config.mjs package.json",
+    "check:fix": "biome check --write src scripts electron-builder.config.mjs package.json",
+    "format": "biome format --write src scripts electron-builder.config.mjs package.json",
     "test": "node --test tests/*.test.cjs tests/*.test.mjs && node scripts/check-syntax.mjs",
     "typecheck": "node scripts/check-syntax.mjs"
   },
@@ -37,46 +37,5 @@
     "electron": "^36.3.2",
     "electron-builder": "^26.0.12",
     "web": "workspace:*"
-  },
-  "build": {
-    "appId": "dev.graneri.desktop",
-    "productName": "Graneri",
-    "directories": {
-      "output": "release"
-    },
-    "extraMetadata": {
-      "main": ".bundle-root/apps/desktop/dist/main.mjs"
-    },
-    "files": [
-      ".bundle-root/**/*",
-      "package.json"
-    ],
-    "asarUnpack": [
-      ".bundle-root/apps/desktop/dist/bin/**"
-    ],
-    "mac": {
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "category": "public.app-category.productivity",
-      "icon": "build/icon.icns",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "extendInfo": {
-        "NSMicrophoneUsageDescription": "During your meetings, Graneri transcribes your microphone.",
-        "NSAudioCaptureUsageDescription": "During your meetings, Graneri transcribes your system audio output."
-      },
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "murabcd",
-        "repo": "graneri",
-        "releaseType": "release"
-      }
-    ]
   }
 }

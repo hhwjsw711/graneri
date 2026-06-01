@@ -15,6 +15,7 @@
     "dev:desktop:native": "GRANERI_ENV_MODE=local bun --filter=desktop run dev:bundled",
     "dist:mac": "bun --filter=web run build:desktop && bun --filter=desktop run build && bun --filter=desktop run package:mac",
     "release:mac": "bun --filter=web run build:desktop && bun --filter=desktop run build && bun --filter=desktop run package:mac:release",
+    "doctor:self-host": "node scripts/check-self-host-env.mjs",
     "lint": "turbo run lint",
     "check": "turbo run check",
     "format": "turbo run format",

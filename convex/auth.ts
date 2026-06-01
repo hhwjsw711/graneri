@@ -29,6 +29,13 @@ function getSiteUrl() {
 	return process.env.SITE_URL ?? LOCAL_SITE_URLS[0];
 }
 
+function getAdditionalTrustedOrigins() {
+	return (process.env.SITE_TRUSTED_ORIGINS ?? "")
+		.split(",")
+		.map((origin) => origin.trim())
+		.filter(Boolean);
+}
+
 export const authComponent = createClient<DataModel>(components.betterAuth);
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
@@ -39,6 +46,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
 		baseURL: requireEnv("CONVEX_SITE_URL"),
 		trustedOrigins: [
 			siteUrl,
+			...getAdditionalTrustedOrigins(),
 			...LOCAL_SITE_URLS,
 			...DESKTOP_CALLBACK_ORIGINS,
 			DESKTOP_PROTOCOL_ORIGIN,

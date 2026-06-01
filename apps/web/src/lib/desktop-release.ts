@@ -1,8 +1,40 @@
-const GITHUB_OWNER = "murabcd";
-const GITHUB_REPO = "graneri";
+const getEnv = (name: keyof ImportMetaEnv, fallback: string) =>
+	import.meta.env[name]?.trim() || fallback;
 
-export const DESKTOP_RELEASES_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
-const DESKTOP_LATEST_RELEASE_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
+const GITHUB_OWNER = getEnv("VITE_GITHUB_OWNER", "murabcd");
+const GITHUB_REPO = getEnv("VITE_GITHUB_REPO", "graneri");
+const DESKTOP_DOWNLOAD_URL = import.meta.env.VITE_DESKTOP_DOWNLOAD_URL?.trim();
+const DESKTOP_RELEASE_API_URL =
+	import.meta.env.VITE_DESKTOP_RELEASE_API_URL?.trim();
+
+export const createDesktopReleaseUrls = ({
+	downloadUrl,
+	githubOwner,
+	githubRepo,
+	releaseApiUrl,
+}: {
+	downloadUrl?: string;
+	githubOwner: string;
+	githubRepo: string;
+	releaseApiUrl?: string;
+}) => ({
+	downloadUrl:
+		downloadUrl ||
+		`https://github.com/${githubOwner}/${githubRepo}/releases/latest`,
+	releaseApiUrl:
+		releaseApiUrl ||
+		`https://api.github.com/repos/${githubOwner}/${githubRepo}/releases/latest`,
+});
+
+const desktopReleaseUrls = createDesktopReleaseUrls({
+	downloadUrl: DESKTOP_DOWNLOAD_URL,
+	githubOwner: GITHUB_OWNER,
+	githubRepo: GITHUB_REPO,
+	releaseApiUrl: DESKTOP_RELEASE_API_URL,
+});
+
+export const DESKTOP_RELEASES_URL = desktopReleaseUrls.downloadUrl;
+const DESKTOP_LATEST_RELEASE_API_URL = desktopReleaseUrls.releaseApiUrl;
 
 type GitHubReleaseAsset = {
 	name: string;
