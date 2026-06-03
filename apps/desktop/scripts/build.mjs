@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { cp, mkdir, readdir, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,30 @@ const bundleConvexGeneratedDir = resolve(bundleRootDir, "convex", "_generated");
 const packageAiSrcDir = resolve(packageRoot, "../../packages/ai/src");
 const bundleAiSrcDir = resolve(bundleRootDir, "packages", "ai", "src");
 const desktopAssetsDir = resolve(sourceDir, "assets");
+
+const buildHostedRuntimeConfig = () => ({
+	convexUrl: process.env.GRANERI_HOSTED_CONVEX_URL?.trim() ?? "",
+	convexSiteUrl: process.env.GRANERI_HOSTED_CONVEX_SITE_URL?.trim() ?? "",
+	siteUrl: process.env.GRANERI_HOSTED_SITE_URL?.trim() ?? "",
+});
+
+const writeHostedRuntimeConfig = async () => {
+	const config = buildHostedRuntimeConfig();
+
+	await cp(
+		resolve(sourceDir, "hosted-runtime-config.mjs"),
+		resolve(distDir, "hosted-runtime-config.mjs"),
+	);
+
+	if (!config.convexUrl && !config.convexSiteUrl && !config.siteUrl) {
+		return;
+	}
+
+	await writeFile(
+		resolve(distDir, "hosted-runtime-config.mjs"),
+		`export const hostedRuntimeConfig = ${JSON.stringify(config, null, "\t")};\n`,
+	);
+};
 
 const resolveOptionalPackageBinary = (packageName) => {
 	try {
@@ -56,6 +80,8 @@ for (const entry of await readdir(sourceDir, { withFileTypes: true })) {
 
 	await cp(resolve(sourceDir, entry.name), resolve(distDir, entry.name));
 }
+
+await writeHostedRuntimeConfig();
 
 await cp(desktopAssetsDir, resolve(distDir, "assets"), { recursive: true });
 

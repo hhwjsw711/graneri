@@ -1,4 +1,5 @@
 import { app } from "electron";
+import { hostedRuntimeConfig } from "./hosted-runtime-config.mjs";
 
 const trimConfigValue = (value) =>
 	typeof value === "string" ? value.trim() : "";
@@ -24,12 +25,17 @@ const deriveConvexSiteUrl = (convexUrl) => {
 };
 
 const getHostedDefaults = () => {
-	const convexUrl = trimConfigValue(process.env.GRANERI_HOSTED_CONVEX_URL);
+	const convexUrl =
+		trimConfigValue(process.env.GRANERI_HOSTED_CONVEX_URL) ||
+		trimConfigValue(hostedRuntimeConfig.convexUrl);
 	const convexSiteUrl =
 		trimConfigValue(process.env.GRANERI_HOSTED_CONVEX_SITE_URL) ||
+		trimConfigValue(hostedRuntimeConfig.convexSiteUrl) ||
 		deriveConvexSiteUrl(convexUrl);
 	const siteUrl =
-		trimConfigValue(process.env.GRANERI_HOSTED_SITE_URL) || convexSiteUrl;
+		trimConfigValue(process.env.GRANERI_HOSTED_SITE_URL) ||
+		trimConfigValue(hostedRuntimeConfig.siteUrl) ||
+		convexSiteUrl;
 
 	return {
 		convexUrl,
