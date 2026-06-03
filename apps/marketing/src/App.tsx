@@ -2,8 +2,12 @@ import { Button } from "@workspace/ui/components/button";
 import { GraneriMark } from "@workspace/ui/components/graneri-mark";
 import { Icons } from "@workspace/ui/components/icons";
 
-const githubProjectUrl = "https://github.com/murabcd/graneri";
-const desktopDownloadUrl = "https://github.com/murabcd/graneri/releases/latest";
+const githubOwner = import.meta.env.VITE_GITHUB_OWNER?.trim() || "murabcd";
+const githubRepo = import.meta.env.VITE_GITHUB_REPO?.trim() || "graneri";
+const githubProjectUrl = `https://github.com/${githubOwner}/${githubRepo}`;
+const desktopDownloadUrl =
+	import.meta.env.VITE_DESKTOP_DOWNLOAD_URL?.trim() ||
+	`${githubProjectUrl}/releases/latest`;
 const GithubLogo = Icons.githubLogo;
 const MacLogo = Icons.macLogo;
 

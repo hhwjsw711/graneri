@@ -20,21 +20,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@workspace/ui/components/card";
-import { Checkbox } from "@workspace/ui/components/checkbox";
-import {
-	Field,
-	FieldDescription,
-	FieldGroup,
-	FieldLabel,
-} from "@workspace/ui/components/field";
+import { Field } from "@workspace/ui/components/field";
 import { GraneriMark } from "@workspace/ui/components/graneri-mark";
-import { Icons } from "@workspace/ui/components/icons";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import { cn } from "@workspace/ui/lib/utils";
 import confetti from "canvas-confetti";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
-	AlertCircle,
 	Check,
 	ExternalLink,
 	LoaderCircle,
@@ -44,6 +36,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import type { SocialAuthProvider } from "@/app/app-types";
+import { AuthScreen } from "@/app/auth-screen";
 import { AuthenticatedAppShell } from "@/app/authenticated-app-shell";
 import { getSharedNoteShareId, getThemeFireworkColors } from "@/app/location";
 import { SharedNotePageEntry } from "@/components/note/shared-note-page-entry";
@@ -77,9 +70,6 @@ const DESKTOP_PERMISSION_LABELS: Record<DesktopPermissionId, string> = {
 	microphone: "Transcribe me",
 	systemAudio: "Transcribe others",
 };
-const GoogleLogo = Icons.googleLogo;
-const GithubLogo = Icons.githubLogo;
-
 const DESKTOP_PERMISSION_BUTTON_LABELS: Record<DesktopPermissionId, string> = {
 	microphone: "Enable",
 	systemAudio: "Enable",
@@ -1328,159 +1318,6 @@ function WorkspaceOnboardingScreen({
 				</form>
 			</OnboardingStepCard>
 		</OnboardingStepLayout>
-	);
-}
-
-function AuthScreen({
-	error,
-	isAuthenticating,
-	authenticatingProvider,
-	isDesktopMac,
-	onGitHubSignIn,
-	onGoogleSignIn,
-}: {
-	error: string | null;
-	isAuthenticating: boolean;
-	authenticatingProvider: SocialAuthProvider | null;
-	isDesktopMac: boolean;
-	onGitHubSignIn: () => void;
-	onGoogleSignIn: () => void;
-}) {
-	return (
-		<div
-			data-app-region={isDesktopMac ? "drag" : undefined}
-			className={cn(
-				"flex min-h-svh flex-col items-center justify-center gap-6 bg-background p-6 md:p-10",
-				isDesktopMac && DESKTOP_AUTH_SAFE_TOP_CLASS,
-			)}
-		>
-			<LoginForm
-				error={error}
-				isAuthenticating={isAuthenticating}
-				authenticatingProvider={authenticatingProvider}
-				isDesktopMac={isDesktopMac}
-				onGitHubSignIn={onGitHubSignIn}
-				onGoogleSignIn={onGoogleSignIn}
-			/>
-		</div>
-	);
-}
-
-function LoginForm({
-	className,
-	error,
-	isAuthenticating,
-	authenticatingProvider,
-	isDesktopMac,
-	onGitHubSignIn,
-	onGoogleSignIn,
-	...props
-}: React.ComponentProps<"div"> & {
-	error: string | null;
-	isAuthenticating: boolean;
-	authenticatingProvider: SocialAuthProvider | null;
-	isDesktopMac: boolean;
-	onGitHubSignIn: () => void;
-	onGoogleSignIn: () => void;
-}) {
-	const [hasAcceptedTerms, setHasAcceptedTerms] = React.useState(false);
-
-	return (
-		<div
-			data-app-region={isDesktopMac ? "no-drag" : undefined}
-			className={cn("flex w-full max-w-sm flex-col gap-6", className)}
-			{...props}
-		>
-			<div className="flex items-center gap-2 self-center font-medium">
-				<div className="flex size-6 items-center justify-center rounded-md border bg-card text-foreground">
-					<GraneriMark className="size-4" />
-				</div>
-				Graneri
-			</div>
-			<Card>
-				<CardHeader className="text-center">
-					<CardTitle className="text-xl">Welcome back</CardTitle>
-					<CardDescription>
-						Login with your GitHub or Google account
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					<form>
-						<FieldGroup>
-							<Field>
-								<Button
-									variant="outline"
-									type="button"
-									className="w-full"
-									onClick={onGoogleSignIn}
-									disabled={isAuthenticating || !hasAcceptedTerms}
-								>
-									{authenticatingProvider === "google" ? (
-										<LoaderCircle className="animate-spin" />
-									) : (
-										<GoogleLogo className="size-4" />
-									)}
-									Login with Google
-								</Button>
-							</Field>
-							<Field>
-								<Button
-									variant="outline"
-									type="button"
-									className="w-full"
-									onClick={onGitHubSignIn}
-									disabled={isAuthenticating || !hasAcceptedTerms}
-								>
-									{authenticatingProvider === "github" ? (
-										<LoaderCircle className="animate-spin" />
-									) : (
-										<GithubLogo />
-									)}
-									Login with GitHub
-								</Button>
-							</Field>
-							{error ? (
-								<Field>
-									<FieldDescription className="flex items-center justify-center gap-2 text-center text-destructive">
-										<AlertCircle className="size-4 shrink-0" />
-										<span>{error}</span>
-									</FieldDescription>
-								</Field>
-							) : null}
-							<Field orientation="horizontal">
-								<Checkbox
-									id="terms"
-									checked={hasAcceptedTerms}
-									onCheckedChange={(checked) =>
-										setHasAcceptedTerms(checked === true)
-									}
-								/>
-								<FieldLabel
-									htmlFor="terms"
-									className="text-xs leading-none font-normal whitespace-nowrap text-muted-foreground"
-								>
-									I agree to the{" "}
-									<a
-										href="https://openmeet.app/terms"
-										className="underline underline-offset-4"
-									>
-										Terms of Service
-									</a>{" "}
-									and{" "}
-									<a
-										href="https://openmeet.app/privacy"
-										className="underline underline-offset-4"
-									>
-										Privacy Policy
-									</a>
-									.
-								</FieldLabel>
-							</Field>
-						</FieldGroup>
-					</form>
-				</CardContent>
-			</Card>
-		</div>
 	);
 }
 

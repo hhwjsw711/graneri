@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	createDesktopReleaseUrls,
 	DESKTOP_RELEASES_URL,
 	pickDesktopReleaseAsset,
 	resolveLatestDesktopDownloadUrl,
@@ -30,6 +31,34 @@ describe("pickDesktopReleaseAsset", () => {
 				},
 			]),
 		).toBeNull();
+	});
+});
+
+describe("createDesktopReleaseUrls", () => {
+	it("uses GitHub releases when direct release URLs are not configured", () => {
+		expect(
+			createDesktopReleaseUrls({
+				githubOwner: "acme",
+				githubRepo: "notes",
+			}),
+		).toEqual({
+			downloadUrl: "https://github.com/acme/notes/releases/latest",
+			releaseApiUrl: "https://api.github.com/repos/acme/notes/releases/latest",
+		});
+	});
+
+	it("prefers direct release URLs over GitHub-derived URLs", () => {
+		expect(
+			createDesktopReleaseUrls({
+				downloadUrl: "https://downloads.example.com/desktop",
+				githubOwner: "acme",
+				githubRepo: "notes",
+				releaseApiUrl: "https://releases.example.com/latest.json",
+			}),
+		).toEqual({
+			downloadUrl: "https://downloads.example.com/desktop",
+			releaseApiUrl: "https://releases.example.com/latest.json",
+		});
 	});
 });
 

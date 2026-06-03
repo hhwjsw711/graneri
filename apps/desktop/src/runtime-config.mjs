@@ -1,14 +1,7 @@
 import { app } from "electron";
 
-const defaultHostedConvexUrl = "https://precious-crane-700.convex.cloud";
-const defaultHostedConvexSiteUrl = "https://precious-crane-700.convex.site";
-const defaultHostedSiteUrl = defaultHostedConvexSiteUrl;
-
 const trimConfigValue = (value) =>
 	typeof value === "string" ? value.trim() : "";
-
-const shouldUseHostedDefaults = () =>
-	app.isPackaged === true && process.env.GRANERI_ENV_MODE?.trim() !== "local";
 
 const deriveConvexSiteUrl = (convexUrl) => {
 	if (!convexUrl) {
@@ -30,26 +23,50 @@ const deriveConvexSiteUrl = (convexUrl) => {
 	return "";
 };
 
+const getHostedDefaults = () => {
+	const convexUrl = trimConfigValue(process.env.GRANERI_HOSTED_CONVEX_URL);
+	const convexSiteUrl =
+		trimConfigValue(process.env.GRANERI_HOSTED_CONVEX_SITE_URL) ||
+		deriveConvexSiteUrl(convexUrl);
+	const siteUrl =
+		trimConfigValue(process.env.GRANERI_HOSTED_SITE_URL) || convexSiteUrl;
+
+	return {
+		convexUrl,
+		convexSiteUrl,
+		siteUrl,
+	};
+};
+
+const shouldUseHostedDefaults = () =>
+	app.isPackaged === true &&
+	process.env.GRANERI_ENV_MODE?.trim() !== "local" &&
+	Boolean(getHostedDefaults().convexUrl);
+
 const createRuntimeConfig = (value) => {
+	const hostedDefaults = shouldUseHostedDefaults() ? getHostedDefaults() : {};
 	const convexUrl =
-		trimConfigValue(value?.convexUrl) ||
-		(shouldUseHostedDefaults() ? defaultHostedConvexUrl : "");
+		trimConfigValue(value?.convexUrl) || hostedDefaults.convexUrl || "";
 	const convexSiteUrlInput = trimConfigValue(value?.convexSiteUrl);
 	const convexSiteUrl =
 		convexSiteUrlInput ||
 		deriveConvexSiteUrl(convexUrl) ||
-		(shouldUseHostedDefaults() ? defaultHostedConvexSiteUrl : "");
+		hostedDefaults.convexSiteUrl ||
+		"";
 	const siteUrl =
-		trimConfigValue(value?.siteUrl) ||
-		(shouldUseHostedDefaults() ? defaultHostedSiteUrl : "");
+		trimConfigValue(value?.siteUrl) || hostedDefaults.siteUrl || "";
 	const openAIApiKey = trimConfigValue(value?.openAIApiKey);
 
 	if (!convexUrl) {
-		throw new Error("CONVEX_URL is not configured.");
+		throw new Error(
+			"CONVEX_URL is not configured. Set CONVEX_URL or VITE_CONVEX_URL. Official packaged builds may set GRANERI_HOSTED_CONVEX_URL.",
+		);
 	}
 
 	if (!convexSiteUrl) {
-		throw new Error("CONVEX_SITE_URL is not configured.");
+		throw new Error(
+			"CONVEX_SITE_URL is not configured. Set CONVEX_SITE_URL or VITE_CONVEX_SITE_URL.",
+		);
 	}
 
 	return {
