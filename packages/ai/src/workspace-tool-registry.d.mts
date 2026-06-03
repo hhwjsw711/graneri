@@ -61,18 +61,24 @@ export type WorkspaceToolAdapters = {
 		searchFiles(args: { query: string; limit?: number }): Promise<unknown>;
 		getFile(args: { fileId: string }): Promise<unknown>;
 	};
-	yandexCalendar?: {
-		listEvents(args: {
-			limit?: number;
-			meetingsOnly?: boolean;
-		}): Promise<unknown>;
-		searchEvents(args: {
-			query: string;
-			limit?: number;
-			meetingsOnly?: boolean;
-		}): Promise<unknown>;
+	yandexCalendar?: (connection: YandexCalendarToolConnection) => {
+		listUpcomingEvents(args: { lookaheadMs: number }): Promise<{
+			connection: string;
+			events: unknown[];
+		}>;
 	};
 };
+
+export declare function normalizeWorkspaceCalendarEvents(
+	events: unknown[],
+	args?: { limit?: number; meetingsOnly?: boolean; query?: string },
+): unknown[];
+
+export declare function buildWorkspaceCalendarSources(
+	events: unknown[],
+): unknown[];
+
+export declare function getWorkspaceCalendarLookaheadMs(): number;
 
 export declare function buildWorkspaceToolSet(
 	connections: WorkspaceToolConnection[],

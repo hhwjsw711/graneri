@@ -17,6 +17,7 @@ import {
 	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
 } from "../packages/ai/src/app-source-providers.mjs";
+import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace-tools.mjs";
 import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
 import {
 	buildChatTitlePrompt,
@@ -47,10 +48,7 @@ import {
 	createDesktopRealtimeTranscriptionSession,
 	normalizeTranscriptionLanguage,
 } from "../packages/ai/src/transcription.mjs";
-import {
-	buildWorkspaceToolSet,
-	type WorkspaceToolConnection,
-} from "../packages/ai/src/workspace-tool-registry.mjs";
+import type { WorkspaceToolConnection } from "../packages/ai/src/workspace-tool-registry.mjs";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 
@@ -592,7 +590,11 @@ export const handleChatRequest = async (request: Request) => {
 					.catch(() => [])
 			: [];
 	const appTools = appsEnabled
-		? await buildWorkspaceToolSet(appConnections as WorkspaceToolConnection[])
+		? await buildConvexWorkspaceToolSet({
+				connections: appConnections as WorkspaceToolConnection[],
+				convexClient,
+				workspaceId: resolvedWorkspaceId,
+			})
 		: {};
 	const coreToolPolicy = buildCoreChatToolPolicy({
 		chatAttachmentsApi: api.chatAttachments,

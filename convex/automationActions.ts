@@ -13,6 +13,7 @@ import { BASE_CHAT_SYSTEM_PROMPT } from "../packages/ai/src/prompts.mjs";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
+import { listYandexUpcomingEvents } from "./yandexCalendar";
 
 const MAX_AUTOMATION_HISTORY_MESSAGES = 40;
 
@@ -41,6 +42,29 @@ const createTextMessage = ({
 	metadataJson: JSON.stringify(metadata),
 	text,
 	createdAt: Date.now(),
+});
+
+const buildAutomationYandexCalendarAdapter = () => (connection: {
+	displayName: string;
+	email: string;
+	password: string;
+	serverAddress: string;
+	calendarHomePath: string;
+}) => ({
+	listUpcomingEvents: async ({ lookaheadMs }: { lookaheadMs: number }) => {
+		const now = Date.now();
+		const result = await listYandexUpcomingEvents({
+			connection,
+			now,
+			timeMin: now,
+			timeMax: now + lookaheadMs,
+		});
+
+		return {
+			connection: connection.displayName,
+			events: result.events,
+		};
+	},
 });
 
 const getAutomationAppTools = async (
@@ -73,7 +97,9 @@ const getAutomationAppTools = async (
 		},
 	);
 
-	return await buildWorkspaceToolSet(connections as WorkspaceToolConnection[]);
+	return await buildWorkspaceToolSet(connections as WorkspaceToolConnection[], {
+		yandexCalendar: buildAutomationYandexCalendarAdapter(),
+	});
 };
 
 const buildAutomationSystemPrompt = ({

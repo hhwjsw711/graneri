@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { cp, mkdir, rm } from "node:fs/promises";
+import { cp, mkdir, readdir, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,17 +45,16 @@ await rm(distDir, { recursive: true, force: true });
 await rm(bundleRootDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
 
-for (const file of [
-	"auth-client.mjs",
-	"env.mjs",
-	"local-server.mjs",
-	"main.mjs",
-	"network.mjs",
-	"preload-api.cjs",
-	"preload.cjs",
-	"runtime-config.mjs",
-]) {
-	await cp(resolve(sourceDir, file), resolve(distDir, file));
+for (const entry of await readdir(sourceDir, { withFileTypes: true })) {
+	if (!entry.isFile()) {
+		continue;
+	}
+
+	if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".cjs")) {
+		continue;
+	}
+
+	await cp(resolve(sourceDir, entry.name), resolve(distDir, entry.name));
 }
 
 await cp(desktopAssetsDir, resolve(distDir, "assets"), { recursive: true });

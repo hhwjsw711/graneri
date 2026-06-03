@@ -1,4 +1,3 @@
-import { listYandexUpcomingEvents } from "../../../convex/yandexCalendar.ts";
 import { buildContext7Tools } from "./context7-tools.mjs";
 import { buildFigmaTools } from "./figma-tools.mjs";
 import { buildGoogleCalendarTools } from "./google-calendar-tools.mjs";
@@ -59,31 +58,37 @@ const buildCalendarSources = (events) =>
 		)
 		.filter(Boolean);
 
-const fetchYandexCalendarEvents = async (connection, args = {}) => {
-	const now = Date.now();
-	const result = await listYandexUpcomingEvents({
-		connection,
-		now,
-		timeMin: now,
-		timeMax: now + CALENDAR_LOOKAHEAD_MS,
+export const normalizeWorkspaceCalendarEvents = (
+	events,
+	args = {},
+) => normalizeCalendarEvents(events, args);
+
+export const buildWorkspaceCalendarSources = (events) =>
+	buildCalendarSources(events);
+
+export const getWorkspaceCalendarLookaheadMs = () => CALENDAR_LOOKAHEAD_MS;
+
+const fetchYandexCalendarEvents = async (adapter, args = {}) => {
+	const result = await adapter.listUpcomingEvents({
+		lookaheadMs: CALENDAR_LOOKAHEAD_MS,
 	});
 	const events = normalizeCalendarEvents(result.events, args);
 
 	return {
-		connection: connection.displayName,
+		connection: result.connection,
 		events,
 		sources: buildCalendarSources(events),
 	};
 };
 
-const defaultYandexCalendarAdapter = (connection) => ({
+const buildYandexCalendarAdapter = (adapter) => ({
 	listEvents: async ({ limit, meetingsOnly }) =>
-		await fetchYandexCalendarEvents(connection, {
+		await fetchYandexCalendarEvents(adapter, {
 			limit,
 			meetingsOnly,
 		}),
 	searchEvents: async ({ query, limit, meetingsOnly }) =>
-		await fetchYandexCalendarEvents(connection, {
+		await fetchYandexCalendarEvents(adapter, {
 			query,
 			limit,
 			meetingsOnly,
@@ -114,12 +119,11 @@ export const buildWorkspaceToolSet = async (connections, adapters = {}) => {
 			Object.assign(tools, buildGoogleDriveTools(adapters.googleDrive));
 		}
 
-		if (connection.provider === "yandex-calendar") {
+		if (connection.provider === "yandex-calendar" && adapters.yandexCalendar) {
 			Object.assign(
 				tools,
 				buildYandexCalendarTools({
-					...defaultYandexCalendarAdapter(connection),
-					...adapters.yandexCalendar,
+					...buildYandexCalendarAdapter(adapters.yandexCalendar(connection)),
 				}),
 			);
 		}
