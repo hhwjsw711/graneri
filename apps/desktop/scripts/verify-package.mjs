@@ -1,0 +1,209 @@
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { builtinModules, createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const require = createRequire(import.meta.url);
+const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const repoRoot = resolve(packageRoot, "../..");
+const appAsarPath = resolve(
+	packageRoot,
+	"release/mac-arm64/Graneri.app/Contents/Resources/app.asar",
+);
+const knownDevDeployments = ["clever-chinchilla-887"];
+
+const trim = (value) => (typeof value === "string" ? value.trim() : "");
+
+const parseDeploymentName = (url) => {
+	const value = trim(url);
+
+	if (!value) {
+		return "";
+	}
+
+	try {
+		const parsed = new URL(value);
+		return parsed.hostname.split(".")[0] ?? "";
+	} catch {
+		return "";
+	}
+};
+
+const expectedDeployment =
+	trim(process.env.GRANERI_EXPECTED_CONVEX_DEPLOYMENT) ||
+	parseDeploymentName(process.env.GRANERI_HOSTED_CONVEX_URL) ||
+	parseDeploymentName(process.env.VITE_CONVEX_URL) ||
+	parseDeploymentName(process.env.CONVEX_URL);
+
+const forbiddenDeployments = [
+	...knownDevDeployments,
+	...trim(process.env.GRANERI_FORBIDDEN_CONVEX_DEPLOYMENTS)
+		.split(",")
+		.map((deployment) => deployment.trim())
+		.filter(Boolean),
+].filter((deployment) => deployment !== expectedDeployment);
+
+const getAsarCliPath = () => {
+	try {
+		return require.resolve("@electron/asar");
+	} catch {
+		return resolve(
+			repoRoot,
+			"node_modules/.bun/@electron+asar@3.4.1/node_modules/@electron/asar/lib/asar.js",
+		);
+	}
+};
+
+const walkFiles = async (directory) => {
+	const entries = await readdir(directory, { withFileTypes: true });
+	const files = [];
+
+	for (const entry of entries) {
+		const filePath = join(directory, entry.name);
+
+		if (entry.isDirectory()) {
+			files.push(...(await walkFiles(filePath)));
+			continue;
+		}
+
+		files.push(filePath);
+	}
+
+	return files;
+};
+
+const packageNameFromSpecifier = (specifier) =>
+	specifier.startsWith("@")
+		? specifier.split("/").slice(0, 2).join("/")
+		: specifier.split("/")[0];
+
+const scanRuntimeImports = async (extractDir) => {
+	const runtimeRoot = join(extractDir, ".bundle-root");
+	const runtimeFiles = (await walkFiles(runtimeRoot)).filter((filePath) =>
+		/\.(cjs|js|mjs)$/u.test(filePath),
+	);
+	const builtins = new Set([
+		...builtinModules,
+		...builtinModules.map((moduleName) => `node:${moduleName}`),
+		"electron",
+	]);
+	const importPattern =
+		/(?:import\s+(?:[^"'()]+?\s+from\s+)?|export\s+[^"']*?from\s+|import\s*\()(["'])([^"']+)\1/gu;
+	const missing = new Map();
+	const convexServerImports = [];
+
+	for (const filePath of runtimeFiles) {
+		const source = await readFile(filePath, "utf8");
+
+		if (/convex\/[^"']+\.ts/u.test(source)) {
+			convexServerImports.push(relative(extractDir, filePath));
+		}
+
+		for (const match of source.matchAll(importPattern)) {
+			const specifier = match[2];
+
+			if (
+				specifier.startsWith(".") ||
+				specifier.startsWith("/") ||
+				builtins.has(specifier)
+			) {
+				continue;
+			}
+
+			const packageName = packageNameFromSpecifier(specifier);
+			const packagedDependencyPath = join(
+				extractDir,
+				"node_modules",
+				packageName,
+			);
+
+			if (!existsSync(packagedDependencyPath)) {
+				const references = missing.get(packageName) ?? [];
+				references.push(`${relative(extractDir, filePath)} -> ${specifier}`);
+				missing.set(packageName, references);
+			}
+		}
+	}
+
+	return {
+		convexServerImports,
+		missing,
+		runtimeFileCount: runtimeFiles.length,
+	};
+};
+
+const extractAsar = async (destination) => {
+	const asar = await import(pathToFileURL(getAsarCliPath()).href);
+	await asar.extractAll(appAsarPath, destination);
+};
+
+if (!existsSync(appAsarPath)) {
+	throw new Error(
+		`Packaged app is missing at ${appAsarPath}. Run bun run dist:mac first.`,
+	);
+}
+
+const extractDir = await mkdtemp(join(tmpdir(), "graneri-package-verify-"));
+
+try {
+	await extractAsar(extractDir);
+
+	const allFiles = await walkFiles(extractDir);
+	const allText = allFiles
+		.filter((filePath) => /\.(html|js|mjs|cjs|json)$/u.test(filePath))
+		.map((filePath) => readFileSync(filePath, "utf8"))
+		.join("\n");
+
+	for (const deployment of forbiddenDeployments) {
+		if (allText.includes(deployment)) {
+			throw new Error(
+				`Packaged app contains forbidden Convex deployment "${deployment}".`,
+			);
+		}
+	}
+
+	if (expectedDeployment && !allText.includes(expectedDeployment)) {
+		throw new Error(
+			`Packaged app does not contain expected Convex deployment "${expectedDeployment}".`,
+		);
+	}
+
+	const { convexServerImports, missing, runtimeFileCount } =
+		await scanRuntimeImports(extractDir);
+
+	if (convexServerImports.length > 0) {
+		throw new Error(
+			`Packaged runtime imports Convex server TypeScript files:\n${convexServerImports
+				.slice(0, 12)
+				.map((filePath) => `  ${filePath}`)
+				.join("\n")}`,
+		);
+	}
+
+	if (missing.size > 0) {
+		const details = [...missing.entries()]
+			.map(([packageName, references]) =>
+				[
+					`Missing packaged dependency: ${packageName}`,
+					...references.slice(0, 8).map((reference) => `  ${reference}`),
+				].join("\n"),
+			)
+			.join("\n\n");
+
+		throw new Error(details);
+	}
+
+	console.log(
+		[
+			"Desktop package verification passed.",
+			`Runtime files checked: ${runtimeFileCount}`,
+			expectedDeployment
+				? `Expected Convex deployment: ${expectedDeployment}`
+				: "Expected Convex deployment: not configured",
+		].join("\n"),
+	);
+} finally {
+	rmSync(extractDir, { force: true, recursive: true });
+}

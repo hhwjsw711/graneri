@@ -14,6 +14,7 @@
     "package:mac:dir": "electron-builder --config electron-builder.config.mjs --mac dir",
     "package:mac": "electron-builder --config electron-builder.config.mjs --mac dmg",
     "package:mac:release": "electron-builder --config electron-builder.config.mjs --mac --publish always",
+    "verify:package": "node ./scripts/verify-package.mjs",
     "generate:app-icon": "node ./scripts/generate-app-icon.mjs",
     "generate:tray-icons": "electron ./scripts/generate-tray-icons.mjs",
     "lint": "biome lint src scripts electron-builder.config.mjs package.json",
