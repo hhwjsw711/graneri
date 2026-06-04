@@ -47,8 +47,16 @@ import {
 	APP_SIDEBAR_EXPANDED_WIDTH,
 } from "@workspace/ui/lib/panel-dimensions";
 import { cn } from "@workspace/ui/lib/utils";
-import type { FileUIPart, UIMessage } from "ai";
-import { DefaultChatTransport } from "ai";
+import type {
+	ChatAddToolOutputFunction,
+	ChatOnToolCallCallback,
+	FileUIPart,
+	UIMessage,
+} from "ai";
+import {
+	DefaultChatTransport,
+	lastAssistantMessageIsCompleteWithToolCalls,
+} from "ai";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import {
 	ArrowDown,
@@ -128,6 +136,11 @@ import { getMessagesBefore } from "@/lib/chat-thread";
 import { getNoteComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { DESKTOP_MAIN_HEADER_CONTENT_CLASS } from "@/lib/desktop-chrome";
+import {
+	executeDesktopLocalToolCall,
+	isDesktopLocalFolderArray,
+	isDesktopLocalToolName,
+} from "@/lib/desktop-local-tool-call";
 import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
@@ -881,6 +894,59 @@ const useNoteComposerController = ({
 		() => toStoredChatMessages(storedMessages ?? []),
 		[storedMessages],
 	);
+	const latestRequestBodyRef = React.useRef<Record<string, unknown> | null>(
+		null,
+	);
+	const addToolOutputRef =
+		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
+	const handleToolCall = React.useCallback<ChatOnToolCallCallback<UIMessage>>(
+		async ({ toolCall }) => {
+			const toolName = toolCall.toolName;
+			if (!isDesktopLocalToolName(toolName)) {
+				return;
+			}
+
+			try {
+				const requestOptions = latestRequestBodyRef.current
+					? { body: latestRequestBodyRef.current }
+					: undefined;
+				const localFolders = isDesktopLocalFolderArray(
+					latestRequestBodyRef.current?.localFolders,
+				)
+					? latestRequestBodyRef.current.localFolders
+					: [];
+				const output = await executeDesktopLocalToolCall({
+					localFolders,
+					toolCall: {
+						input: toolCall.input,
+						toolCallId: toolCall.toolCallId,
+						toolName,
+					},
+				});
+				addToolOutputRef.current?.({
+					options: requestOptions,
+					output,
+					tool: toolName,
+					toolCallId: toolCall.toolCallId,
+				});
+			} catch (toolError) {
+				const requestOptions = latestRequestBodyRef.current
+					? { body: latestRequestBodyRef.current }
+					: undefined;
+				addToolOutputRef.current?.({
+					errorText:
+						toolError instanceof Error
+							? toolError.message
+							: "Local tool execution failed.",
+					options: requestOptions,
+					state: "output-error",
+					tool: toolName,
+					toolCallId: toolCall.toolCallId,
+				});
+			}
+		},
+		[],
+	);
 	const {
 		messages: chatMessages,
 		setMessages,
@@ -889,13 +955,17 @@ const useNoteComposerController = ({
 		error: chatError,
 		status: chatStatus,
 		stop,
+		addToolOutput,
 	} = useChat({
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		id: currentChatId,
 		messages: initialMessages,
 		transport,
 		experimental_throttle: 50,
+		onToolCall: handleToolCall,
+		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
+	addToolOutputRef.current = addToolOutput;
 
 	React.useEffect(() => {
 		if (!activeWorkspaceId) {
@@ -1583,6 +1653,7 @@ const useNoteComposerController = ({
 				},
 				recipeSlug: selectedRecipe?.slug ?? null,
 			};
+			latestRequestBodyRef.current = requestBody;
 			const recipeMetadata: UIMessage["metadata"] | undefined = selectedRecipe
 				? {
 						recipe: {
@@ -1616,6 +1687,11 @@ const useNoteComposerController = ({
 			resetTextareaHeight();
 		} catch (error) {
 			console.error("Failed to prepare note chat request", error);
+			toast.error(
+				error instanceof Error
+					? error.message
+					: "Failed to prepare note chat request",
+			);
 			setIsPreparingRequest(false);
 		}
 	}, [
@@ -1767,6 +1843,7 @@ const useNoteComposerController = ({
 
 			try {
 				const requestBody = await buildRequestBody();
+				latestRequestBodyRef.current = requestBody;
 
 				setEditingMessageId(null);
 				clearDraft();

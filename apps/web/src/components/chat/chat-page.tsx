@@ -5,8 +5,15 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import { cn } from "@workspace/ui/lib/utils";
-import type { UIMessage } from "ai";
-import { DefaultChatTransport } from "ai";
+import type {
+	ChatAddToolOutputFunction,
+	ChatOnToolCallCallback,
+	UIMessage,
+} from "ai";
+import {
+	DefaultChatTransport,
+	lastAssistantMessageIsCompleteWithToolCalls,
+} from "ai";
 import { useMutation, useQuery } from "convex/react";
 import {
 	ArrowDown,
@@ -64,6 +71,11 @@ import { getMessagesBefore } from "@/lib/chat-thread";
 import { getChatComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
+import {
+	executeDesktopLocalToolCall,
+	isDesktopLocalFolderArray,
+	isDesktopLocalToolName,
+} from "@/lib/desktop-local-tool-call";
 import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
@@ -400,6 +412,59 @@ const useChatPageController = ({
 			}),
 		});
 	}, [activeWorkspaceId]);
+	const latestRequestBodyRef = React.useRef<Record<string, unknown> | null>(
+		null,
+	);
+	const addToolOutputRef =
+		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
+	const handleToolCall = React.useCallback<ChatOnToolCallCallback<UIMessage>>(
+		async ({ toolCall }) => {
+			const toolName = toolCall.toolName;
+			if (!isDesktopLocalToolName(toolName)) {
+				return;
+			}
+
+			try {
+				const requestOptions = latestRequestBodyRef.current
+					? { body: latestRequestBodyRef.current }
+					: undefined;
+				const localFolders = isDesktopLocalFolderArray(
+					latestRequestBodyRef.current?.localFolders,
+				)
+					? latestRequestBodyRef.current.localFolders
+					: [];
+				const output = await executeDesktopLocalToolCall({
+					localFolders,
+					toolCall: {
+						input: toolCall.input,
+						toolCallId: toolCall.toolCallId,
+						toolName,
+					},
+				});
+				addToolOutputRef.current?.({
+					options: requestOptions,
+					output,
+					tool: toolName,
+					toolCallId: toolCall.toolCallId,
+				});
+			} catch (toolError) {
+				const requestOptions = latestRequestBodyRef.current
+					? { body: latestRequestBodyRef.current }
+					: undefined;
+				addToolOutputRef.current?.({
+					errorText:
+						toolError instanceof Error
+							? toolError.message
+							: "Local tool execution failed.",
+					options: requestOptions,
+					state: "output-error",
+					tool: toolName,
+					toolCallId: toolCall.toolCallId,
+				});
+			}
+		},
+		[],
+	);
 	const {
 		messages,
 		setMessages,
@@ -408,13 +473,17 @@ const useChatPageController = ({
 		error,
 		status,
 		stop,
+		addToolOutput,
 	} = useChat({
 		id: chatId,
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		messages: initialMessages,
 		transport,
 		experimental_throttle: 50,
+		onToolCall: handleToolCall,
+		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
+	addToolOutputRef.current = addToolOutput;
 	const persistedMessages = React.useMemo(
 		() =>
 			storedMessages === undefined
@@ -446,7 +515,7 @@ const useChatPageController = ({
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
+		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
 			const shouldUsePersistedMessages =
@@ -603,20 +672,22 @@ const useChatPageController = ({
 						metadata,
 						...filePayload,
 					};
+			const requestBody = {
+				model: selectedModel.model,
+				reasoningEffort: selectedReasoningEffort,
+				localFolders: nextSharedLocalFolders,
+				webSearchEnabled,
+				mentions: mentionIds,
+				selectedSourceIds: requestSelectedSourceIds,
+				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+				workspaceId: activeWorkspaceId,
+				convexToken,
+			};
+			latestRequestBodyRef.current = requestBody;
 
 			void Promise.resolve(
 				sendMessage(nextOutgoingMessage, {
-					body: {
-						model: selectedModel.model,
-						reasoningEffort: selectedReasoningEffort,
-						localFolders: nextSharedLocalFolders,
-						webSearchEnabled,
-						mentions: mentionIds,
-						selectedSourceIds: requestSelectedSourceIds,
-						timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-						workspaceId: activeWorkspaceId,
-						convexToken,
-					},
+					body: requestBody,
 				}),
 			).finally(() => {
 				setIsPreparingRequest(false);
@@ -626,6 +697,11 @@ const useChatPageController = ({
 			setAttachedFiles([]);
 		} catch (error) {
 			console.error("Failed to prepare chat request", error);
+			toast.error(
+				error instanceof Error
+					? error.message
+					: "Failed to prepare chat request",
+			);
 			setIsPreparingRequest(false);
 		}
 	}, [
@@ -773,6 +849,7 @@ const useChatPageController = ({
 
 			try {
 				const requestBody = await buildRequestBody();
+				latestRequestBodyRef.current = requestBody;
 				setEditingMessageId(null);
 				clearDraft();
 				void Promise.resolve(

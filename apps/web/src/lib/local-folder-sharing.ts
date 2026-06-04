@@ -88,13 +88,6 @@ export const shareLocalFoldersFromText = async ({
 	const bridge = getDesktopBridge();
 	const paths = extractLocalPathReferences(text);
 
-	if (!bridge?.shareLocalFolders) {
-		return {
-			allFolders: currentFolders,
-			newFolders: [],
-		};
-	}
-
 	if (paths.length === 0) {
 		return {
 			allFolders: currentFolders,
@@ -102,14 +95,21 @@ export const shareLocalFoldersFromText = async ({
 		};
 	}
 
+	if (!bridge?.shareLocalFolders) {
+		throw new Error(
+			"Desktop local folder sharing is unavailable. Restart the desktop app, then try again.",
+		);
+	}
+
 	let result: Awaited<ReturnType<typeof bridge.shareLocalFolders>>;
 	try {
 		result = await bridge.shareLocalFolders(paths);
-	} catch {
-		return {
-			allFolders: currentFolders,
-			newFolders: [],
-		};
+	} catch (error) {
+		throw new Error(
+			error instanceof Error
+				? error.message
+				: "Failed to share local folders with the desktop app.",
+		);
 	}
 	const allFolders = mergeLocalFolders(currentFolders, result.folders);
 

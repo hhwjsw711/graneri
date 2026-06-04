@@ -485,6 +485,13 @@ const sendJson = (response, statusCode, payload) => {
 	response.end(JSON.stringify(payload));
 };
 
+const getLocalFolderIds = (localFolders) =>
+	Array.isArray(localFolders)
+		? localFolders
+				.map((folder) => folder?.id)
+				.filter((id) => typeof id === "string" && id.length > 0)
+		: [];
+
 const proxyHostedAiRequest = async ({
 	path,
 	request,
@@ -624,22 +631,7 @@ const handleChatRequest = async ({
 	request,
 	response,
 }) => {
-	if (shouldProxyHostedAiRequest()) {
-		await proxyHostedAiRequest({
-			path: "/api/chat",
-			request,
-			response,
-		});
-		return;
-	}
-
-	if (!process.env.OPENAI_API_KEY) {
-		sendJson(response, 500, {
-			error: "OPENAI_API_KEY is not configured.",
-		});
-		return;
-	}
-
+	const requestBody = await readJsonBody(request);
 	const {
 		id,
 		message,
@@ -656,7 +648,27 @@ const handleChatRequest = async ({
 		convexToken,
 		recipeSlug,
 		noteContext,
-	} = await readJsonBody(request);
+	} = requestBody;
+	if (shouldProxyHostedAiRequest()) {
+		await proxyHostedAiRequest({
+			path: "/api/chat",
+			request,
+			response,
+			bodyOverride: JSON.stringify(requestBody),
+			headersOverride: {
+				"content-type": "application/json",
+				"content-length": null,
+			},
+		});
+		return;
+	}
+
+	if (!process.env.OPENAI_API_KEY) {
+		sendJson(response, 500, {
+			error: "OPENAI_API_KEY is not configured.",
+		});
+		return;
+	}
 	const logLatency = createChatLatencyLogger({
 		chatId: id,
 		enabled: AI_LATENCY_DEBUG_ENABLED,
@@ -725,10 +737,11 @@ const handleChatRequest = async ({
 					: messages,
 	});
 	const lastUserMessage =
-		message ??
-		[...chatMessages]
-			.reverse()
-			.find((currentMessage) => currentMessage.role === "user");
+		message?.role === "user"
+			? message
+			: [...chatMessages]
+					.reverse()
+					.find((currentMessage) => currentMessage.role === "user");
 	const shouldGenerateChatTitle = Boolean(
 		convexClient &&
 			id &&
@@ -1178,6 +1191,54 @@ const handleApplyTemplateRequest = async (request, response) => {
 	}
 };
 
+const handleLocalFolderToolRequest = async ({
+	getSharedLocalFolders,
+	request,
+	response,
+}) => {
+	const {
+		input,
+		localFolders = [],
+		toolCallId,
+		toolName,
+	} = await readJsonBody(request);
+
+	if (typeof toolName !== "string" || !toolName) {
+		sendJson(response, 400, { error: "toolName is required." });
+		return;
+	}
+
+	if (typeof toolCallId !== "string" || !toolCallId) {
+		sendJson(response, 400, { error: "toolCallId is required." });
+		return;
+	}
+
+	const localFolderRoots =
+		typeof getSharedLocalFolders === "function"
+			? getSharedLocalFolders(getLocalFolderIds(localFolders))
+			: [];
+
+	if (localFolderRoots.length === 0) {
+		sendJson(response, 400, {
+			error: "No shared local folders are available for this tool call.",
+		});
+		return;
+	}
+
+	const toolToExecute = buildLocalFolderTools(localFolderRoots)[toolName];
+
+	if (!toolToExecute?.execute) {
+		sendJson(response, 400, { error: `Unknown local tool: ${toolName}.` });
+		return;
+	}
+
+	const output = await toolToExecute.execute(input ?? {}, {
+		messages: [],
+		toolCallId,
+	});
+	sendJson(response, 200, { output });
+};
+
 const resolveAssetPath = (requestPath, distDir, basePath = "/") => {
 	const normalizedBasePath =
 		basePath === "/" ? "/" : `/${basePath.replace(/^\/+|\/+$/g, "")}`;
@@ -1279,6 +1340,7 @@ export const startLocalServer = async ({
 
 		if (
 			requestPath === "/api/chat" ||
+			requestPath === "/api/local-folder-tool" ||
 			requestPath === "/api/apply-template" ||
 			requestPath === "/api/realtime-transcription-session" ||
 			requestPath === "/api/enhance-note"
@@ -1312,6 +1374,26 @@ export const startLocalServer = async ({
 			}
 
 			void handleChatRequest({
+				getSharedLocalFolders,
+				request,
+				response,
+			}).catch((error) => {
+				const message =
+					error instanceof Error ? error.message : "Unexpected server error.";
+				sendJson(response, 500, { error: message });
+			});
+			return;
+		}
+
+		if (requestPath === "/api/local-folder-tool") {
+			if (request.method !== "POST") {
+				response.statusCode = 405;
+				response.setHeader("Content-Type", "application/json");
+				response.end(JSON.stringify({ error: "Method not allowed." }));
+				return;
+			}
+
+			void handleLocalFolderToolRequest({
 				getSharedLocalFolders,
 				request,
 				response,

@@ -1,4 +1,4 @@
-import { getDesktopBridge } from "@workspace/platform/desktop";
+import { getRequiredDesktopBridge } from "@workspace/platform/desktop";
 import type { TranscriptionControllerOptions } from "@/lib/transcription-controller";
 import type {
 	TranscriptionSessionEvent,
@@ -40,37 +40,31 @@ export class DesktopTranscriptionControllerProxy {
 
 	configure = async (options: TranscriptionControllerOptions) => {
 		await this.initializationPromise;
-		await getDesktopBridge()?.configureTranscriptionSession(options);
+		await getRequiredDesktopBridge().configureTranscriptionSession(options);
 	};
 
 	start = async () => {
 		await this.initializationPromise;
-		return (await getDesktopBridge()?.startTranscriptionSession()) ?? false;
+		return await getRequiredDesktopBridge().startTranscriptionSession();
 	};
 
 	stop = async () => {
 		await this.initializationPromise;
-		await getDesktopBridge()?.stopTranscriptionSession();
+		await getRequiredDesktopBridge().stopTranscriptionSession();
 	};
 
 	requestSystemAudio = async () => {
 		await this.initializationPromise;
-		return (
-			(await getDesktopBridge()?.requestTranscriptionSystemAudio()) ?? false
-		);
+		return await getRequiredDesktopBridge().requestTranscriptionSystemAudio();
 	};
 
 	detachSystemAudio = async () => {
 		await this.initializationPromise;
-		await getDesktopBridge()?.detachTranscriptionSystemAudio();
+		await getRequiredDesktopBridge().detachTranscriptionSystemAudio();
 	};
 
 	private initialize = async () => {
-		const desktopApi = getDesktopBridge();
-
-		if (!desktopApi) {
-			return;
-		}
+		const desktopApi = getRequiredDesktopBridge();
 
 		desktopApi.onTranscriptionSessionState((state) => {
 			this.store.replaceState(state);

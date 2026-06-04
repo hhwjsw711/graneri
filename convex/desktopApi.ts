@@ -8,6 +8,8 @@ import {
 	smoothStream,
 	stepCountIs,
 	streamText,
+	type ToolSet,
+	tool,
 	type UIMessage,
 	validateUIMessages,
 } from "ai";
@@ -17,13 +19,17 @@ import {
 	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
 } from "../packages/ai/src/app-source-providers.mjs";
-import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace-tools.mjs";
-import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
 import {
 	buildChatTitlePrompt,
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
 } from "../packages/ai/src/chat-titles.mjs";
+import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
+import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace-tools.mjs";
+import {
+	buildLocalFolderSystemContext,
+	buildLocalFolderToolConfigs,
+} from "../packages/ai/src/local-folder-tool-definitions.mjs";
 import {
 	CHAT_SERVER_MODELS,
 	CHAT_TITLE_MODEL_ID,
@@ -63,6 +69,7 @@ type ChatRequestBody = {
 	appsEnabled?: boolean;
 	mentions?: string[];
 	selectedSourceIds?: string[];
+	localFolders?: Array<{ id?: string; name?: string; path?: string }>;
 	convexToken?: string | null;
 	recipeSlug?: string | null;
 	noteContext?: {
@@ -123,6 +130,45 @@ const jsonResponse = (status: number, payload: Record<string, unknown>) =>
 			"Content-Type": "application/json",
 		},
 	});
+
+const getSharedLocalFolderRoots = (
+	localFolders: ChatRequestBody["localFolders"],
+) =>
+	Array.isArray(localFolders)
+		? localFolders
+				.filter(
+					(folder): folder is { id?: string; name: string; path: string } =>
+						typeof folder?.name === "string" &&
+						folder.name.length > 0 &&
+						typeof folder?.path === "string" &&
+						folder.path.length > 0,
+				)
+				.map((folder) => ({
+					name: folder.name,
+					path: folder.path,
+				}))
+		: [];
+
+const buildDesktopLocalFolderClientTools = (
+	roots: Array<{ name: string; path: string }>,
+): ToolSet | undefined => {
+	if (roots.length === 0) {
+		return undefined;
+	}
+
+	const configs = buildLocalFolderToolConfigs(roots);
+
+	return {
+		list_local_directory: tool(configs.list_local_directory),
+		read_local_file: tool(configs.read_local_file),
+		transcribe_local_audio: tool(configs.transcribe_local_audio),
+		inspect_local_image: tool(configs.inspect_local_image),
+		search_local_images: tool(configs.search_local_images),
+		search_local_files: tool(configs.search_local_files),
+		run_local_bash: tool(configs.run_local_bash),
+		get_shared_local_folders: tool(configs.get_shared_local_folders),
+	};
+};
 
 const trim = (value: unknown) =>
 	typeof value === "string" ? value.trim() : "";
@@ -457,6 +503,7 @@ export const handleChatRequest = async (request: Request) => {
 		appsEnabled = true,
 		mentions,
 		selectedSourceIds,
+		localFolders = [],
 		convexToken,
 		recipeSlug,
 		noteContext,
@@ -519,10 +566,11 @@ export const handleChatRequest = async (request: Request) => {
 					: messages,
 	});
 	const lastUserMessage =
-		message ??
-		[...chatMessages]
-			.reverse()
-			.find((currentMessage) => currentMessage.role === "user");
+		message?.role === "user"
+			? message
+			: [...chatMessages]
+					.reverse()
+					.find((currentMessage) => currentMessage.role === "user");
 	const shouldGenerateChatTitle = Boolean(
 		convexClient &&
 			id &&
@@ -596,6 +644,8 @@ export const handleChatRequest = async (request: Request) => {
 				workspaceId: resolvedWorkspaceId,
 			})
 		: {};
+	const localFolderRoots = getSharedLocalFolderRoots(localFolders);
+	const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
 	const coreToolPolicy = buildCoreChatToolPolicy({
 		chatAttachmentsApi: api.chatAttachments,
 		convexClient,
@@ -619,15 +669,32 @@ export const handleChatRequest = async (request: Request) => {
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}${coreToolPolicy.instruction ? `\n\n${coreToolPolicy.instruction}` : ""}`;
+	})}${coreToolPolicy.instruction ? `\n\n${coreToolPolicy.instruction}` : ""}${
+		localFolderContext ? `\n\n${localFolderContext}` : ""
+	}${
+		localFolderContext
+			? "\n\nLocal folder priority: if the user's request is about a local path, shared folder, local file, local audio, local video, local transcript, or local recording, use the local folder tools first and do not use connected app tools unless the user explicitly asks for connected app data."
+			: ""
+	}`;
+	const localFolderTools = buildDesktopLocalFolderClientTools(localFolderRoots);
+	const streamTools: ToolSet | undefined =
+		finalizedToolSet.hasTools || localFolderRoots.length > 0
+			? {
+					...(finalizedToolSet.hasTools ? tools : {}),
+					...(localFolderTools ?? {}),
+				}
+			: undefined;
 	const result = streamText({
 		model: openai(selectedModel.model),
 		providerOptions,
 		system: systemPrompt,
 		messages: await convertToModelMessages(chatMessages),
-		tools: finalizedToolSet.hasTools ? tools : undefined,
+		tools: streamTools,
 		prepareStep: coreToolPolicy.prepareStep,
-		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
+		stopWhen:
+			finalizedToolSet.hasTools || localFolderRoots.length > 0
+				? stepCountIs(5)
+				: undefined,
 	});
 
 	return result.toUIMessageStreamResponse({

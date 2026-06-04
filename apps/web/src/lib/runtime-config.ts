@@ -49,3 +49,9 @@ export function getChatApiUrl() {
 		? `${runtimeConfigSnapshot.localApiOrigin}/api/chat`
 		: "/api/chat";
 }
+
+export function getLocalFolderToolApiUrl() {
+	return runtimeConfigSnapshot?.localApiOrigin
+		? `${runtimeConfigSnapshot.localApiOrigin}/api/local-folder-tool`
+		: null;
+}

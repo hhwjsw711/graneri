@@ -68,11 +68,27 @@ unrelated notification or restart.
 The desktop local server owns renderer-facing AI HTTP routes such as
 `/api/chat`, `/api/apply-template`, `/api/enhance-note`, and
 `/api/realtime-transcription-session`. Packaged desktop apps must not embed
-`OPENAI_API_KEY`. When a packaged app has hosted Convex/site config but no local
-OpenAI key, the local server proxies these AI routes to the hosted Convex site
-URL. When a local OpenAI key is available, the same handlers may execute locally
-instead. This means terminal-launched packaged apps can differ from Finder
-launches because terminal processes inherit shell environment variables.
+`OPENAI_API_KEY`. When a packaged app has hosted Convex/site config but no
+process-local OpenAI key, the local server proxies these AI routes to the hosted
+Convex site URL. Development runs may still execute handlers locally when the
+developer process provides `OPENAI_API_KEY`, but release behavior must not depend
+on terminal-inherited shell environment.
+
+Local-folder chat requests use a hosted-model, desktop-tool bridge. The hosted
+Convex/site handler owns the OpenAI key and model loop, but declares local
+folder tools without server-side executors. When the model requests a local
+tool, the renderer receives that client-side tool call, executes it through the
+desktop local server against folders explicitly shared through the desktop
+bridge, attaches the tool output to the chat, and lets the AI SDK resubmit the
+conversation to hosted Convex. The hosted handler must never claim it can inspect
+the user's Mac filesystem directly.
+
+Desktop-local capabilities must fail visibly when their desktop bridge contract
+is unavailable. Local path references must either be registered through
+`shareLocalFolders` before they reach `/api/chat`, or request preparation must
+fail with an actionable error. On macOS, live transcription must use the desktop
+transcription controller; it must not silently fall back to the browser
+transcription controller when the packaged desktop bridge is missing or stale.
 
 Keep proxy response handling matched to the body strategy. Streamed routes may
 pipe the upstream body and forward upstream headers together. If a proxy handler
