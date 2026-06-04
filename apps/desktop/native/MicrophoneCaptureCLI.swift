@@ -149,6 +149,7 @@ final class MicrophoneCapture: @unchecked Sendable {
 	private var hasInstalledTap = false
 	private var engineConfigurationObserver: NSObjectProtocol?
 	private var hasHandledRouteChange = false
+	private var routeSignature: String?
 	private(set) var voiceProcessingEnabled = false
 	private(set) var voiceProcessingOutputEnabled = false
 	private(set) var routeDebugInfo: [String: Any] = [:]
@@ -167,6 +168,7 @@ final class MicrophoneCapture: @unchecked Sendable {
 		try stop()
 		logger.log("[helper] microphone start() entered")
 		hasHandledRouteChange = false
+		routeSignature = nil
 		voiceProcessingEnabled = false
 		voiceProcessingOutputEnabled = false
 		routeDebugInfo = [:]
@@ -183,6 +185,10 @@ final class MicrophoneCapture: @unchecked Sendable {
 		let outputFormatBeforeVoiceProcessing = outputNode.inputFormat(forBus: 0)
 		let inputDevice = Self.defaultInputDevice()
 		let outputDevice = Self.defaultOutputDevice()
+		routeSignature = Self.routeSignature(
+			inputDevice: inputDevice,
+			outputDevice: outputDevice
+		)
 
 		if #available(macOS 10.15, *) {
 			do {
@@ -287,6 +293,18 @@ final class MicrophoneCapture: @unchecked Sendable {
 			return
 		}
 
+		let nextInputDevice = Self.defaultInputDevice()
+		let nextOutputDevice = Self.defaultOutputDevice()
+		let nextRouteSignature = Self.routeSignature(
+			inputDevice: nextInputDevice,
+			outputDevice: nextOutputDevice
+		)
+
+		if nextRouteSignature == routeSignature {
+			logger.log("[helper] microphone engine configuration changed without route change")
+			return
+		}
+
 		hasHandledRouteChange = true
 		logger.log("[helper] microphone engine configuration changed")
 		routeChangeHandler()
@@ -310,6 +328,17 @@ final class MicrophoneCapture: @unchecked Sendable {
 
 	private static func defaultOutputDevice() -> [String: Any] {
 		describeDefaultDevice(selector: kAudioHardwarePropertyDefaultOutputDevice)
+	}
+
+	private static func routeSignature(
+		inputDevice: [String: Any],
+		outputDevice: [String: Any]
+	) -> String {
+		let inputUID = inputDevice["uid"] as? String ?? ""
+		let outputUID = outputDevice["uid"] as? String ?? ""
+		let inputID = inputDevice["id"] as? Int ?? 0
+		let outputID = outputDevice["id"] as? Int ?? 0
+		return "input:\(inputID):\(inputUID)|output:\(outputID):\(outputUID)"
 	}
 
 	private static func describeDefaultDevice(
