@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
@@ -7,6 +7,7 @@ import "./build-system-audio-helper.mjs";
 
 const require = createRequire(import.meta.url);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = resolve(packageRoot, "../..");
 const sourceDir = resolve(packageRoot, "src");
 const distDir = resolve(packageRoot, "dist");
 const webDistDir = resolve(packageRoot, "../web/dist");
@@ -18,10 +19,67 @@ const packageAiSrcDir = resolve(packageRoot, "../../packages/ai/src");
 const bundleAiSrcDir = resolve(bundleRootDir, "packages", "ai", "src");
 const desktopAssetsDir = resolve(sourceDir, "assets");
 
+const parseEnvLine = (line) => {
+	const trimmed = line.trim();
+
+	if (!trimmed || trimmed.startsWith("#")) {
+		return null;
+	}
+
+	const separatorIndex = trimmed.indexOf("=");
+	if (separatorIndex === -1) {
+		return null;
+	}
+
+	const key = trimmed.slice(0, separatorIndex).trim();
+	let value = trimmed.slice(separatorIndex + 1).trim();
+
+	if (
+		(value.startsWith('"') && value.endsWith('"')) ||
+		(value.startsWith("'") && value.endsWith("'"))
+	) {
+		value = value.slice(1, -1);
+	}
+
+	return { key, value };
+};
+
+const loadSelectedEnvFile = () => {
+	const envFileName =
+		process.env.GRANERI_ENV_MODE?.trim() === "production"
+			? ".env"
+			: ".env.local";
+	const envFilePath = resolve(repoRoot, envFileName);
+
+	if (!existsSync(envFilePath)) {
+		return;
+	}
+
+	const rawEnv = readFileSync(envFilePath, "utf8");
+
+	for (const line of rawEnv.split(/\r?\n/u)) {
+		const entry = parseEnvLine(line);
+		if (!entry || process.env[entry.key]) {
+			continue;
+		}
+
+		process.env[entry.key] = entry.value;
+	}
+};
+
 const buildHostedRuntimeConfig = () => ({
-	convexUrl: process.env.GRANERI_HOSTED_CONVEX_URL?.trim() ?? "",
-	convexSiteUrl: process.env.GRANERI_HOSTED_CONVEX_SITE_URL?.trim() ?? "",
-	siteUrl: process.env.GRANERI_HOSTED_SITE_URL?.trim() ?? "",
+	convexUrl:
+		process.env.GRANERI_HOSTED_CONVEX_URL?.trim() ??
+		process.env.CONVEX_URL?.trim() ??
+		"",
+	convexSiteUrl:
+		process.env.GRANERI_HOSTED_CONVEX_SITE_URL?.trim() ??
+		process.env.CONVEX_SITE_URL?.trim() ??
+		"",
+	siteUrl:
+		process.env.GRANERI_HOSTED_SITE_URL?.trim() ??
+		process.env.SITE_URL?.trim() ??
+		"",
 });
 
 const writeHostedRuntimeConfig = async () => {
@@ -64,6 +122,8 @@ if (!existsSync(resolve(webDistDir, "index.html"))) {
 		"Web build output is missing. Run `bun run build --filter=web` before building the desktop shell.",
 	);
 }
+
+loadSelectedEnvFile();
 
 await rm(distDir, { recursive: true, force: true });
 await rm(bundleRootDir, { recursive: true, force: true });
