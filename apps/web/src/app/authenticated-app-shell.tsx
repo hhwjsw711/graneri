@@ -2,6 +2,7 @@ import {
 	getDesktopMeta,
 	isDesktopRuntime,
 	onDesktopNavigate,
+	refreshDesktopTrayCalendar,
 	setDesktopActiveWorkspaceId,
 	setDesktopActiveWorkspaceNotificationPreferences,
 } from "@workspace/platform/desktop";
@@ -610,6 +611,21 @@ const useAppShellState = ({
 	}, [
 		calendarVisibilityKey,
 		currentDayKey,
+		upcomingCalendarLoadKey,
+		yandexCalendarConnectionKey,
+	]);
+
+	React.useEffect(() => {
+		void calendarVisibilityKey;
+		void yandexCalendarConnectionKey;
+
+		if (upcomingCalendarLoadKey === "anonymous") {
+			return;
+		}
+
+		void refreshDesktopTrayCalendar();
+	}, [
+		calendarVisibilityKey,
 		upcomingCalendarLoadKey,
 		yandexCalendarConnectionKey,
 	]);

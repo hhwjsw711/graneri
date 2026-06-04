@@ -490,6 +490,11 @@ const openCalendarEventNote = async (...args) => {
 const refreshTrayCalendar = async () => {
 	await requireDesktopService(desktopTray, "desktopTray").refreshCalendar();
 };
+const getTrayCalendarStateForTest = () =>
+	requireDesktopService(
+		desktopTray,
+		"desktopTray",
+	).getTrayCalendarStateForTest();
 const scheduleTrayCalendarRefresh = (delayMs) => {
 	requireDesktopService(desktopTray, "desktopTray").scheduleCalendarRefresh(
 		delayMs,
@@ -2949,6 +2954,10 @@ if (areDesktopTestHooksEnabled) {
 		resetMeetingDetectionForTest();
 		return { ok: true };
 	});
+
+	ipcMain.handle("app:test-get-tray-calendar-state", async () =>
+		getTrayCalendarStateForTest(),
+	);
 }
 
 ipcMain.handle("app:open-external-url", async (_event, url) => {
@@ -3070,6 +3079,11 @@ ipcMain.handle(
 		return { ok: true };
 	},
 );
+
+ipcMain.handle("app:refresh-tray-calendar", async () => {
+	await refreshTrayCalendar();
+	return { ok: true };
+});
 
 ipcMain.handle("app:write-clipboard-text", async (_event, value) => {
 	if (typeof value !== "string") {

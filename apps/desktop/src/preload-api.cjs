@@ -40,6 +40,7 @@ const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 			"app:set-active-workspace-notification-preferences",
 			payload,
 		),
+	refreshTrayCalendar: () => ipcRenderer.invoke("app:refresh-tray-calendar"),
 	openExternalUrl: (url) => ipcRenderer.invoke("app:open-external-url", url),
 	requestPermission: (permissionId) =>
 		ipcRenderer.invoke("app:request-permission", permissionId),
@@ -74,6 +75,8 @@ const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 					ipcRenderer.invoke("app:test-show-meeting-widget"),
 				resetMeetingDetection: () =>
 					ipcRenderer.invoke("app:test-reset-meeting-detection"),
+				getTrayCalendarState: () =>
+					ipcRenderer.invoke("app:test-get-tray-calendar-state"),
 			}
 		: undefined,
 	onTranscriptionSessionState: (listener) =>

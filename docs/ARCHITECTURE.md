@@ -52,6 +52,17 @@ GRANERI_HOSTED_SITE_URL=https://<hosted-app-origin>
 
 Self-hosted builds may pass their own hosted URLs or rely on local runtime env.
 
+Local development builds must stay local. `bun dev` and desktop dev runs should
+load `.env.local`/local runtime values and connect to the development Convex
+deployment. Production Convex and hosted app URLs belong only in official
+packaged builds or hosted web deployments.
+
+Desktop tray data is part of the desktop runtime, but it must mirror the
+renderer's active account, workspace, calendar connection state, and calendar
+display preferences. When the renderer connects or toggles a calendar provider,
+it should notify Electron to refresh the tray instead of waiting for an
+unrelated notification or restart.
+
 ## Packaging Rules
 
 Electron Builder packages dependencies from `apps/desktop/package.json`. If a

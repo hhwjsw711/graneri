@@ -170,6 +170,66 @@ export const removeAllForWorkspace = internalMutation({
 	},
 });
 
+export const enableYandexCalendarPreferenceForWorkspace = async (
+	ctx: MutationCtx,
+	args: {
+		ownerTokenIdentifier: string;
+		workspaceId: Id<"workspaces">,
+	},
+): Promise<{
+	showGoogleCalendar: boolean;
+	showGoogleDrive: boolean;
+	showYandexCalendar: boolean;
+}> => {
+	await requireOwnedWorkspace(ctx, args.ownerTokenIdentifier, args.workspaceId);
+	const existing = await getCalendarPreferencesRecord(
+		ctx,
+		args.ownerTokenIdentifier,
+		args.workspaceId,
+	);
+	const now = Date.now();
+
+	if (existing) {
+		await ctx.db.patch(existing._id, {
+			showYandexCalendar: true,
+			updatedAt: now,
+		});
+
+		return {
+			showGoogleCalendar: existing.showGoogleCalendar,
+			showGoogleDrive: existing.showGoogleDrive ?? false,
+			showYandexCalendar: true,
+		};
+	}
+
+	await ctx.db.insert("calendarPreferences", {
+		ownerTokenIdentifier: args.ownerTokenIdentifier,
+		workspaceId: args.workspaceId,
+		showGoogleCalendar: false,
+		showGoogleDrive: false,
+		showYandexCalendar: true,
+		createdAt: now,
+		updatedAt: now,
+	});
+
+	return {
+		showGoogleCalendar: false,
+		showGoogleDrive: false,
+		showYandexCalendar: true,
+	};
+};
+
+export const enableYandexCalendarForWorkspace = internalMutation({
+	args: {
+		ownerTokenIdentifier: v.string(),
+		workspaceId: v.id("workspaces"),
+	},
+	returns: calendarPreferencesValidator,
+	handler: async (ctx, args) => {
+		return await enableYandexCalendarPreferenceForWorkspace(ctx, args);
+	},
+});
+
 export const removeAllForOwner = internalMutation({
 	args: {
 		ownerTokenIdentifier: v.string(),

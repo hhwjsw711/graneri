@@ -175,11 +175,22 @@ export const createDesktopTray = ({
 			currentDate,
 		).slice(0, trayCalendarMenuEventLimit);
 
-		if (
-			calendarState.status === "not_connected" ||
-			calendarState.status === "error"
-		) {
+		if (calendarState.status === "not_connected") {
 			return [];
+		}
+
+		if (calendarState.status === "error") {
+			return [
+				{
+					label: todayLabel,
+					enabled: false,
+				},
+				{
+					label: "Couldn’t load calendar",
+					enabled: false,
+				},
+				{ type: "separator" },
+			];
 		}
 
 		if (calendarState.status === "idle" || calendarState.status === "loading") {
@@ -340,6 +351,7 @@ export const createDesktopTray = ({
 		clearCalendarRefresh: calendar.clearRefresh,
 		create,
 		getDetectedMeetingCalendarEvent: calendar.getDetectedMeetingCalendarEvent,
+		getTrayCalendarStateForTest: calendar.getState,
 		isKeepOpenInMenuBarEnabled: () => traySettings.keepOpenInMenuBar,
 		loadSettings,
 		openCalendarEventNote: calendar.openCalendarEventNote,

@@ -3,6 +3,7 @@ import { APP_SOURCE_PREFIX } from "../packages/ai/src/app-source-providers.mjs";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { enableYandexCalendarPreferenceForWorkspace } from "./calendarPreferences";
 import {
 	internalMutation,
 	internalQuery,
@@ -1853,6 +1854,7 @@ export const upsertYandexCalendar = internalMutation({
 			args.ownerTokenIdentifier,
 			args.workspaceId,
 		);
+		let connectionId;
 
 		if (existingConnection) {
 			await ctx.db.patch(existingConnection._id, {
@@ -1864,34 +1866,30 @@ export const upsertYandexCalendar = internalMutation({
 				calendarHomePath,
 				updatedAt: now,
 			});
-
-			return {
-				sourceId: toAppSourceId(existingConnection._id),
-				provider: "yandex-calendar" as const,
-				status: "connected" as const,
+			connectionId = existingConnection._id;
+		} else {
+			connectionId = await ctx.db.insert("appConnections", {
+				ownerTokenIdentifier: args.ownerTokenIdentifier,
+				workspaceId: args.workspaceId,
+				provider: "yandex-calendar",
+				status: "connected",
 				displayName: "Yandex Calendar",
 				email,
+				password,
 				serverAddress,
 				calendarHomePath,
-			};
+				createdAt: now,
+				updatedAt: now,
+			});
 		}
 
-		const id = await ctx.db.insert("appConnections", {
+		await enableYandexCalendarPreferenceForWorkspace(ctx, {
 			ownerTokenIdentifier: args.ownerTokenIdentifier,
 			workspaceId: args.workspaceId,
-			provider: "yandex-calendar",
-			status: "connected",
-			displayName: "Yandex Calendar",
-			email,
-			password,
-			serverAddress,
-			calendarHomePath,
-			createdAt: now,
-			updatedAt: now,
 		});
 
 		return {
-			sourceId: toAppSourceId(id),
+			sourceId: toAppSourceId(connectionId),
 			provider: "yandex-calendar" as const,
 			status: "connected" as const,
 			displayName: "Yandex Calendar",

@@ -205,6 +205,7 @@ export interface GraneriDesktopBridge {
 		notifyForScheduledMeetings: boolean;
 		notifyForAutoDetectedMeetings: boolean;
 	}) => Promise<{ ok: boolean }>;
+	refreshTrayCalendar: () => Promise<{ ok: boolean }>;
 	openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
 	requestPermission: (
 		permissionId: DesktopPermissionId,

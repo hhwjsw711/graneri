@@ -171,6 +171,17 @@ export const setDesktopActiveWorkspaceNotificationPreferences =
 		return true;
 	};
 
+export const refreshDesktopTrayCalendar = async () => {
+	const bridge = getDesktopBridge();
+
+	if (!bridge?.refreshTrayCalendar) {
+		return false;
+	}
+
+	await bridge.refreshTrayCalendar();
+	return true;
+};
+
 export const onDesktopNavigate = (
 	listener: (navigation: DesktopNavigation) => void,
 ) => getDesktopBridge()?.onNavigate?.(listener) ?? undefined;

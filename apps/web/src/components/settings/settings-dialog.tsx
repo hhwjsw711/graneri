@@ -3,6 +3,7 @@ import {
 	getDesktopPreferences,
 	isDesktopRuntime,
 	openDesktopExternalUrl,
+	refreshDesktopTrayCalendar,
 	setDesktopLaunchAtLogin,
 } from "@workspace/platform/desktop";
 import type { DesktopPreferences } from "@workspace/platform/desktop-bridge";
@@ -2246,6 +2247,9 @@ function useConnectionsSettingsController() {
 	const yandexCalendarDialog = useYandexCalendarConnectionDialog({
 		activeWorkspaceId,
 		defaultEmail: session?.user?.email,
+		onConnected: async () => {
+			await refreshDesktopTrayCalendar();
+		},
 		yandexCalendarConnection,
 	});
 

@@ -215,11 +215,10 @@ const getVendorChunkName = (id: string) => {
 // https://vite.dev/config/
 export default defineConfig(() => {
 	loadSelectedEnvFile();
-	process.env.VITE_CONVEX_URL ??= process.env.GRANERI_HOSTED_CONVEX_URL;
+	process.env.VITE_CONVEX_URL ??=
+		process.env.GRANERI_HOSTED_CONVEX_URL ?? process.env.CONVEX_URL;
 	process.env.VITE_CONVEX_SITE_URL ??=
-		process.env.GRANERI_HOSTED_CONVEX_SITE_URL;
-	process.env.VITE_CONVEX_URL ??= process.env.CONVEX_URL;
-	process.env.VITE_CONVEX_SITE_URL ??= process.env.CONVEX_SITE_URL;
+		process.env.GRANERI_HOSTED_CONVEX_SITE_URL ?? process.env.CONVEX_SITE_URL;
 
 	return {
 		envDir: workspaceRoot,

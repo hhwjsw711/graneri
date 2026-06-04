@@ -8,6 +8,7 @@ const trayCalendarActiveRefreshMs = 60 * 1000;
 const trayCalendarIdleRefreshMs = 5 * 60 * 1000;
 const trayCalendarUnavailableRefreshMs = 15 * 60 * 1000;
 const trayCalendarUpcomingRefreshWindowMs = 30 * 60 * 1000;
+const trayCalendarRefreshTimeoutMs = 15 * 1000;
 
 export const createInitialTrayCalendarState = () => ({
 	status: "idle",
@@ -62,6 +63,23 @@ const getCurrentDayWindow = () => {
 		timeMin: timeMin.toISOString(),
 		timeMax: timeMax.toISOString(),
 	};
+};
+
+const withTimeout = async (promise, timeoutMs, message) => {
+	let timeoutId = null;
+	const timeoutPromise = new Promise((_, reject) => {
+		timeoutId = setTimeout(() => {
+			reject(new Error(message));
+		}, timeoutMs);
+	});
+
+	try {
+		return await Promise.race([promise, timeoutPromise]);
+	} finally {
+		if (timeoutId != null) {
+			clearTimeout(timeoutId);
+		}
+	}
 };
 
 const createScheduledMeetingNotificationKey = (workspaceId, event) =>
@@ -123,6 +141,17 @@ export const createDesktopTrayCalendar = ({
 	let refreshTimeoutId = null;
 	let refreshPromise = null;
 	const shownScheduledMeetingNotificationKeys = new Set();
+
+	const notifyStateChange = () => {
+		try {
+			onStateChange();
+		} catch (error) {
+			console.warn(
+				"Failed to rebuild tray calendar menu.",
+				toErrorLogDetails(error),
+			);
+		}
+	};
 
 	const openTrayMeetingLink = async (event) => {
 		if (!event?.meetingUrl) {
@@ -338,7 +367,11 @@ export const createDesktopTrayCalendar = ({
 
 	const refresh = async ({ keepOpenInMenuBar } = {}) => {
 		if (refreshPromise) {
-			return await refreshPromise;
+			if (state.status === "loading") {
+				return await refreshPromise;
+			}
+
+			refreshPromise = null;
 		}
 
 		refreshPromise = (async () => {
@@ -357,9 +390,13 @@ export const createDesktopTrayCalendar = ({
 				}
 
 				state = createLoadingTrayCalendarState();
-				onStateChange();
+				notifyStateChange();
 
-				const convexToken = await getDesktopConvexToken();
+				const convexToken = await withTimeout(
+					getDesktopConvexToken(),
+					trayCalendarRefreshTimeoutMs,
+					"Timed out loading desktop auth token for tray calendar.",
+				);
 
 				if (!convexToken) {
 					state = {
@@ -372,12 +409,13 @@ export const createDesktopTrayCalendar = ({
 				const convexClient = new ConvexHttpClient(getConvexUrl(), {
 					auth: convexToken,
 				});
-				const result = await convexClient.action(
-					api.calendar.listUpcomingGoogleEvents,
-					{
+				const result = await withTimeout(
+					convexClient.action(api.calendar.listUpcomingGoogleEvents, {
 						workspaceId,
 						...getCurrentDayWindow(),
-					},
+					}),
+					trayCalendarRefreshTimeoutMs,
+					"Timed out loading tray calendar events.",
 				);
 
 				state =
@@ -410,9 +448,9 @@ export const createDesktopTrayCalendar = ({
 					status: "error",
 				};
 			} finally {
-				onStateChange();
-				scheduleRefresh({ keepOpenInMenuBar });
 				refreshPromise = null;
+				notifyStateChange();
+				scheduleRefresh({ keepOpenInMenuBar });
 			}
 		})();
 
@@ -422,7 +460,13 @@ export const createDesktopTrayCalendar = ({
 	return {
 		clearRefresh,
 		getDetectedMeetingCalendarEvent,
-		getState: () => state,
+		getState: () => ({
+			...state,
+			events: state.events.map((event) => ({ ...event })),
+			hasRefreshPromise: Boolean(refreshPromise),
+			hasRefreshTimeout: refreshTimeoutId != null,
+			workspaceId,
+		}),
 		openCalendarEventNote,
 		refresh,
 		scheduleRefresh,
