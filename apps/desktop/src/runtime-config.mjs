@@ -90,6 +90,10 @@ const toPublicRuntimeConfig = (value) => ({
 });
 
 const resolveRuntimeConfig = async () => {
+	if (shouldUseHostedDefaults()) {
+		return createRuntimeConfig({});
+	}
+
 	const envConvexUrl =
 		trimConfigValue(process.env.CONVEX_URL) ||
 		trimConfigValue(process.env.VITE_CONVEX_URL);

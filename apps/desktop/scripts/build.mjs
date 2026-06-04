@@ -67,6 +67,21 @@ const loadSelectedEnvFile = () => {
 	}
 };
 
+const requiredProductionEnv = (name) => {
+	const value =
+		process.env[`GRANERI_HOSTED_${name}`]?.trim() ??
+		process.env[name]?.trim() ??
+		"";
+
+	if (!value) {
+		throw new Error(
+			`Missing required production desktop build config: ${name}. Set ${name} in .env or GRANERI_HOSTED_${name} in the build environment.`,
+		);
+	}
+
+	return value;
+};
+
 const buildHostedRuntimeConfig = () => ({
 	convexUrl:
 		process.env.GRANERI_HOSTED_CONVEX_URL?.trim() ??
@@ -82,8 +97,22 @@ const buildHostedRuntimeConfig = () => ({
 		"",
 });
 
+const validateProductionRuntimeConfig = (config) => {
+	if (process.env.GRANERI_ENV_MODE?.trim() !== "production") {
+		return;
+	}
+
+	requiredProductionEnv("CONVEX_URL");
+	requiredProductionEnv("CONVEX_SITE_URL");
+
+	if (!config.convexUrl || !config.convexSiteUrl) {
+		throw new Error("Production desktop runtime config is incomplete.");
+	}
+};
+
 const writeHostedRuntimeConfig = async () => {
 	const config = buildHostedRuntimeConfig();
+	validateProductionRuntimeConfig(config);
 
 	await cp(
 		resolve(sourceDir, "hosted-runtime-config.mjs"),
