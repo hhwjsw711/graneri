@@ -182,7 +182,7 @@ export const createDesktopTray = ({
 			return [];
 		}
 
-		if (calendarState.status === "idle") {
+		if (calendarState.status === "idle" || calendarState.status === "loading") {
 			return [
 				{
 					label: todayLabel,

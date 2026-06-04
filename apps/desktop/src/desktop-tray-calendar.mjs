@@ -15,6 +15,12 @@ export const createInitialTrayCalendarState = () => ({
 	connectedCalendarCount: 0,
 });
 
+const createLoadingTrayCalendarState = () => ({
+	status: "loading",
+	events: [],
+	connectedCalendarCount: 0,
+});
+
 const isSameCalendarDay = (left, right) =>
 	left.getFullYear() === right.getFullYear() &&
 	left.getMonth() === right.getMonth() &&
@@ -190,10 +196,7 @@ export const createDesktopTrayCalendar = ({
 		}
 	};
 
-	const shouldMaintainCalendar = (keepOpenInMenuBar) =>
-		Boolean(workspaceId) &&
-		(keepOpenInMenuBar ||
-			getNotificationPreferences().notifyForScheduledMeetings);
+	const shouldMaintainCalendar = () => Boolean(workspaceId);
 
 	const shouldUseActiveRefresh = (events) => {
 		const now = Date.now();
@@ -218,8 +221,8 @@ export const createDesktopTrayCalendar = ({
 		});
 	};
 
-	const getRefreshDelay = (keepOpenInMenuBar) => {
-		if (!shouldMaintainCalendar(keepOpenInMenuBar)) {
+	const getRefreshDelay = () => {
+		if (!shouldMaintainCalendar()) {
 			return null;
 		}
 
@@ -236,7 +239,7 @@ export const createDesktopTrayCalendar = ({
 
 	const scheduleRefresh = ({ delayMs, keepOpenInMenuBar } = {}) => {
 		clearRefresh();
-		const resolvedDelayMs = delayMs ?? getRefreshDelay(keepOpenInMenuBar);
+		const resolvedDelayMs = delayMs ?? getRefreshDelay();
 
 		if (resolvedDelayMs == null) {
 			return;
@@ -340,7 +343,7 @@ export const createDesktopTrayCalendar = ({
 
 		refreshPromise = (async () => {
 			try {
-				if (!shouldMaintainCalendar(keepOpenInMenuBar)) {
+				if (!shouldMaintainCalendar()) {
 					state = createInitialTrayCalendarState();
 					return;
 				}
@@ -352,6 +355,9 @@ export const createDesktopTrayCalendar = ({
 					};
 					return;
 				}
+
+				state = createLoadingTrayCalendarState();
+				onStateChange();
 
 				const convexToken = await getDesktopConvexToken();
 
