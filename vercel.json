@@ -1,6 +1,6 @@
 {
-	"buildCommand": "bun --filter=web run build",
-	"outputDirectory": "apps/web/dist",
+	"buildCommand": "bun run build:vercel",
+	"outputDirectory": "dist",
 	"rewrites": [
 		{
 			"source": "/(.*)",

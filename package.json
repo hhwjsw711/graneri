@@ -5,6 +5,7 @@
   "packageManager": "bun@1.3.10",
   "scripts": {
     "build": "turbo run build",
+    "build:vercel": "node scripts/build-vercel.mjs",
     "changeset": "changeset",
     "release:prepare": "bun install --frozen-lockfile && bun run version-packages && bun run check && bun run typecheck && bun run test",
     "version-packages": "changeset version",
