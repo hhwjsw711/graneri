@@ -12,6 +12,30 @@ export type StructuredNote = StructuredNoteBody & {
 	title: string;
 };
 
+const isStringArray = (value: unknown): value is string[] =>
+	Array.isArray(value) && value.every((item) => typeof item === "string");
+
+const isStructuredNoteSection = (
+	value: unknown,
+): value is StructuredNoteBody["sections"][number] =>
+	typeof value === "object" &&
+	value !== null &&
+	"title" in value &&
+	typeof value.title === "string" &&
+	"items" in value &&
+	isStringArray(value.items);
+
+export const isStructuredNote = (value: unknown): value is StructuredNote =>
+	typeof value === "object" &&
+	value !== null &&
+	"title" in value &&
+	typeof value.title === "string" &&
+	"overview" in value &&
+	isStringArray(value.overview) &&
+	"sections" in value &&
+	Array.isArray(value.sections) &&
+	value.sections.every(isStructuredNoteSection);
+
 const createTextNode = (text: string): JSONContent => ({
 	type: "text",
 	text,

@@ -5,11 +5,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import { cn } from "@workspace/ui/lib/utils";
-import type {
-	ChatAddToolOutputFunction,
-	ChatOnToolCallCallback,
-	UIMessage,
-} from "ai";
+import type { ChatAddToolOutputFunction, UIMessage } from "ai";
 import {
 	DefaultChatTransport,
 	lastAssistantMessageIsCompleteWithToolCalls,
@@ -71,11 +67,7 @@ import { getMessagesBefore } from "@/lib/chat-thread";
 import { getChatComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
-import {
-	executeDesktopLocalToolCall,
-	isDesktopLocalFolderArray,
-	isDesktopLocalToolName,
-} from "@/lib/desktop-local-tool-call";
+import { createDesktopLocalToolCallHandler } from "@/lib/desktop-local-tool-call";
 import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
@@ -417,52 +409,12 @@ const useChatPageController = ({
 	);
 	const addToolOutputRef =
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
-	const handleToolCall = React.useCallback<ChatOnToolCallCallback<UIMessage>>(
-		async ({ toolCall }) => {
-			const toolName = toolCall.toolName;
-			if (!isDesktopLocalToolName(toolName)) {
-				return;
-			}
-
-			try {
-				const requestOptions = latestRequestBodyRef.current
-					? { body: latestRequestBodyRef.current }
-					: undefined;
-				const localFolders = isDesktopLocalFolderArray(
-					latestRequestBodyRef.current?.localFolders,
-				)
-					? latestRequestBodyRef.current.localFolders
-					: [];
-				const output = await executeDesktopLocalToolCall({
-					localFolders,
-					toolCall: {
-						input: toolCall.input,
-						toolCallId: toolCall.toolCallId,
-						toolName,
-					},
-				});
-				addToolOutputRef.current?.({
-					options: requestOptions,
-					output,
-					tool: toolName,
-					toolCallId: toolCall.toolCallId,
-				});
-			} catch (toolError) {
-				const requestOptions = latestRequestBodyRef.current
-					? { body: latestRequestBodyRef.current }
-					: undefined;
-				addToolOutputRef.current?.({
-					errorText:
-						toolError instanceof Error
-							? toolError.message
-							: "Local tool execution failed.",
-					options: requestOptions,
-					state: "output-error",
-					tool: toolName,
-					toolCallId: toolCall.toolCallId,
-				});
-			}
-		},
+	const handleToolCall = React.useMemo(
+		() =>
+			createDesktopLocalToolCallHandler({
+				addToolOutputRef,
+				latestRequestBodyRef,
+			}),
 		[],
 	);
 	const {

@@ -1,5 +1,9 @@
 import type { NoteTemplate } from "@/lib/note-templates";
-import type { StructuredNote, StructuredNoteBody } from "@/lib/structured-note";
+import {
+	isStructuredNote,
+	type StructuredNote,
+	type StructuredNoteBody,
+} from "@/lib/structured-note";
 
 type NoteTemplateFetch = typeof fetch;
 
@@ -26,9 +30,24 @@ export const requestEnhancedStructuredNote = async (
 		error?: string;
 		note?: StructuredNote;
 	};
+	const payloadKeys = Object.keys(payload);
 
-	if (!response.ok || !payload.note) {
+	console.info("[enhance-note] renderer.response", {
+		ok: response.ok,
+		payloadKeys,
+		status: response.status,
+	});
+
+	if (!response.ok) {
 		throw new Error(payload.error || "Failed to enhance note.");
+	}
+
+	if (!isStructuredNote(payload.note)) {
+		throw new Error(
+			`Failed to enhance note (${response.status}; payload keys: ${
+				payloadKeys.length > 0 ? payloadKeys.join(", ") : "empty object"
+			}).`,
+		);
 	}
 
 	return payload.note;

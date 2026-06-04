@@ -47,12 +47,7 @@ import {
 	APP_SIDEBAR_EXPANDED_WIDTH,
 } from "@workspace/ui/lib/panel-dimensions";
 import { cn } from "@workspace/ui/lib/utils";
-import type {
-	ChatAddToolOutputFunction,
-	ChatOnToolCallCallback,
-	FileUIPart,
-	UIMessage,
-} from "ai";
+import type { ChatAddToolOutputFunction, FileUIPart, UIMessage } from "ai";
 import {
 	DefaultChatTransport,
 	lastAssistantMessageIsCompleteWithToolCalls,
@@ -136,11 +131,7 @@ import { getMessagesBefore } from "@/lib/chat-thread";
 import { getNoteComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { DESKTOP_MAIN_HEADER_CONTENT_CLASS } from "@/lib/desktop-chrome";
-import {
-	executeDesktopLocalToolCall,
-	isDesktopLocalFolderArray,
-	isDesktopLocalToolName,
-} from "@/lib/desktop-local-tool-call";
+import { createDesktopLocalToolCallHandler } from "@/lib/desktop-local-tool-call";
 import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
@@ -899,52 +890,12 @@ const useNoteComposerController = ({
 	);
 	const addToolOutputRef =
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
-	const handleToolCall = React.useCallback<ChatOnToolCallCallback<UIMessage>>(
-		async ({ toolCall }) => {
-			const toolName = toolCall.toolName;
-			if (!isDesktopLocalToolName(toolName)) {
-				return;
-			}
-
-			try {
-				const requestOptions = latestRequestBodyRef.current
-					? { body: latestRequestBodyRef.current }
-					: undefined;
-				const localFolders = isDesktopLocalFolderArray(
-					latestRequestBodyRef.current?.localFolders,
-				)
-					? latestRequestBodyRef.current.localFolders
-					: [];
-				const output = await executeDesktopLocalToolCall({
-					localFolders,
-					toolCall: {
-						input: toolCall.input,
-						toolCallId: toolCall.toolCallId,
-						toolName,
-					},
-				});
-				addToolOutputRef.current?.({
-					options: requestOptions,
-					output,
-					tool: toolName,
-					toolCallId: toolCall.toolCallId,
-				});
-			} catch (toolError) {
-				const requestOptions = latestRequestBodyRef.current
-					? { body: latestRequestBodyRef.current }
-					: undefined;
-				addToolOutputRef.current?.({
-					errorText:
-						toolError instanceof Error
-							? toolError.message
-							: "Local tool execution failed.",
-					options: requestOptions,
-					state: "output-error",
-					tool: toolName,
-					toolCallId: toolCall.toolCallId,
-				});
-			}
-		},
+	const handleToolCall = React.useMemo(
+		() =>
+			createDesktopLocalToolCallHandler({
+				addToolOutputRef,
+				latestRequestBodyRef,
+			}),
 		[],
 	);
 	const {

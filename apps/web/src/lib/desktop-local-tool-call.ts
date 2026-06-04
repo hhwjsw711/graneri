@@ -1,4 +1,10 @@
 import type { DesktopLocalFolder } from "@workspace/platform/desktop-bridge";
+import type {
+	ChatAddToolOutputFunction,
+	ChatOnToolCallCallback,
+	UIMessage,
+} from "ai";
+import type { RefObject } from "react";
 import { getLocalFolderToolApiUrl } from "@/lib/runtime-config";
 
 const localToolNames = new Set([
@@ -32,6 +38,27 @@ export const isDesktopLocalFolderArray = (
 			typeof folder.path === "string",
 	);
 
+const getRequestLocalFolders = (
+	requestBody: Record<string, unknown> | null,
+) => {
+	if (!requestBody) {
+		throw new Error(
+			"Desktop local tool request is missing chat request context.",
+		);
+	}
+
+	if (!isDesktopLocalFolderArray(requestBody.localFolders)) {
+		throw new Error(
+			"Desktop local tool request is missing shared local folders.",
+		);
+	}
+
+	return requestBody.localFolders;
+};
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+	error instanceof Error ? error.message : fallback;
+
 export const executeDesktopLocalToolCall = async ({
 	localFolders,
 	toolCall,
@@ -49,6 +76,12 @@ export const executeDesktopLocalToolCall = async ({
 		throw new Error(`Unsupported local tool: ${toolCall.toolName}.`);
 	}
 
+	console.info("[desktop-local-tool] request", {
+		folderCount: localFolders.length,
+		toolCallId: toolCall.toolCallId,
+		toolName: toolCall.toolName,
+	});
+
 	const response = await fetch(apiUrl, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -64,9 +97,80 @@ export const executeDesktopLocalToolCall = async ({
 		output?: unknown;
 	};
 
+	console.info("[desktop-local-tool] response", {
+		ok: response.ok,
+		outputKeys:
+			payload.output && typeof payload.output === "object"
+				? Object.keys(payload.output)
+				: [],
+		payloadKeys: Object.keys(payload),
+		status: response.status,
+		toolCallId: toolCall.toolCallId,
+		toolName: toolCall.toolName,
+	});
+
 	if (!response.ok) {
 		throw new Error(payload.error || "Local tool execution failed.");
 	}
 
 	return payload.output;
 };
+
+export const createDesktopLocalToolCallHandler =
+	({
+		addToolOutputRef,
+		latestRequestBodyRef,
+	}: {
+		addToolOutputRef: RefObject<ChatAddToolOutputFunction<UIMessage> | null>;
+		latestRequestBodyRef: RefObject<Record<string, unknown> | null>;
+	}): ChatOnToolCallCallback<UIMessage> =>
+	async ({ toolCall }) => {
+		if (toolCall.dynamic) {
+			return;
+		}
+
+		const toolName = toolCall.toolName;
+		if (!isDesktopLocalToolName(toolName)) {
+			return;
+		}
+
+		const requestOptions = latestRequestBodyRef.current
+			? { body: latestRequestBodyRef.current }
+			: undefined;
+
+		try {
+			const localFolders = getRequestLocalFolders(latestRequestBodyRef.current);
+			console.info("[desktop-local-tool] execute", {
+				folderCount: localFolders.length,
+				toolCallId: toolCall.toolCallId,
+				toolName,
+			});
+			const output = await executeDesktopLocalToolCall({
+				localFolders,
+				toolCall: {
+					input: toolCall.input,
+					toolCallId: toolCall.toolCallId,
+					toolName,
+				},
+			});
+			addToolOutputRef.current?.({
+				options: requestOptions,
+				output,
+				tool: toolName,
+				toolCallId: toolCall.toolCallId,
+			});
+		} catch (toolError) {
+			console.error("[desktop-local-tool] failed", {
+				error: getErrorMessage(toolError, "Local tool execution failed."),
+				toolCallId: toolCall.toolCallId,
+				toolName,
+			});
+			addToolOutputRef.current?.({
+				errorText: getErrorMessage(toolError, "Local tool execution failed."),
+				options: requestOptions,
+				state: "output-error",
+				tool: toolName,
+				toolCallId: toolCall.toolCallId,
+			});
+		}
+	};

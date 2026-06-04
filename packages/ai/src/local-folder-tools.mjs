@@ -1291,7 +1291,7 @@ const getLocalBashTool = async ({ root }) => {
 		};
 	}
 
-	const { tools } = await createBashTool({
+	const { sandbox, tools } = await createBashTool({
 		files: snapshot.files,
 		maxFiles: MAX_BASH_SNAPSHOT_FILES,
 		maxOutputLength: MAX_BASH_OUTPUT_LENGTH,
@@ -1312,10 +1312,14 @@ const getLocalBashTool = async ({ root }) => {
 		}),
 	});
 	const value = {
+		sandbox,
 		tool: tools.bash,
 		snapshot,
 	};
 
+	for (const cachedValue of bashToolCache.values()) {
+		await cachedValue.sandbox?.stop?.();
+	}
 	bashToolCache.clear();
 	bashToolCache.set(cacheKey, value);
 
