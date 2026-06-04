@@ -491,6 +491,7 @@ const proxyHostedAiRequest = async ({
 	response,
 	bodyOverride,
 	headersOverride,
+	responseMode = "stream",
 }) => {
 	const baseUrl = getHostedApiBaseUrl();
 
@@ -536,6 +537,16 @@ const proxyHostedAiRequest = async ({
 	});
 
 	response.statusCode = proxyResponse.status;
+
+	if (responseMode === "bufferedJson") {
+		const responseText = await proxyResponse.text();
+		response.setHeader(
+			"Content-Type",
+			proxyResponse.headers.get("content-type") || "application/json",
+		);
+		response.end(responseText);
+		return;
+	}
 
 	for (const [key, value] of proxyResponse.headers.entries()) {
 		response.setHeader(key, value);
@@ -1009,6 +1020,7 @@ const handleEnhanceNoteRequest = async (request, response) => {
 			path: "/api/enhance-note",
 			request,
 			response,
+			responseMode: "bufferedJson",
 		});
 		return;
 	}

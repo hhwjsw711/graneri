@@ -63,6 +63,25 @@ display preferences. When the renderer connects or toggles a calendar provider,
 it should notify Electron to refresh the tray instead of waiting for an
 unrelated notification or restart.
 
+## Desktop AI Request Routing
+
+The desktop local server owns renderer-facing AI HTTP routes such as
+`/api/chat`, `/api/apply-template`, `/api/enhance-note`, and
+`/api/realtime-transcription-session`. Packaged desktop apps must not embed
+`OPENAI_API_KEY`. When a packaged app has hosted Convex/site config but no local
+OpenAI key, the local server proxies these AI routes to the hosted Convex site
+URL. When a local OpenAI key is available, the same handlers may execute locally
+instead. This means terminal-launched packaged apps can differ from Finder
+launches because terminal processes inherit shell environment variables.
+
+Keep proxy response handling matched to the body strategy. Streamed routes may
+pipe the upstream body and forward upstream headers together. If a proxy handler
+buffers or decodes an upstream body before sending it to the renderer, it must
+not forward stale body-specific headers such as `content-encoding`,
+`content-length`, or `transfer-encoding`; send fresh response headers that match
+the emitted body. Otherwise browsers can attempt to decode already-decoded JSON
+and surface misleading empty-payload failures.
+
 ## Packaging Rules
 
 Electron Builder packages dependencies from `apps/desktop/package.json`. If a
