@@ -1,48 +1,52 @@
 # Architecture
 
-Graneri is desktop-first and web-supported. The desktop product is an Electron
-shell in `apps/desktop` that packages the Vite renderer from `apps/web` and
-talks to Convex for backend state and AI actions.
+Graneri is desktop-first and web-supported. `apps/desktop` packages the Vite
+renderer from `apps/web` and talks to Convex for backend state and AI actions.
 
-This is a living document. Update it in the same change whenever a runtime
-boundary, packaging rule, release configuration path, or Convex integration
-contract changes. Do not treat it as historical documentation; it should describe
-the current system well enough for agents and maintainers to make safe changes.
+This document is the system of record for runtime boundaries and release
+invariants. Update it only when a boundary, packaging rule, release
+configuration path, or Convex integration contract changes.
 
-## Runtime Boundaries
+## Ownership
 
-`apps/desktop` owns Electron main, preload, IPC, native permissions, capture
-helpers, packaging, updater behavior, and desktop release configuration.
+`apps/desktop`
+: Electron main, preload, IPC, native permissions, capture helpers, local
+server, packaging, updater behavior, and desktop release configuration.
 
-`apps/web` owns the React renderer used by both the browser app and the desktop
-app. Desktop builds still compile this renderer with Vite, so release-time
-environment values must be correct in both Electron and Vite.
+`apps/web`
+: React renderer for both desktop and browser. Desktop releases still depend on
+the Vite bundle, so renderer constants are part of desktop release correctness.
 
-`packages/platform` is the only renderer-safe package that may read
-`window.graneriDesktop`. Other renderer code must go through this package.
+`packages/platform`
+: The only renderer-safe package that may read `window.graneriDesktop`.
+Renderer code must access desktop capabilities through this package.
 
-`packages/ai` is shared runtime code. It must not import Convex server modules
-or any `convex/*.ts` file. Server-only behavior must be passed in through
-adapters, or invoked through a Convex client/action boundary.
+`packages/ai`
+: Shared AI runtime code. It must not import Convex server modules or
+`convex/*.ts`; server-only behavior must enter through adapters or Convex
+client/action boundaries.
 
-`convex/` owns server functions, schema, HTTP actions, auth, and server-only
-integrations. Read `convex/_generated/ai/guidelines.md` before changing Convex
-code.
+`convex/`
+: Server functions, schema, HTTP actions, auth, and server-only integrations.
+Read `convex/_generated/ai/guidelines.md` before changing Convex code.
 
-## Desktop Release Configuration
+## Release Configuration
 
-Official packaged desktop builds must embed public hosted URLs in two places:
+Official packaged desktop builds must embed public hosted URLs in both runtime
+layers:
 
-- Electron main/runtime config, generated into
+- Electron main/runtime config:
   `apps/desktop/dist/hosted-runtime-config.mjs`
-- Vite renderer constants, generated into `apps/web/dist`
+- Vite renderer constants: `apps/web/dist`
 
-The hosted URLs are public configuration, not secrets. They identify the hosted
-Convex and web deployments. Secrets such as `OPENAI_API_KEY`,
-`BETTER_AUTH_SECRET`, OAuth client secrets, deploy keys, and signing credentials
-must never be embedded into desktop builds.
+Electron main and the packaged Vite renderer must point at the same hosted
+Convex deployment.
 
-For official builds, pass:
+Hosted URLs are public configuration, not secrets. They identify hosted Convex
+and web deployments. Never embed `OPENAI_API_KEY`, `BETTER_AUTH_SECRET`, OAuth
+client secrets, deploy keys, or signing credentials into desktop builds.
+
+Official builds pass:
 
 ```sh
 GRANERI_HOSTED_CONVEX_URL=https://<prod-deployment>.convex.cloud
@@ -50,84 +54,86 @@ GRANERI_HOSTED_CONVEX_SITE_URL=https://<prod-deployment>.convex.site
 GRANERI_HOSTED_SITE_URL=https://<hosted-app-origin>
 ```
 
-Self-hosted builds may pass their own hosted URLs or rely on local runtime env.
+Local development builds stay local. `bun dev` and desktop dev runs load local
+runtime values and connect to the development Convex deployment.
 
-Local development builds must stay local. `bun dev` and desktop dev runs should
-load `.env.local`/local runtime values and connect to the development Convex
-deployment. Production Convex and hosted app URLs belong only in official
-packaged builds or hosted web deployments.
+## Desktop AI
 
-Desktop tray data is part of the desktop runtime, but it must mirror the
-renderer's active account, workspace, calendar connection state, and calendar
-display preferences. When the renderer connects or toggles a calendar provider,
-it should notify Electron to refresh the tray instead of waiting for an
-unrelated notification or restart.
+The desktop local server owns renderer-facing AI HTTP routes:
 
-## Desktop AI Request Routing
+- `/api/chat`
+- `/api/apply-template`
+- `/api/enhance-note`
+- `/api/realtime-transcription-session`
 
-The desktop local server owns renderer-facing AI HTTP routes such as
-`/api/chat`, `/api/apply-template`, `/api/enhance-note`, and
-`/api/realtime-transcription-session`. Packaged desktop apps must not embed
-`OPENAI_API_KEY`. When a packaged app has hosted Convex/site config but no
-process-local OpenAI key, the local server proxies these AI routes to the hosted
-Convex site URL. Development runs may still execute handlers locally when the
-developer process provides `OPENAI_API_KEY`, but release behavior must not depend
-on terminal-inherited shell environment.
+Packaged desktop apps must not embed `OPENAI_API_KEY`. If hosted Convex/site
+config is present and no process-local OpenAI key exists, the desktop local
+server proxies AI routes to the hosted Convex site URL. Release behavior must
+not depend on terminal-inherited shell environment.
 
-Local-folder chat requests use a hosted-model, desktop-tool bridge. The hosted
-Convex/site handler owns the OpenAI key and model loop, but declares local
-folder tools without server-side executors. When the model requests a local
-tool, the renderer receives that client-side tool call, executes it through the
-desktop local server against folders explicitly shared through the desktop
-bridge, attaches the tool output to the chat, and lets the AI SDK resubmit the
-conversation to hosted Convex. The hosted handler must never claim it can inspect
-the user's Mac filesystem directly.
+Local-folder chat uses a hosted-model, desktop-tool bridge:
 
-Desktop-local capabilities must fail visibly when their desktop bridge contract
-is unavailable. Local path references must either be registered through
+1. Hosted Convex owns the OpenAI key and model loop.
+2. Hosted Convex declares local folder tools without server-side executors.
+3. The desktop renderer receives client-side local tool calls.
+4. The renderer executes those calls through the desktop local server against
+   folders explicitly shared through the desktop bridge.
+5. The renderer attaches tool output and lets the AI SDK resubmit the
+   conversation to hosted Convex.
+
+Client-side local tool outputs must resubmit with the same chat request body,
+including `localFolders`, so subsequent hosted model steps keep the same desktop
+tool context.
+
+Hosted handlers must never claim direct access to the user's Mac filesystem.
+Desktop-local capabilities must fail visibly when the desktop bridge contract is
+unavailable. Local path references must be registered through
 `shareLocalFolders` before they reach `/api/chat`, or request preparation must
-fail with an actionable error. On macOS, live transcription must use the desktop
-transcription controller; it must not silently fall back to the browser
-transcription controller when the packaged desktop bridge is missing or stale.
+fail with an actionable error.
 
-Keep proxy response handling matched to the body strategy. Streamed routes may
-pipe the upstream body and forward upstream headers together. If a proxy handler
-buffers or decodes an upstream body before sending it to the renderer, it must
-not forward stale body-specific headers such as `content-encoding`,
-`content-length`, or `transfer-encoding`; send fresh response headers that match
-the emitted body. Otherwise browsers can attempt to decode already-decoded JSON
-and surface misleading empty-payload failures.
+On macOS, live transcription must use the desktop transcription controller. It
+must not silently fall back to the browser transcription controller when the
+packaged desktop bridge is missing or stale.
 
-## Packaging Rules
+Proxy response handling must match the body strategy. Streamed routes may pipe
+the upstream body with upstream headers. Buffered or decoded proxy responses
+must emit fresh body headers and must not forward stale `content-encoding`,
+`content-length`, or `transfer-encoding`.
 
-Electron Builder packages dependencies from `apps/desktop/package.json`. If a
-desktop runtime path imports a package through `apps/desktop`, `packages/ai`, or
-other copied runtime code, that package must be declared in
-`apps/desktop/package.json`.
+## Desktop Runtime
 
-The desktop build copies runtime source into `.bundle-root` before packaging.
-Do not rely on source-tree imports that point outside `.bundle-root` at runtime.
-Packaged app verification must inspect `app.asar`, not only source files.
+Desktop tray state belongs to Electron, but it must mirror the renderer's active
+account, workspace, calendar connection state, and calendar display preferences.
+Renderer changes to calendar state should notify Electron to refresh the tray.
 
-Before shipping a desktop build, verify:
+Electron Builder packages dependencies from `apps/desktop/package.json`. Any
+package imported by packaged desktop runtime code through `apps/desktop`,
+`packages/ai`, or copied runtime modules must be declared there.
 
-- `app.asar` contains the expected hosted Convex deployment.
-- `app.asar` does not contain a dev Convex deployment.
-- The bundled renderer does not contain stale dev Vite constants.
-- Packaged runtime code does not import Convex server `.ts` files.
-- Bare package imports in `.bundle-root` resolve from packaged `node_modules`.
+The desktop build copies runtime source into `.bundle-root`. Packaged runtime
+code must not rely on source-tree imports outside `.bundle-root`.
 
-Run:
+## Required Verification
+
+After building the desktop package, run:
 
 ```sh
 bun --filter=desktop run verify:package
 ```
 
-after building the desktop package.
+The verifier must fail if:
 
-## Known Failure Pattern
+- `app.asar` contains a stale development Convex deployment.
+- `app.asar` misses the expected hosted Convex deployment.
+- The bundled renderer contains stale dev Vite constants.
+- Packaged runtime code imports Convex server TypeScript.
+- Bare package imports in `.bundle-root` cannot resolve from packaged
+  `node_modules`.
 
-A release can appear correct in Electron main but still connect to the wrong
-backend if the packaged Vite renderer was built with stale `VITE_CONVEX_URL` or
-`VITE_CONVEX_SITE_URL`. Always treat desktop runtime configuration as a two-layer
-problem: Electron main plus web renderer.
+## Enforcement
+
+`bun run check`, `bun run typecheck`, targeted tests, and
+`bun --filter=desktop run verify:package` enforce this document's invariants.
+
+Repeated architecture failures should become scripts, lint rules,
+package-boundary checks, or tests instead of more prose.

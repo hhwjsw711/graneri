@@ -1,9 +1,29 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`graneri` is a Bun workspace managed with Turbo. Graneri is desktop-first and web-supported: `apps/desktop` owns Electron main/preload code, native permissions, capture services, packaging, updater behavior, and desktop release concerns, while `apps/web` currently contains the Vite + React renderer used by the desktop app plus the browser entrypoint. Shared desktop bridge types and renderer-safe platform helpers live in `packages/platform`; only that package should read `window.graneriDesktop`, while `apps/desktop` owns the Electron preload/IPC implementation and related desktop tests. Shared UI primitives live in `packages/ui/src`. Backend logic and schema live in `convex/`; read `convex/_generated/ai/guidelines.md` before changing Convex functions, schema, auth, or HTTP routes. Tests currently live under `apps/web/tests`, and static assets live in each app’s `src/assets` or `public/` directory. Treat desktop capabilities as first-class platform APIs exposed through narrow preload/IPC contracts, not incidental browser fallbacks.
+`graneri` is a Bun workspace managed with Turbo. Graneri is desktop-first and
+web-supported; `docs/ARCHITECTURE.md` is the system of record for runtime
+boundaries, desktop release invariants, Convex integration, and shared AI tool
+contracts. Read it before changing those areas, and update it in the same change
+when a boundary or release rule moves.
 
-Before changing desktop packaging, runtime configuration, Convex integration, or shared AI tool boundaries, read `docs/ARCHITECTURE.md`. Keep that file current in the same change when those boundaries or release rules move. Desktop release behavior depends on both Electron main runtime config and the Vite renderer bundle; verify packaged `app.asar` rather than relying only on source builds.
+Primary code locations:
+
+- `apps/desktop`: Electron main/preload, native permissions, capture services,
+  local server, packaging, updater behavior, and desktop release concerns.
+- `apps/web`: Vite + React renderer used by the desktop app plus the browser
+  entrypoint.
+- `packages/platform`: shared desktop bridge types and renderer-safe platform
+  helpers. Renderer code should use this package instead of reading
+  `window.graneriDesktop` directly.
+- `packages/ui/src`: shared UI primitives.
+- `convex/`: backend logic and schema. Read
+  `convex/_generated/ai/guidelines.md` before changing Convex functions,
+  schema, auth, or HTTP routes.
+- `apps/web/tests`: current Vitest and Testing Library tests.
+
+Treat desktop capabilities as first-class platform APIs exposed through narrow
+preload/IPC contracts, not incidental browser fallbacks.
 
 ## Core Priorities
 1. Performance first.
