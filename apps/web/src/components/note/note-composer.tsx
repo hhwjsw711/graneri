@@ -3173,15 +3173,17 @@ function TranscriptInlinePopoverFooter({
 	speechControls: React.ReactNode;
 	topAccessory?: React.ReactNode;
 }) {
+	const shouldShowConsentNotice = isSpeechListening && !topAccessory;
+
 	return (
 		<InlinePopoverFooterContainer
 			ref={containerRef}
 			className={NOTE_COMPOSER_OVERLAY_FOOTER_CONTAINER_CLASS}
 		>
 			<div className="relative">
-				{isSpeechListening || topAccessory ? (
+				{shouldShowConsentNotice || topAccessory ? (
 					<div className="pointer-events-none absolute inset-x-4 bottom-full z-10 mb-3 flex flex-col items-center gap-2">
-						{isSpeechListening ? (
+						{shouldShowConsentNotice ? (
 							<div className="w-full rounded-lg bg-muted px-4 py-1 text-center text-[11px] leading-4 text-muted-foreground">
 								Always get consent when transcribing others.
 							</div>
@@ -3480,7 +3482,15 @@ function TranscriptPanelNoticeStack({
 	controller: NoteComposerController;
 	shouldRenderInlineComposer: boolean;
 }) {
-	if (shouldRenderInlineComposer || !controller.isSpeechListening) {
+	const isScrollToBottomVisible =
+		!controller.isTranscriptViewportAtBottom &&
+		controller.displayTranscriptEntries.length > 0;
+
+	if (
+		shouldRenderInlineComposer ||
+		!controller.isSpeechListening ||
+		isScrollToBottomVisible
+	) {
 		return null;
 	}
 

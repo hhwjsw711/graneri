@@ -34,6 +34,7 @@ import {
 	createNoteEditorExtensions,
 	parseStoredNoteContent,
 } from "@/lib/note-editor";
+import { getNoteDisplayTitle } from "@/lib/note-title";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
@@ -316,7 +317,7 @@ function NoteVersionHistoryDialogContent({
 					<div className="mx-auto max-w-2xl p-6">
 						<article className="space-y-4">
 							<h3 className="text-balance font-semibold text-2xl tracking-normal">
-								{selectedVersion.title.trim() || "Untitled note"}
+								{getNoteDisplayTitle(selectedVersion.title)}
 							</h3>
 							<NoteVersionPreview version={selectedVersion} />
 						</article>
