@@ -2465,6 +2465,7 @@ function ChatInlinePopoverFooter({
 	handleComposerValueChange,
 	onStop,
 	status,
+	editingMessageId,
 	message,
 	selectedRecipe,
 	attachedFiles,
@@ -2497,6 +2498,7 @@ function ChatInlinePopoverFooter({
 		isSidebarCompact: boolean;
 		showModelPicker: boolean;
 	};
+	editingMessageId: string | null;
 	message: string;
 	selectedRecipe: RecipePrompt | null;
 	attachedFiles: ChatAttachment[];
@@ -2775,7 +2777,7 @@ function ChatInlinePopoverFooter({
 			return;
 		}
 
-		if (composerEditor.isFocused && message.length > 0) {
+		if (composerEditor.isFocused && message.length > 0 && !editingMessageId) {
 			return;
 		}
 
@@ -2784,7 +2786,7 @@ function ChatInlinePopoverFooter({
 			getComposerContentFromMessage(message, selectedRecipe),
 			{ emitUpdate: false },
 		);
-	}, [composerEditor, message, selectedRecipe]);
+	}, [composerEditor, editingMessageId, message, selectedRecipe]);
 	const handleRecipeSelect = React.useCallback(
 		(recipeSlug: RecipeSlug) => {
 			const recipe = recipes.find((item) => item.slug === recipeSlug);
@@ -3360,6 +3362,7 @@ function ChatComposerForm({
 					isSidebarCompact: controller.isSidebarPresentation,
 					showModelPicker: controller.isChatOpen && !activateInlineOnFocus,
 				}}
+				editingMessageId={controller.editingMessageId}
 				message={controller.message}
 				selectedRecipe={controller.selectedRecipe}
 				attachedFiles={controller.attachedFiles}

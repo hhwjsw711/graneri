@@ -64,6 +64,7 @@ import type { Id } from "./_generated/dataModel";
 
 type ChatRequestBody = {
 	id?: string;
+	messageId?: string;
 	workspaceId?: string | null;
 	message?: UIMessage;
 	messages?: UIMessage[];
@@ -363,6 +364,7 @@ export const handleChatRequest = async (request: Request) => {
 
 	const {
 		id,
+		messageId,
 		message,
 		messages = [],
 		model,
@@ -420,6 +422,27 @@ export const handleChatRequest = async (request: Request) => {
 		(noteContext?.noteId as Id<"notes"> | null | undefined) ??
 		storedChat?.noteId ??
 		null;
+	const editedMessageId = trim(messageId);
+	if (
+		editedMessageId &&
+		message &&
+		convexClient &&
+		id &&
+		resolvedWorkspaceId
+	) {
+		try {
+			await convexClient.mutation(api.chats.truncateFromMessage, {
+				workspaceId: resolvedWorkspaceId,
+				chatId: id,
+				messageId: editedMessageId,
+			});
+		} catch (error) {
+			console.error("Failed to truncate edited chat branch", error);
+			return jsonResponse(500, {
+				error: "Failed to prepare edited chat message.",
+			});
+		}
+	}
 	const chatMessages = await validateUIMessages({
 		messages:
 			message && convexClient && id && resolvedWorkspaceId
