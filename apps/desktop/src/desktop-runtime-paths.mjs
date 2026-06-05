@@ -1,6 +1,14 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
+const asarPathSegment = ".asar";
+const asarUnpackedPathSegment = ".asar.unpacked";
+
+const resolveAsarUnpackedPath = (filePath) =>
+	filePath.includes(asarPathSegment)
+		? filePath.replace(asarPathSegment, asarUnpackedPathSegment)
+		: null;
+
 export const resolveDesktopRuntimeBinPath = ({ executableName, runtimeDir }) =>
 	resolve(runtimeDir, "bin", executableName);
 
@@ -14,9 +22,14 @@ export const resolveDesktopRuntimeExecutablePath = ({
 	executableName,
 	runtimeDir,
 }) => {
+	const runtimeBinPath = resolveDesktopRuntimeBinPath({
+		executableName,
+		runtimeDir,
+	});
 	const candidates = [
 		envPath?.trim(),
-		resolveDesktopRuntimeBinPath({ executableName, runtimeDir }),
+		resolveAsarUnpackedPath(runtimeBinPath),
+		runtimeBinPath,
 		resolveGeneratedDesktopHelperPath({ executableName, runtimeDir }),
 	].filter(Boolean);
 

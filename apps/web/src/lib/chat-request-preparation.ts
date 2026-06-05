@@ -10,12 +10,12 @@ type ChatRequestBase = {
 	localFolders: DesktopLocalFolder[];
 	model: string;
 	reasoningEffort: string | undefined;
+	timezone: string;
 };
 
 export type WorkspaceChatRequestBody = ChatRequestBase & {
 	mentions: string[];
 	selectedSourceIds: string[];
-	timezone: string;
 	webSearchEnabled: boolean;
 	workspaceId: string | null;
 };
@@ -65,6 +65,7 @@ const buildChatRequestBase = async ({
 	reasoningEffort,
 	localFolders,
 	convexToken: await resolveConvexToken(),
+	timezone: getTimezone(),
 });
 
 const resolveChatRequestBase = async ({
@@ -93,6 +94,7 @@ const resolveChatRequestBase = async ({
 		model,
 		reasoningEffort,
 		convexToken,
+		timezone: getTimezone(),
 	};
 };
 
@@ -115,7 +117,6 @@ export const buildWorkspaceChatRequestBodyFromLocalFolders = async ({
 	...(await buildChatRequestBase(baseArgs)),
 	mentions,
 	selectedSourceIds,
-	timezone: getTimezone(),
 	webSearchEnabled,
 	workspaceId,
 });
@@ -140,7 +141,6 @@ export const buildWorkspaceChatRequestBody = async ({
 	...(await resolveChatRequestBase(baseArgs)),
 	mentions,
 	selectedSourceIds,
-	timezone: getTimezone(),
 	webSearchEnabled,
 	workspaceId,
 });

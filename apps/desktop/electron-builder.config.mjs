@@ -29,8 +29,7 @@ export default {
 		main: ".bundle-root/apps/desktop/dist/main.mjs",
 	},
 	files: [".bundle-root/**/*", "package.json"],
-	asar: false,
-	disableSanityCheckAsar: true,
+	asarUnpack: [".bundle-root/apps/desktop/dist/bin/**"],
 	mac: {
 		target: ["dmg", "zip"],
 		category: "public.app-category.productivity",

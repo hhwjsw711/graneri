@@ -1,12 +1,14 @@
 import { openai } from "@ai-sdk/openai";
 import {
 	consumeStream,
-	convertToModelMessages,
+	createAgentUIStreamResponse,
 	generateText,
 	Output,
 	smoothStream,
 	stepCountIs,
 	streamText,
+	ToolLoopAgent,
+	type InferUITools,
 	type ToolSet,
 	tool,
 	type UIMessage,
@@ -19,6 +21,7 @@ import {
 	getSelectedNoteSourceIds,
 } from "../packages/ai/src/app-source-providers.mjs";
 import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
+import { buildChatAutomationContext } from "../packages/ai/src/automation-tools.mjs";
 import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace-tools.mjs";
 import {
 	buildHostedChatRuntimePrompt,
@@ -70,6 +73,7 @@ type ChatRequestBody = {
 	appsEnabled?: boolean;
 	mentions?: string[];
 	selectedSourceIds?: string[];
+	timezone?: string;
 	localFolders?: Array<{ id?: string; name?: string; path?: string }>;
 	convexToken?: string | null;
 	recipeSlug?: string | null;
@@ -79,6 +83,8 @@ type ChatRequestBody = {
 		text?: string;
 	};
 };
+
+type HostedChatUIMessage = UIMessage<unknown, never, InferUITools<ToolSet>>;
 
 type EnhanceNoteRequestBody = {
 	title?: string;
@@ -366,6 +372,7 @@ export const handleChatRequest = async (request: Request) => {
 		appsEnabled = true,
 		mentions,
 		selectedSourceIds,
+		timezone,
 		localFolders = [],
 		convexToken,
 		recipeSlug,
@@ -380,6 +387,7 @@ export const handleChatRequest = async (request: Request) => {
 
 	const resolvedWorkspaceId =
 		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
+	const resolvedTimezone = trim(timezone) || "UTC";
 	if (convexToken && !resolvedWorkspaceId) {
 		return jsonResponse(400, {
 			error: "workspaceId is required.",
@@ -428,6 +436,7 @@ export const handleChatRequest = async (request: Request) => {
 					? [message]
 					: messages,
 	});
+	const agentMessages = chatMessages as HostedChatUIMessage[];
 	const lastUserMessage =
 		message?.role === "user"
 			? message
@@ -500,9 +509,11 @@ export const handleChatRequest = async (request: Request) => {
 					})
 					.catch(() => [])
 			: [];
+	const workspaceToolConnections =
+		appConnections as WorkspaceToolConnection[];
 	const appTools = appsEnabled
 		? await buildConvexWorkspaceToolSet({
-				connections: appConnections as WorkspaceToolConnection[],
+				connections: workspaceToolConnections,
 				convexClient,
 				workspaceId: resolvedWorkspaceId,
 			})
@@ -515,8 +526,25 @@ export const handleChatRequest = async (request: Request) => {
 		message: lastUserMessage,
 		webSearchEnabled,
 	});
+	const automationContext = buildChatAutomationContext({
+		appConnections: workspaceToolConnections,
+		chatId: id,
+		createAutomation:
+			convexClient && resolvedWorkspaceId
+				? async (automation) =>
+						await convexClient.mutation(api.automations.create, {
+							workspaceId: resolvedWorkspaceId,
+							...automation,
+						})
+				: null,
+		defaultModel: selectedModel.model,
+		defaultReasoningEffort: resolvedReasoningEffort,
+		defaultTimezone: resolvedTimezone,
+		webSearchEnabled,
+	});
 	const finalizedToolSet = finalizeOpenAIToolSet({
 		...coreToolPolicy.enabledTools,
+		...automationContext.tools,
 		...appTools,
 	});
 	const { tools } = finalizedToolSet;
@@ -533,31 +561,30 @@ export const handleChatRequest = async (request: Request) => {
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
 		coreToolInstruction: coreToolPolicy.instruction,
+		automationInstruction: automationContext.instruction,
 		localFolderContext,
 	});
 	const localFolderTools = buildDesktopLocalFolderClientTools(localFolderRoots);
-	const streamTools: ToolSet | undefined =
+	const agentTools: ToolSet | undefined =
 		finalizedToolSet.hasTools || localFolderRoots.length > 0
 			? {
 					...(finalizedToolSet.hasTools ? tools : {}),
 					...(localFolderTools ?? {}),
 				}
 			: undefined;
-	const result = streamText({
+	const agent = new ToolLoopAgent({
 		model: openai(selectedModel.model),
 		providerOptions,
-		system: systemPrompt,
-		messages: await convertToModelMessages(chatMessages),
-		tools: streamTools,
+		instructions: systemPrompt,
+		tools: agentTools ?? {},
 		prepareStep: coreToolPolicy.prepareStep,
-		stopWhen:
-			finalizedToolSet.hasTools || localFolderRoots.length > 0
-				? stepCountIs(5)
-				: undefined,
+		stopWhen: agentTools ? stepCountIs(5) : undefined,
 	});
 
-	return result.toUIMessageStreamResponse({
-		originalMessages: chatMessages,
+	return await createAgentUIStreamResponse({
+		agent,
+		uiMessages: agentMessages,
+		originalMessages: agentMessages,
 		generateMessageId: generateHostedChatMessageId,
 		consumeSseStream: consumeStream,
 		sendReasoning: true,

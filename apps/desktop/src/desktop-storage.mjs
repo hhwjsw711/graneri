@@ -8,7 +8,7 @@ import {
 	stat,
 	writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const transcriptDraftStorageVersion = 1;
 const transcriptDraftMaxAgeMs = 72 * 60 * 60 * 1000;
@@ -26,6 +26,21 @@ const toSharedLocalFolderPayload = (folder) => ({
 	name: folder.name,
 	path: folder.path,
 });
+
+const resolveShareableFolderPath = async (requestedPath) => {
+	const realRequestedPath = await realpath(requestedPath);
+	const requestedStat = await stat(realRequestedPath);
+
+	if (requestedStat.isDirectory()) {
+		return realRequestedPath;
+	}
+
+	if (requestedStat.isFile()) {
+		return dirname(realRequestedPath);
+	}
+
+	throw new Error("Only folders and files can be shared with Ask AI.");
+};
 
 const getDraftPath = ({ draftsDirPath, noteKey }) =>
 	join(
@@ -179,12 +194,7 @@ export const createDesktopStorage = ({
 					throw new Error("Local folder path is too long.");
 				}
 
-				const folderPath = await realpath(requestedPath);
-				const folderStat = await stat(folderPath);
-
-				if (!folderStat.isDirectory()) {
-					throw new Error("Only folders can be shared with Ask AI.");
-				}
+				const folderPath = await resolveShareableFolderPath(requestedPath);
 
 				const folder = {
 					id: createLocalFolderId(folderPath),

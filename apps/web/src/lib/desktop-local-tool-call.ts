@@ -24,6 +24,12 @@ type LocalToolCall = {
 	input: unknown;
 };
 
+type LocalToolRequestOptions =
+	| {
+			body: Record<string, unknown>;
+	  }
+	| undefined;
+
 const isDesktopLocalToolName = (toolName: string) =>
 	localToolNames.has(toolName);
 
@@ -76,12 +82,6 @@ const executeDesktopLocalToolCall = async ({
 		throw new Error(`Unsupported local tool: ${toolCall.toolName}.`);
 	}
 
-	console.info("[desktop-local-tool] request", {
-		folderCount: localFolders.length,
-		toolCallId: toolCall.toolCallId,
-		toolName: toolCall.toolName,
-	});
-
 	const response = await fetch(apiUrl, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
@@ -97,23 +97,53 @@ const executeDesktopLocalToolCall = async ({
 		output?: unknown;
 	};
 
-	console.info("[desktop-local-tool] response", {
-		ok: response.ok,
-		outputKeys:
-			payload.output && typeof payload.output === "object"
-				? Object.keys(payload.output)
-				: [],
-		payloadKeys: Object.keys(payload),
-		status: response.status,
-		toolCallId: toolCall.toolCallId,
-		toolName: toolCall.toolName,
-	});
-
 	if (!response.ok) {
 		throw new Error(payload.error || "Local tool execution failed.");
 	}
 
 	return payload.output;
+};
+
+const submitDesktopLocalToolCall = async ({
+	addToolOutputRef,
+	requestBody,
+	requestOptions,
+	toolCall,
+}: {
+	addToolOutputRef: RefObject<ChatAddToolOutputFunction<UIMessage> | null>;
+	requestBody: Record<string, unknown> | null;
+	requestOptions: LocalToolRequestOptions;
+	toolCall: LocalToolCall;
+}) => {
+	try {
+		const output = await executeDesktopLocalToolCall({
+			localFolders: getRequestLocalFolders(requestBody),
+			toolCall,
+		});
+		addToolOutputRef.current?.({
+			options: requestOptions,
+			output,
+			tool: toolCall.toolName,
+			toolCallId: toolCall.toolCallId,
+		});
+	} catch (toolError) {
+		const errorText = getErrorMessage(
+			toolError,
+			"Local tool execution failed.",
+		);
+		console.error("[desktop-local-tool] failed", {
+			error: errorText,
+			toolCallId: toolCall.toolCallId,
+			toolName: toolCall.toolName,
+		});
+		addToolOutputRef.current?.({
+			errorText,
+			options: requestOptions,
+			state: "output-error",
+			tool: toolCall.toolName,
+			toolCallId: toolCall.toolCallId,
+		});
+	}
 };
 
 export const createDesktopLocalToolCallHandler =
@@ -124,7 +154,7 @@ export const createDesktopLocalToolCallHandler =
 		addToolOutputRef: RefObject<ChatAddToolOutputFunction<UIMessage> | null>;
 		latestRequestBodyRef: RefObject<Record<string, unknown> | null>;
 	}): ChatOnToolCallCallback<UIMessage> =>
-	async ({ toolCall }) => {
+	({ toolCall }) => {
 		if (toolCall.dynamic) {
 			return;
 		}
@@ -134,43 +164,16 @@ export const createDesktopLocalToolCallHandler =
 			return;
 		}
 
-		const requestOptions = latestRequestBodyRef.current
-			? { body: latestRequestBodyRef.current }
-			: undefined;
-
-		try {
-			const localFolders = getRequestLocalFolders(latestRequestBodyRef.current);
-			console.info("[desktop-local-tool] execute", {
-				folderCount: localFolders.length,
+		const requestBody = latestRequestBodyRef.current;
+		const requestOptions = requestBody ? { body: requestBody } : undefined;
+		void submitDesktopLocalToolCall({
+			addToolOutputRef,
+			requestBody,
+			requestOptions,
+			toolCall: {
+				input: toolCall.input,
 				toolCallId: toolCall.toolCallId,
 				toolName,
-			});
-			const output = await executeDesktopLocalToolCall({
-				localFolders,
-				toolCall: {
-					input: toolCall.input,
-					toolCallId: toolCall.toolCallId,
-					toolName,
-				},
-			});
-			addToolOutputRef.current?.({
-				options: requestOptions,
-				output,
-				tool: toolName,
-				toolCallId: toolCall.toolCallId,
-			});
-		} catch (toolError) {
-			console.error("[desktop-local-tool] failed", {
-				error: getErrorMessage(toolError, "Local tool execution failed."),
-				toolCallId: toolCall.toolCallId,
-				toolName,
-			});
-			addToolOutputRef.current?.({
-				errorText: getErrorMessage(toolError, "Local tool execution failed."),
-				options: requestOptions,
-				state: "output-error",
-				tool: toolName,
-				toolCallId: toolCall.toolCallId,
-			});
-		}
+			},
+		});
 	};

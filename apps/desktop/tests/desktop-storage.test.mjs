@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -70,6 +70,24 @@ test("shares local folders and returns shared folders by id", async () => {
 	const sharedRealPath = await realpath(sharedDir);
 
 	const result = await storage.shareLocalFolders([sharedDir]);
+	assert.equal(result.folders.length, 1);
+	assert.equal(result.folders[0].name, "shared");
+	assert.equal(result.folders[0].path, sharedRealPath);
+
+	assert.deepEqual(storage.getSharedLocalFolders([result.folders[0].id]), [
+		result.folders[0],
+	]);
+});
+
+test("shares a file path by registering its parent folder", async () => {
+	const { rootDir, storage } = await createTestStorage();
+	const sharedDir = join(rootDir, "shared");
+	const sharedFile = join(sharedDir, "local-smoke.txt");
+	await mkdir(sharedDir);
+	await writeFile(sharedFile, "Graneri local file smoke token: alpha-7429");
+	const sharedRealPath = await realpath(sharedDir);
+
+	const result = await storage.shareLocalFolders([sharedFile]);
 	assert.equal(result.folders.length, 1);
 	assert.equal(result.folders[0].name, "shared");
 	assert.equal(result.folders[0].path, sharedRealPath);

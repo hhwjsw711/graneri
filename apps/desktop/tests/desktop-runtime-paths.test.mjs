@@ -65,3 +65,42 @@ test("uses packaged runtime executables before generated development helpers", a
 		runtimeHelperPath,
 	);
 });
+
+test("uses unpacked runtime executables when running from app.asar", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "graneri-runtime-paths-"));
+	const runtimeDir = join(
+		directory,
+		"Graneri.app",
+		"Contents",
+		"Resources",
+		"app.asar",
+		".bundle-root",
+		"apps",
+		"desktop",
+		"dist",
+	);
+	const unpackedHelperPath = join(
+		directory,
+		"Graneri.app",
+		"Contents",
+		"Resources",
+		"app.asar.unpacked",
+		".bundle-root",
+		"apps",
+		"desktop",
+		"dist",
+		"bin",
+		"graneri-system-audio-helper",
+	);
+	await mkdir(join(unpackedHelperPath, ".."), { recursive: true });
+	await writeFile(unpackedHelperPath, "");
+
+	assert.equal(
+		resolveDesktopRuntimeExecutablePath({
+			envPath: null,
+			executableName: "graneri-system-audio-helper",
+			runtimeDir,
+		}),
+		unpackedHelperPath,
+	);
+});
