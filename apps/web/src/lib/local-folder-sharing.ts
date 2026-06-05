@@ -1,4 +1,4 @@
-import { getDesktopBridge } from "@workspace/platform/desktop";
+import { shareDesktopLocalFolders } from "@workspace/platform/desktop";
 import type { DesktopLocalFolder } from "@workspace/platform/desktop-bridge";
 import {
 	extractLocalPathReferences,
@@ -61,21 +61,53 @@ export const rehydrateSharedLocalFolders = async (
 	scope: string,
 ): Promise<DesktopLocalFolder[]> => {
 	const storedFolders = loadStoredSharedLocalFolders(scope);
-	const bridge = getDesktopBridge();
 
-	if (!bridge?.shareLocalFolders || storedFolders.length === 0) {
+	if (storedFolders.length === 0) {
 		return storedFolders;
 	}
 
+	const result = await shareDesktopLocalFolders(
+		storedFolders.map((folder) => folder.path),
+	).catch(() => null);
+
+	if (!result) {
+		return storedFolders;
+	}
+
+	storeSharedLocalFolders(scope, result.folders);
+	return result.folders;
+};
+
+export const requireRehydratedSharedLocalFolders = async (
+	scope: string,
+): Promise<DesktopLocalFolder[]> => {
+	const storedFolders = loadStoredSharedLocalFolders(scope);
+
+	if (storedFolders.length === 0) {
+		return storedFolders;
+	}
+
+	let result: Awaited<ReturnType<typeof shareDesktopLocalFolders>>;
 	try {
-		const result = await bridge.shareLocalFolders(
+		result = await shareDesktopLocalFolders(
 			storedFolders.map((folder) => folder.path),
 		);
-		storeSharedLocalFolders(scope, result.folders);
-		return result.folders;
-	} catch {
-		return storedFolders;
+	} catch (error) {
+		throw new Error(
+			error instanceof Error
+				? error.message
+				: "Failed to re-register shared local folders with the desktop app.",
+		);
 	}
+
+	if (!result) {
+		throw new Error(
+			"Desktop local folder sharing is unavailable. Restart the desktop app, then try again.",
+		);
+	}
+
+	storeSharedLocalFolders(scope, result.folders);
+	return result.folders;
 };
 
 export const shareLocalFoldersFromText = async ({
@@ -85,7 +117,6 @@ export const shareLocalFoldersFromText = async ({
 	currentFolders: DesktopLocalFolder[];
 	text: string;
 }) => {
-	const bridge = getDesktopBridge();
 	const paths = extractLocalPathReferences(text);
 
 	if (paths.length === 0) {
@@ -95,20 +126,19 @@ export const shareLocalFoldersFromText = async ({
 		};
 	}
 
-	if (!bridge?.shareLocalFolders) {
+	const result = await shareDesktopLocalFolders(paths).catch(
+		(error: unknown) => {
+			throw new Error(
+				error instanceof Error
+					? error.message
+					: "Failed to share local folders with the desktop app.",
+			);
+		},
+	);
+
+	if (!result) {
 		throw new Error(
 			"Desktop local folder sharing is unavailable. Restart the desktop app, then try again.",
-		);
-	}
-
-	let result: Awaited<ReturnType<typeof bridge.shareLocalFolders>>;
-	try {
-		result = await bridge.shareLocalFolders(paths);
-	} catch (error) {
-		throw new Error(
-			error instanceof Error
-				? error.message
-				: "Failed to share local folders with the desktop app.",
 		);
 	}
 	const allFolders = mergeLocalFolders(currentFolders, result.folders);

@@ -3,13 +3,19 @@ import { APP_SOURCE_PREFIX } from "../packages/ai/src/app-source-providers.mjs";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { enableYandexCalendarPreferenceForWorkspace } from "./calendarPreferences";
 import {
 	internalMutation,
 	internalQuery,
 	mutation,
 	query,
 } from "./_generated/server";
+import {
+	getDefaultAppConnectionDisplayName,
+	getMcpAppConnectionPreviewLabel,
+	isChatSourceAppConnectionProvider,
+	requiresChatSourceToken,
+} from "./appConnectionProviders";
+import { enableYandexCalendarPreferenceForWorkspace } from "./calendarPreferences";
 
 const yandexTrackerProviderValidator = v.literal("yandex-tracker");
 const yandexCalendarProviderValidator = v.literal("yandex-calendar");
@@ -545,26 +551,30 @@ export const assertWorkspaceAccess = internalQuery({
 
 const toAppSourceId = (id: Id<"appConnections">) => `${APP_SOURCE_PREFIX}${id}`;
 
-const getProviderPreview = (connection: Doc<"appConnections">) =>
-	connection.provider === "yandex-calendar"
-		? (connection.email ?? "Yandex Calendar")
-		: connection.provider === "jira"
-			? getJiraSyncPreview(connection)
-		: connection.provider === "jira-mcp"
-			? getMcpPreview(connection, "Jira MCP")
-			: connection.provider === "posthog"
-				? getMcpPreview(connection, "PostHog MCP")
-				: connection.provider === "notion"
-					? getMcpPreview(connection, "Notion MCP")
-					: connection.provider === "zoom"
-						? getMcpPreview(connection, "Zoom MCP")
-						: connection.provider === "context7"
-							? getMcpPreview(connection, "Context7 MCP")
-							: connection.provider === "figma"
-								? getMcpPreview(connection, "Figma MCP")
-								: connection.provider === "linear"
-									? getMcpPreview(connection, "Linear MCP")
-									: `${connection.orgType === "x-org-id" ? "Yandex 360" : "Yandex Cloud"} • Org ${connection.orgId}`;
+const getProviderPreview = (connection: Doc<"appConnections">) => {
+	switch (connection.provider) {
+		case "yandex-calendar":
+			return (
+				connection.email ??
+				getDefaultAppConnectionDisplayName(connection.provider)
+			);
+		case "jira":
+			return getJiraSyncPreview(connection);
+		case "jira-mcp":
+		case "posthog":
+		case "notion":
+		case "zoom":
+		case "context7":
+		case "figma":
+		case "linear":
+			return getMcpPreview(
+				connection,
+				getMcpAppConnectionPreviewLabel(connection.provider),
+			);
+		case "yandex-tracker":
+			return `${connection.orgType === "x-org-id" ? "Yandex 360" : "Yandex Cloud"} • Org ${connection.orgId}`;
+	}
+};
 
 const getJiraSyncPreview = (connection: Doc<"appConnections">) => {
 	if (!connection.baseUrl) {
@@ -694,8 +704,7 @@ const getOwnedNotionConnection = async (
 	ctx: QueryCtx | MutationCtx,
 	ownerTokenIdentifier: string,
 	workspaceId: Id<"workspaces">,
-) =>
-	await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, "notion");
+) => await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, "notion");
 
 const getOwnedZoomConnection = async (
 	ctx: QueryCtx | MutationCtx,
@@ -707,7 +716,8 @@ const getOwnedContext7Connection = async (
 	ctx: QueryCtx | MutationCtx,
 	ownerTokenIdentifier: string,
 	workspaceId: Id<"workspaces">,
-) => await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, "context7");
+) =>
+	await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, "context7");
 
 const getOwnedFigmaConnection = async (
 	ctx: QueryCtx | MutationCtx,
@@ -853,37 +863,39 @@ const toChatToolConnection = (
 			displayName: connection.displayName,
 			baseUrl: connection.baseUrl,
 			...parseConnectionEnv(connection),
-			...(connection.accountId
-				? { oauthClientId: connection.accountId }
-				: {}),
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 			oauthAccessToken: connection.token,
 		};
 	}
 
-	if (connection.provider === "notion" && connection.baseUrl && connection.token) {
+	if (
+		connection.provider === "notion" &&
+		connection.baseUrl &&
+		connection.token
+	) {
 		return {
 			sourceId: toAppSourceId(connection._id),
 			provider: "notion",
 			displayName: connection.displayName,
 			baseUrl: connection.baseUrl,
 			...parseConnectionEnv(connection),
-			...(connection.accountId
-				? { oauthClientId: connection.accountId }
-				: {}),
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 			oauthAccessToken: connection.token,
 		};
 	}
 
-	if (connection.provider === "zoom" && connection.baseUrl && connection.token) {
+	if (
+		connection.provider === "zoom" &&
+		connection.baseUrl &&
+		connection.token
+	) {
 		return {
 			sourceId: toAppSourceId(connection._id),
 			provider: "zoom",
 			displayName: connection.displayName,
 			baseUrl: connection.baseUrl,
 			...parseConnectionEnv(connection),
-			...(connection.accountId
-				? { oauthClientId: connection.accountId }
-				: {}),
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 			oauthAccessToken: connection.token,
 		};
 	}
@@ -943,25 +955,11 @@ export const listSources = query({
 		const sources: AppConnectionSource[] = [];
 
 		for (const connection of connections) {
-			if (
-				(connection.provider === "figma" ||
-					connection.provider === "linear") &&
-				!connection.token
-			) {
+			if (requiresChatSourceToken(connection.provider) && !connection.token) {
 				continue;
 			}
 
-			if (
-				connection.provider !== "yandex-calendar" &&
-				connection.provider !== "yandex-tracker" &&
-				connection.provider !== "jira-mcp" &&
-				connection.provider !== "posthog" &&
-				connection.provider !== "notion" &&
-				connection.provider !== "zoom" &&
-				connection.provider !== "context7" &&
-				connection.provider !== "figma" &&
-				connection.provider !== "linear"
-			) {
+			if (!isChatSourceAppConnectionProvider(connection.provider)) {
 				continue;
 			}
 
@@ -1111,9 +1109,7 @@ export const getJiraMcp = query({
 			status: connection.status,
 			displayName: connection.displayName,
 			endpoint: connection.baseUrl,
-			...(connection.accountId
-				? { oauthClientId: connection.accountId }
-				: {}),
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 		};
 	},
 });
@@ -1191,9 +1187,7 @@ export const getPostHog = query({
 			status: connection.status,
 			displayName: connection.displayName,
 			endpoint: connection.baseUrl,
-			...(connection.accountId
-				? { oauthClientId: connection.accountId }
-				: {}),
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 		};
 	},
 });
@@ -1226,9 +1220,7 @@ export const getNotion = query({
 			status: connection.status,
 			displayName: connection.displayName,
 			endpoint: connection.baseUrl,
-			...(connection.accountId
-				? { oauthClientId: connection.accountId }
-				: {}),
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 		};
 	},
 });
@@ -1261,9 +1253,7 @@ export const getZoom = query({
 			status: connection.status,
 			displayName: connection.displayName,
 			endpoint: connection.baseUrl,
-			...(connection.accountId
-				? { oauthClientId: connection.accountId }
-				: {}),
+			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
 		};
 	},
 });
@@ -1444,13 +1434,11 @@ export const getZoomOAuthConnectionsForWorkspace = internalQuery({
 	handler: async (ctx, args) => {
 		const connections = await ctx.db
 			.query("appConnections")
-			.withIndex(
-				"by_ownerTokenIdentifier_and_workspaceId_and_provider",
-				(q) =>
-					q
-						.eq("ownerTokenIdentifier", args.ownerTokenIdentifier)
-						.eq("workspaceId", args.workspaceId)
-						.eq("provider", "zoom"),
+			.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_provider", (q) =>
+				q
+					.eq("ownerTokenIdentifier", args.ownerTokenIdentifier)
+					.eq("workspaceId", args.workspaceId)
+					.eq("provider", "zoom"),
 			)
 			.take(10);
 
@@ -1488,13 +1476,11 @@ export const getMcpOAuthConnectionsForWorkspace = internalQuery({
 	handler: async (ctx, args) => {
 		const connections = await ctx.db
 			.query("appConnections")
-			.withIndex(
-				"by_ownerTokenIdentifier_and_workspaceId_and_provider",
-				(q) =>
-					q
-						.eq("ownerTokenIdentifier", args.ownerTokenIdentifier)
-						.eq("workspaceId", args.workspaceId)
-						.eq("provider", args.provider),
+			.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_provider", (q) =>
+				q
+					.eq("ownerTokenIdentifier", args.ownerTokenIdentifier)
+					.eq("workspaceId", args.workspaceId)
+					.eq("provider", args.provider),
 			)
 			.take(10);
 
@@ -1854,7 +1840,7 @@ export const upsertYandexCalendar = internalMutation({
 			args.ownerTokenIdentifier,
 			args.workspaceId,
 		);
-		let connectionId;
+		let connectionId: Id<"appConnections">;
 
 		if (existingConnection) {
 			await ctx.db.patch(existingConnection._id, {
@@ -2093,7 +2079,8 @@ export const upsertJiraMcp = internalMutation({
 			args.workspaceId,
 		);
 		const now = Date.now();
-		const displayName = args.displayName.trim() || "Jira";
+		const displayName =
+			args.displayName.trim() || getDefaultAppConnectionDisplayName("jira-mcp");
 		const baseUrl = args.baseUrl.trim();
 		const envJson = args.env ? JSON.stringify(args.env) : undefined;
 		const oauthClientId = args.oauthClientId?.trim() || undefined;
@@ -2178,7 +2165,8 @@ export const upsertPostHog = internalMutation({
 			args.workspaceId,
 		);
 		const now = Date.now();
-		const displayName = args.displayName.trim() || "PostHog";
+		const displayName =
+			args.displayName.trim() || getDefaultAppConnectionDisplayName("posthog");
 		const baseUrl = args.baseUrl.trim();
 		const envJson = args.env ? JSON.stringify(args.env) : undefined;
 		const oauthClientId = args.oauthClientId?.trim() || undefined;
@@ -2263,7 +2251,8 @@ export const upsertNotion = internalMutation({
 			args.workspaceId,
 		);
 		const now = Date.now();
-		const displayName = args.displayName.trim() || "Notion";
+		const displayName =
+			args.displayName.trim() || getDefaultAppConnectionDisplayName("notion");
 		const baseUrl = args.baseUrl.trim();
 		const envJson = args.env ? JSON.stringify(args.env) : undefined;
 		const oauthClientId = args.oauthClientId?.trim() || undefined;
@@ -2348,7 +2337,8 @@ export const upsertZoom = internalMutation({
 			args.workspaceId,
 		);
 		const now = Date.now();
-		const displayName = args.displayName.trim() || "Zoom";
+		const displayName =
+			args.displayName.trim() || getDefaultAppConnectionDisplayName("zoom");
 		const baseUrl = args.baseUrl.trim();
 		const envJson = args.env ? JSON.stringify(args.env) : undefined;
 		const oauthClientId = args.oauthClientId?.trim() || undefined;
@@ -2412,10 +2402,6 @@ export const upsertZoom = internalMutation({
 	},
 });
 
-const remoteHeaderMcpDefaults = {
-	context7: "Context7",
-} satisfies Record<RemoteHeaderMcpProvider, string>;
-
 const toRemoteHeaderMcpConnectionSettings = (
 	id: Id<"appConnections">,
 	provider: RemoteHeaderMcpProvider,
@@ -2443,7 +2429,7 @@ const upsertRemoteHeaderMcpConnection = async (
 	await requireOwnedWorkspace(ctx, args.ownerTokenIdentifier, args.workspaceId);
 	const now = Date.now();
 	const displayName =
-		args.displayName.trim() || remoteHeaderMcpDefaults[provider];
+		args.displayName.trim() || getDefaultAppConnectionDisplayName(provider);
 	const baseUrl = args.baseUrl.trim();
 	const envJson = args.env ? JSON.stringify(args.env) : undefined;
 	const existingConnection = await getOwnedRemoteHeaderMcpConnection(
@@ -2482,12 +2468,15 @@ const upsertRemoteHeaderMcpConnection = async (
 		updatedAt: now,
 	});
 
-	return toRemoteHeaderMcpConnectionSettings(id, provider, displayName, baseUrl);
+	return toRemoteHeaderMcpConnectionSettings(
+		id,
+		provider,
+		displayName,
+		baseUrl,
+	);
 };
 
-const upsertMcpOAuthConnection = async <
-	TProvider extends "figma" | "linear",
->(
+const upsertMcpOAuthConnection = async <TProvider extends "figma" | "linear">(
 	ctx: MutationCtx,
 	args: {
 		ownerTokenIdentifier: string;
@@ -2507,8 +2496,8 @@ const upsertMcpOAuthConnection = async <
 > => {
 	await requireOwnedWorkspace(ctx, args.ownerTokenIdentifier, args.workspaceId);
 	const now = Date.now();
-	const defaultDisplayName = provider === "figma" ? "Figma" : "Linear";
-	const displayName = args.displayName.trim() || defaultDisplayName;
+	const displayName =
+		args.displayName.trim() || getDefaultAppConnectionDisplayName(provider);
 	const baseUrl = args.baseUrl.trim();
 	const envJson = args.env ? JSON.stringify(args.env) : undefined;
 	const oauthClientId = args.oauthClientId.trim();
@@ -2676,15 +2665,7 @@ export const createMcpOAuthState = internalMutation({
 			workspaceId: args.workspaceId,
 			displayName:
 				args.displayName.trim() ||
-				(args.provider === "figma"
-					? "Figma"
-					: args.provider === "linear"
-						? "Linear"
-						: args.provider === "posthog"
-							? "PostHog"
-							: args.provider === "zoom"
-								? "Zoom"
-								: "Notion"),
+				getDefaultAppConnectionDisplayName(args.provider),
 			baseUrl: args.baseUrl.trim(),
 			...(args.env ? { envJson: JSON.stringify(args.env) } : {}),
 			oauthClientId: args.oauthClientId.trim(),

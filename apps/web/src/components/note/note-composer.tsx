@@ -126,7 +126,10 @@ import {
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
-import { prepareSharedLocalFoldersForChatRequest } from "@/lib/chat-request-preparation";
+import {
+	buildNoteChatRequestBody,
+	buildNoteChatRequestBodyFromLocalFolders,
+} from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getNoteComposerDraftScope } from "@/lib/composer-draft";
@@ -1579,26 +1582,21 @@ const useNoteComposerController = ({
 
 		try {
 			const currentNoteContext = readNoteContext();
-			const convexToken = await getCachedConvexToken();
 			const outgoingText = nextMessage || selectedRecipe?.name || "";
-			const nextSharedLocalFolders =
-				await prepareSharedLocalFoldersForChatRequest({
-					storageScope: localFolderStorageScope,
-					text: outgoingText,
-				});
-			setSharedLocalFolders(nextSharedLocalFolders);
-			const requestBody = {
+			const requestBody = await buildNoteChatRequestBody({
+				localFolderStorageScope,
 				model: selectedModel.model,
-				reasoningEffort: selectedReasoningEffort,
-				localFolders: nextSharedLocalFolders,
-				convexToken,
 				noteContext: {
 					noteId: currentNoteContext.noteId,
 					title: currentNoteContext.title,
 					text: currentNoteContext.text,
 				},
+				reasoningEffort: selectedReasoningEffort,
 				recipeSlug: selectedRecipe?.slug ?? null,
-			};
+				resolveConvexToken: getCachedConvexToken,
+				text: outgoingText,
+			});
+			setSharedLocalFolders(requestBody.localFolders);
 			latestRequestBodyRef.current = requestBody;
 			const recipeMetadata: UIMessage["metadata"] | undefined = selectedRecipe
 				? {
@@ -1713,20 +1711,19 @@ const useNoteComposerController = ({
 
 	const buildRequestBody = React.useCallback(async () => {
 		const currentNoteContext = readNoteContext();
-		const convexToken = await getCachedConvexToken();
 
-		return {
-			model: selectedModel.model,
-			reasoningEffort: selectedReasoningEffort,
+		return await buildNoteChatRequestBodyFromLocalFolders({
 			localFolders: sharedLocalFolders,
-			convexToken,
+			model: selectedModel.model,
 			noteContext: {
 				noteId: currentNoteContext.noteId,
 				title: currentNoteContext.title,
 				text: currentNoteContext.text,
 			},
+			reasoningEffort: selectedReasoningEffort,
 			recipeSlug: selectedRecipe?.slug ?? null,
-		};
+			resolveConvexToken: getCachedConvexToken,
+		});
 	}, [
 		readNoteContext,
 		selectedReasoningEffort,

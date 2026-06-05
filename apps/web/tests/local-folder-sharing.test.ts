@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { shareLocalFoldersFromText } from "../src/lib/local-folder-sharing";
+import {
+	requireRehydratedSharedLocalFolders,
+	shareLocalFoldersFromText,
+	storeSharedLocalFolders,
+} from "../src/lib/local-folder-sharing";
 
 const originalDesktopBridge = window.graneriDesktop;
 
 afterEach(() => {
 	window.graneriDesktop = originalDesktopBridge;
+	window.localStorage.clear();
 	vi.restoreAllMocks();
 });
 
@@ -73,5 +78,20 @@ describe("local folder sharing", () => {
 		expect(shareLocalFolders).toHaveBeenCalledWith([
 			"/Users/test/Documents/graneri",
 		]);
+	});
+
+	it("fails strict rehydration instead of reusing stale folders without the desktop bridge", async () => {
+		window.graneriDesktop = undefined;
+		storeSharedLocalFolders("chat_1", [
+			{
+				id: "folder_1",
+				name: "graneri",
+				path: "/Users/test/Documents/graneri",
+			},
+		]);
+
+		await expect(requireRehydratedSharedLocalFolders("chat_1")).rejects.toThrow(
+			"Desktop local folder sharing is unavailable",
+		);
 	});
 });

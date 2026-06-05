@@ -44,8 +44,17 @@ export const getDesktopMeta = async () => {
 
 export const supportsDesktopTranscriptionController = () => {
 	const bridge = getDesktopBridge();
+	const candidate = bridge as Record<string, unknown> | null;
 
-	return Boolean(bridge?.getTranscriptionSessionState);
+	return Boolean(
+		candidate &&
+			typeof candidate.getTranscriptionSessionState === "function" &&
+			typeof candidate.configureTranscriptionSession === "function" &&
+			typeof candidate.startTranscriptionSession === "function" &&
+			typeof candidate.stopTranscriptionSession === "function" &&
+			typeof candidate.onTranscriptionSessionState === "function" &&
+			typeof candidate.onTranscriptionSessionEvent === "function",
+	);
 };
 
 export const supportsDesktopNativeAudioCapture = () => {
@@ -252,4 +261,14 @@ export const saveDesktopTextFile = async (
 	}
 
 	return await bridge.saveTextFile(defaultFileName, content);
+};
+
+export const shareDesktopLocalFolders = async (paths: string[]) => {
+	const bridge = getDesktopBridge();
+
+	if (!bridge?.shareLocalFolders) {
+		return null;
+	}
+
+	return await bridge.shareLocalFolders(paths);
 };

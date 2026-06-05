@@ -62,7 +62,10 @@ import {
 import { getChatId } from "@/lib/chat";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
-import { prepareSharedLocalFoldersForChatRequest } from "@/lib/chat-request-preparation";
+import {
+	buildWorkspaceChatRequestBody,
+	buildWorkspaceChatRequestBodyFromLocalFolders,
+} from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getChatComposerDraftScope } from "@/lib/composer-draft";
@@ -592,19 +595,24 @@ const useChatPageController = ({
 		setIsPreparingRequest(true);
 
 		try {
-			const convexToken = await getCachedConvexToken();
-			const nextSharedLocalFolders =
-				await prepareSharedLocalFoldersForChatRequest({
-					storageScope: localFolderStorageScope,
-					text: value,
-				});
-			setSharedLocalFolders(nextSharedLocalFolders);
 			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onChatPersisted?.(chatId);
 			const readyFiles = getReadyFileParts(attachedFiles);
 			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
 			const { mentionIds, requestSelectedSourceIds } =
 				getMentionRequestContext(mentions);
+			const requestBody = await buildWorkspaceChatRequestBody({
+				localFolderStorageScope,
+				mentions: mentionIds,
+				model: selectedModel.model,
+				reasoningEffort: selectedReasoningEffort,
+				resolveConvexToken: getCachedConvexToken,
+				selectedSourceIds: requestSelectedSourceIds,
+				text: value,
+				webSearchEnabled,
+				workspaceId: activeWorkspaceId,
+			});
+			setSharedLocalFolders(requestBody.localFolders);
 			const metadata =
 				mentions.length > 0 ? { mentionPositions: mentions } : undefined;
 			const nextOutgoingMessage = editingMessageId
@@ -619,17 +627,6 @@ const useChatPageController = ({
 						metadata,
 						...filePayload,
 					};
-			const requestBody = {
-				model: selectedModel.model,
-				reasoningEffort: selectedReasoningEffort,
-				localFolders: nextSharedLocalFolders,
-				webSearchEnabled,
-				mentions: mentionIds,
-				selectedSourceIds: requestSelectedSourceIds,
-				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-				workspaceId: activeWorkspaceId,
-				convexToken,
-			};
 			latestRequestBodyRef.current = requestBody;
 
 			void Promise.resolve(
@@ -726,21 +723,19 @@ const useChatPageController = ({
 	}, [clearDraft]);
 
 	const buildRequestBody = React.useCallback(async () => {
-		const convexToken = await getCachedConvexToken();
 		const { mentionIds, requestSelectedSourceIds } =
 			getMentionRequestContext(mentions);
 
-		return {
+		return await buildWorkspaceChatRequestBodyFromLocalFolders({
+			localFolders: sharedLocalFolders,
+			mentions: mentionIds,
 			model: selectedModel.model,
 			reasoningEffort: selectedReasoningEffort,
-			localFolders: sharedLocalFolders,
-			webSearchEnabled,
-			mentions: mentionIds,
+			resolveConvexToken: getCachedConvexToken,
 			selectedSourceIds: requestSelectedSourceIds,
-			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+			webSearchEnabled,
 			workspaceId: activeWorkspaceId,
-			convexToken,
-		};
+		});
 	}, [
 		activeWorkspaceId,
 		mentions,
