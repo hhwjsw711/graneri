@@ -138,7 +138,9 @@ test("forwards subscription payloads and removes the same handler on cleanup", (
 	const unsubscribe = api.onMeetingDetectionState((state) => {
 		received.push(state);
 	});
-	const registeredHandler = ipcRenderer.getListener(channels.meetingDetectionState);
+	const registeredHandler = ipcRenderer.getListener(
+		channels.meetingDetectionState,
+	);
 
 	ipcRenderer.emit(channels.meetingDetectionState, payload);
 	unsubscribe();
@@ -150,7 +152,10 @@ test("forwards subscription payloads and removes the same handler on cleanup", (
 			handler: registeredHandler,
 		},
 	]);
-	assert.equal(ipcRenderer.getListener(channels.meetingDetectionState), undefined);
+	assert.equal(
+		ipcRenderer.getListener(channels.meetingDetectionState),
+		undefined,
+	);
 });
 
 test("wires native audio and navigation subscriptions to dedicated channels", () => {

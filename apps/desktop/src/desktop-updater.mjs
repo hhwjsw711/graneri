@@ -1,3 +1,14 @@
+export const isDesktopUpdaterAvailable = ({
+	hasReleaseUpdateConfig,
+	isDisabled,
+	isPackaged,
+	platform,
+}) =>
+	platform === "darwin" &&
+	isPackaged === true &&
+	isDisabled !== true &&
+	hasReleaseUpdateConfig === true;
+
 export const createDesktopUpdater = ({
 	appVersion,
 	autoUpdater,

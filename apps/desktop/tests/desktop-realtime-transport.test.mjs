@@ -15,14 +15,17 @@ const createFetch = () => async () =>
 		status: 200,
 	});
 
-const createTransport = ({ WebSocketImpl }) =>
+const createTransport = ({
+	handleTransportEvent = async () => {},
+	WebSocketImpl,
+}) =>
 	createDesktopRealtimeTransport({
 		canUseHostedDesktopAi: () => true,
 		fetchImpl: createFetch(),
 		getCaptureSampleRate: () => 48_000,
 		getHostedConvexSiteUrl: () => "https://example.convex.site",
 		getOpenAIApiKey: () => "",
-		handleTransportEvent: async () => {},
+		handleTransportEvent,
 		logDesktopTurnDebug: () => {},
 		subscribeToCaptureEvents: () => () => {},
 		WebSocketImpl,
@@ -77,6 +80,33 @@ class MockWebSocket extends EventEmitter {
 		queueMicrotask(() => {
 			this.emit("close", 1000, Buffer.from(""));
 		});
+	}
+
+	terminate() {
+		this.close();
+	}
+}
+
+class ClosingBeforeOpenWebSocket extends EventEmitter {
+	static CONNECTING = MockWebSocket.CONNECTING;
+	static OPEN = MockWebSocket.OPEN;
+	static CLOSING = MockWebSocket.CLOSING;
+	static CLOSED = MockWebSocket.CLOSED;
+
+	readyState = ClosingBeforeOpenWebSocket.CONNECTING;
+	sent = [];
+
+	constructor() {
+		super();
+		MockWebSocket.instances.push(this);
+		queueMicrotask(() => {
+			this.readyState = ClosingBeforeOpenWebSocket.CLOSED;
+			this.emit("close", 1006, Buffer.from(""));
+		});
+	}
+
+	close() {
+		this.readyState = ClosingBeforeOpenWebSocket.CLOSED;
 	}
 
 	terminate() {
@@ -143,5 +173,29 @@ test("desktop realtime transport commits stop flush for the live item", async ()
 			MockWebSocket.instances[0].sent.map((value) => JSON.parse(value).type),
 			["input_audio_buffer.commit"],
 		);
+	});
+});
+
+test("desktop realtime transport rejects pre-open closes without interruption events", async () => {
+	await withDarwinPlatform(async () => {
+		const transportEvents = [];
+		const transport = createTransport({
+			handleTransportEvent: async (event) => {
+				transportEvents.push(event);
+			},
+			WebSocketImpl: ClosingBeforeOpenWebSocket,
+		});
+
+		await assert.rejects(
+			transport.start({
+				lang: "en",
+				source: "microphone",
+				speaker: "you",
+			}),
+			/closed before open/,
+		);
+
+		assert.deepEqual(transportEvents, []);
+		assert.equal(MockWebSocket.instances.length, 1);
 	});
 });

@@ -31,6 +31,7 @@ export type AppLocationState = {
 	view: AppView;
 	chatId: string | null;
 	noteIdString: string | null;
+	noteCaptureRequestId: string | null;
 	shouldAutoStartNoteCapture: boolean;
 	shouldStopNoteCaptureWhenMeetingEnds: boolean;
 	scheduledAutoStartNoteCaptureAt: string | null;

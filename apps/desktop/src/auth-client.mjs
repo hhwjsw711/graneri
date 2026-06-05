@@ -1,12 +1,9 @@
-import Conf from "conf";
 import { app } from "electron";
+import { createDesktopAuthCookieStore } from "./desktop-auth-cookie-store.mjs";
 import { fetchWithRetry } from "./network.mjs";
 
-const cookieStore = new Conf({
-	cwd: app.getPath("userData"),
-	projectName: app.getName(),
-	projectVersion: app.getVersion(),
-	configName: "desktop-auth",
+const cookieStore = createDesktopAuthCookieStore({
+	userDataPath: app.getPath("userData"),
 });
 const authBasePath = "/api/auth";
 
@@ -23,16 +20,11 @@ const getAuthBaseUrl = () => {
 const getAuthOrigin = () => new URL(getAuthBaseUrl()).origin;
 
 const readCookieJars = () => {
-	const stored = cookieStore.get("cookieJars");
-	return stored && typeof stored === "object" ? stored : {};
+	return cookieStore.readCookieJars();
 };
 
 const writeCookieJars = (value) => {
-	cookieStore.set("cookieJars", value);
-
-	if (cookieStore.has("cookieJar")) {
-		cookieStore.delete("cookieJar");
-	}
+	cookieStore.writeCookieJars(value);
 };
 
 const readCookieJar = (authOrigin) => {

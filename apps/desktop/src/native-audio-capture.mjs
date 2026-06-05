@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
 
 const captureHealthTimeoutMs = 3_000;
 
@@ -22,69 +21,24 @@ const clearCaptureHealthTimeout = (session) => {
 	}
 };
 
-export const resolveSystemAudioHelperPath = ({ isPackaged, runtimeDir }) => {
-	const envPath = process.env.GRANERI_SYSTEM_AUDIO_HELPER_PATH?.trim();
-	const unpackedHelperPath = isPackaged
-		? resolve(
-				process.resourcesPath,
-				"app.asar.unpacked",
-				".bundle-root",
-				"apps",
-				"desktop",
-				"dist",
-				"bin",
-				"graneri-system-audio-helper",
-			)
-		: null;
-	const candidates = [
-		envPath,
-		unpackedHelperPath,
-		resolve(runtimeDir, "bin", "graneri-system-audio-helper"),
-		resolve(
-			runtimeDir,
-			"..",
-			".generated",
-			"system-audio",
-			"graneri-system-audio-helper",
-		),
-	].filter(Boolean);
-
-	return candidates.find((candidatePath) => existsSync(candidatePath)) ?? null;
+export const resolveSystemAudioHelperPath = ({ runtimeDir }) => {
+	return resolveDesktopRuntimeExecutablePath({
+		envPath: process.env.GRANERI_SYSTEM_AUDIO_HELPER_PATH,
+		executableName: "graneri-system-audio-helper",
+		runtimeDir,
+	});
 };
 
-export const resolveMicrophoneHelperPath = ({ isPackaged, runtimeDir }) => {
-	const envPath = process.env.GRANERI_MICROPHONE_HELPER_PATH?.trim();
-	const unpackedHelperPath = isPackaged
-		? resolve(
-				process.resourcesPath,
-				"app.asar.unpacked",
-				".bundle-root",
-				"apps",
-				"desktop",
-				"dist",
-				"bin",
-				"graneri-microphone-helper",
-			)
-		: null;
-	const candidates = [
-		envPath,
-		unpackedHelperPath,
-		resolve(runtimeDir, "bin", "graneri-microphone-helper"),
-		resolve(
-			runtimeDir,
-			"..",
-			".generated",
-			"system-audio",
-			"graneri-microphone-helper",
-		),
-	].filter(Boolean);
-
-	return candidates.find((candidatePath) => existsSync(candidatePath)) ?? null;
+export const resolveMicrophoneHelperPath = ({ runtimeDir }) => {
+	return resolveDesktopRuntimeExecutablePath({
+		envPath: process.env.GRANERI_MICROPHONE_HELPER_PATH,
+		executableName: "graneri-microphone-helper",
+		runtimeDir,
+	});
 };
 
 export const createNativeAudioCapture = ({
 	runtimeDir,
-	isPackaged,
 	emitMicrophoneCaptureEvent,
 	emitSystemAudioCaptureEvent,
 	getSystemAudioPermissionState,
@@ -163,7 +117,7 @@ export const createNativeAudioCapture = ({
 			throw new Error("Native microphone capture is only available on macOS.");
 		}
 
-		const helperPath = resolveMicrophoneHelperPath({ isPackaged, runtimeDir });
+		const helperPath = resolveMicrophoneHelperPath({ runtimeDir });
 		if (!helperPath) {
 			throw new Error("The macOS microphone helper is missing.");
 		}
@@ -405,7 +359,7 @@ export const createNativeAudioCapture = ({
 			);
 		}
 
-		const helperPath = resolveSystemAudioHelperPath({ isPackaged, runtimeDir });
+		const helperPath = resolveSystemAudioHelperPath({ runtimeDir });
 		if (!helperPath) {
 			throw new Error("The macOS system-audio helper is missing.");
 		}
@@ -642,9 +596,9 @@ export const createNativeAudioCapture = ({
 			return session?.sampleRate ?? null;
 		},
 		resolveMicrophoneHelperPath: () =>
-			resolveMicrophoneHelperPath({ isPackaged, runtimeDir }),
+			resolveMicrophoneHelperPath({ runtimeDir }),
 		resolveSystemAudioHelperPath: () =>
-			resolveSystemAudioHelperPath({ isPackaged, runtimeDir }),
+			resolveSystemAudioHelperPath({ runtimeDir }),
 		startMicrophoneCapture,
 		startSystemAudioCapture,
 		stopMicrophoneCapture,

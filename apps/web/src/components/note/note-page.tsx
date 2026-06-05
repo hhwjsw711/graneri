@@ -1187,6 +1187,7 @@ type NotePageEditorPaneProps = {
 	>["handleEnhanceTranscript"];
 	tableOfContents: ReturnType<typeof useNotePageController>["tableOfContents"];
 	autoStartTranscription: boolean;
+	noteCaptureRequestId: string | null;
 	composerNoteContext: {
 		noteId: Id<"notes"> | null;
 		templateSlug: string | null;
@@ -1462,6 +1463,7 @@ const NotePageEditorPane = React.memo(function NotePageEditorPane({
 	handleEnhanceTranscript,
 	tableOfContents,
 	autoStartTranscription,
+	noteCaptureRequestId,
 	composerNoteContext,
 	onAutoStartTranscriptionHandled,
 	stopTranscriptionWhenMeetingEnds,
@@ -1547,6 +1549,7 @@ const NotePageEditorPane = React.memo(function NotePageEditorPane({
 										autoStartTranscription={autoStartTranscription}
 										desktopSafeTop={isDesktopMac}
 										getNoteContext={getNoteContext}
+										noteCaptureRequestId={noteCaptureRequestId}
 										noteContext={composerNoteContext}
 										onAutoStartTranscriptionHandled={
 											onAutoStartTranscriptionHandled
@@ -1579,6 +1582,7 @@ const NotePageEditorPane = React.memo(function NotePageEditorPane({
 function NotePageContent({
 	controller,
 	autoStartTranscription,
+	noteCaptureRequestId,
 	composerNoteContext,
 	onAutoStartTranscriptionHandled,
 	stopTranscriptionWhenMeetingEnds,
@@ -1598,6 +1602,7 @@ function NotePageContent({
 }: {
 	controller: ReturnType<typeof useNotePageController>;
 	autoStartTranscription: boolean;
+	noteCaptureRequestId: string | null;
 	composerNoteContext: {
 		noteId: Id<"notes"> | null;
 		templateSlug: string | null;
@@ -1636,6 +1641,7 @@ function NotePageContent({
 				handleEnhanceTranscript={controller.handleEnhanceTranscript}
 				tableOfContents={controller.tableOfContents}
 				autoStartTranscription={autoStartTranscription}
+				noteCaptureRequestId={noteCaptureRequestId}
 				composerNoteContext={composerNoteContext}
 				onAutoStartTranscriptionHandled={onAutoStartTranscriptionHandled}
 				stopTranscriptionWhenMeetingEnds={stopTranscriptionWhenMeetingEnds}
@@ -1925,6 +1931,7 @@ function useNoteSearch(searchableText: string) {
 
 export type NotePageProps = {
 	autoStartTranscription?: boolean;
+	noteCaptureRequestId?: string | null;
 	currentUser?: NotePageCurrentUser;
 	noteId: Id<"notes"> | null;
 	note?: Doc<"notes"> | null;
@@ -1940,6 +1947,7 @@ export type NotePageProps = {
 
 export function NotePage({
 	autoStartTranscription = false,
+	noteCaptureRequestId = null,
 	currentUser = {
 		name: "Unknown user",
 		email: "",
@@ -2058,6 +2066,7 @@ export function NotePage({
 			<NotePageContent
 				controller={controller}
 				autoStartTranscription={autoStartTranscription}
+				noteCaptureRequestId={noteCaptureRequestId}
 				composerNoteContext={composerNoteContext}
 				onAutoStartTranscriptionHandled={onAutoStartTranscriptionHandled}
 				stopTranscriptionWhenMeetingEnds={stopTranscriptionWhenMeetingEnds}

@@ -125,6 +125,22 @@ package imported by packaged desktop runtime code through `apps/desktop`,
 The desktop build copies runtime source into `.bundle-root`. Packaged runtime
 code must not rely on source-tree imports outside `.bundle-root`.
 
+Desktop packages must keep the app runtime unpacked under
+`Contents/Resources/app`; do not move it into `app.asar`. Electron's ASAR
+filesystem adapter emits Node `DEP0180` warnings during packaged startup, and
+Graneri treats runtime warnings as defects. Native helpers and bundled media
+tools resolve from `.bundle-root/apps/desktop/dist/bin` inside that unpacked
+runtime.
+
+Desktop auth cookies persist in an explicit JSON store under Electron's
+`userData` directory with owner-only file permissions. Packaged OSS builds must
+not use Electron Safe Storage, macOS Keychain, or another OS credential prompt
+for routine session-cookie persistence. Renderer windows must not use Electron's
+default persistent Chromium profile as an auth store; desktop auth state belongs
+to the IPC auth bridge and desktop auth cookie store. Desktop startup must pass
+Chromium's mock-keychain switch before renderer windows are created so Chromium
+storage never opens the macOS Keychain prompt.
+
 ## Required Verification
 
 After building the desktop package, run:
@@ -135,8 +151,10 @@ bun --filter=desktop run verify:package
 
 The verifier must fail if:
 
-- `app.asar` contains a stale development Convex deployment.
-- `app.asar` misses the expected hosted Convex deployment.
+- The packaged `Contents/Resources/app` runtime contains a stale development
+  Convex deployment.
+- The packaged `Contents/Resources/app` runtime misses the expected hosted
+  Convex deployment.
 - The bundled renderer contains stale dev Vite constants.
 - Packaged runtime code imports Convex server TypeScript.
 - Bare package imports in `.bundle-root` cannot resolve from packaged

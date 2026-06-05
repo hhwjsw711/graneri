@@ -147,35 +147,27 @@ const deferredOpenAIToolOptions = {
 		deferLoading: true,
 	},
 };
+
+const resolveBundledDesktopMediaToolPath = (toolName) =>
+	resolve(
+		aiRuntimeDir,
+		"..",
+		"..",
+		"..",
+		"apps",
+		"desktop",
+		"dist",
+		"bin",
+		toolName,
+	);
+
 const MEDIA_TOOL_CANDIDATES = {
 	ffmpeg: [
 		process.env.GRANERI_FFMPEG_PATH,
 		process.env.GRANERI_MEDIA_TOOLS_DIR
 			? resolve(process.env.GRANERI_MEDIA_TOOLS_DIR, "ffmpeg")
 			: null,
-		process.resourcesPath
-			? resolve(
-					process.resourcesPath,
-					"app.asar.unpacked",
-					".bundle-root",
-					"apps",
-					"desktop",
-					"dist",
-					"bin",
-					"ffmpeg",
-				)
-			: null,
-		resolve(
-			aiRuntimeDir,
-			"..",
-			"..",
-			"..",
-			"apps",
-			"desktop",
-			"dist",
-			"bin",
-			"ffmpeg",
-		),
+		resolveBundledDesktopMediaToolPath("ffmpeg"),
 		"ffmpeg",
 		"/opt/homebrew/bin/ffmpeg",
 		"/usr/local/bin/ffmpeg",
@@ -186,29 +178,7 @@ const MEDIA_TOOL_CANDIDATES = {
 		process.env.GRANERI_MEDIA_TOOLS_DIR
 			? resolve(process.env.GRANERI_MEDIA_TOOLS_DIR, "ffprobe")
 			: null,
-		process.resourcesPath
-			? resolve(
-					process.resourcesPath,
-					"app.asar.unpacked",
-					".bundle-root",
-					"apps",
-					"desktop",
-					"dist",
-					"bin",
-					"ffprobe",
-				)
-			: null,
-		resolve(
-			aiRuntimeDir,
-			"..",
-			"..",
-			"..",
-			"apps",
-			"desktop",
-			"dist",
-			"bin",
-			"ffprobe",
-		),
+		resolveBundledDesktopMediaToolPath("ffprobe"),
 		"ffprobe",
 		"/opt/homebrew/bin/ffprobe",
 		"/usr/local/bin/ffprobe",

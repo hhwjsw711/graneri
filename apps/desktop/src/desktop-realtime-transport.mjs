@@ -227,6 +227,7 @@ export const createDesktopRealtimeTransport = ({
 				source,
 				speaker,
 				language,
+				startFailed: false,
 				unsubscribeCapture: null,
 			};
 
@@ -259,6 +260,7 @@ export const createDesktopRealtimeTransport = ({
 			};
 
 			const finalizeStartError = (error) => {
+				session.startFailed = true;
 				console.warn("[desktop-realtime] transport start failed", {
 					didResolve,
 					message: error instanceof Error ? error.message : String(error),
@@ -268,14 +270,6 @@ export const createDesktopRealtimeTransport = ({
 				});
 
 				if (didResolve) {
-					void handleTransportEvent({
-						speaker,
-						type: "interrupted",
-						message:
-							error instanceof Error
-								? error.message
-								: "Realtime transcription failed.",
-					});
 					return;
 				}
 
@@ -418,7 +412,16 @@ export const createDesktopRealtimeTransport = ({
 					sessions.delete(speaker);
 				}
 
-				if (!session.isClosing) {
+				if (!didResolve) {
+					finalizeStartError(
+						new Error(
+							reason || "Realtime transcription connection closed before open.",
+						),
+					);
+					return;
+				}
+
+				if (!session.isClosing && !session.startFailed) {
 					void handleTransportEvent({
 						speaker,
 						type: "interrupted",

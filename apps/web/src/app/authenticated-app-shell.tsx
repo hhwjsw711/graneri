@@ -132,6 +132,10 @@ import {
 	DESKTOP_MAIN_HEADER_LEADING_CLASS,
 } from "@/lib/desktop-chrome";
 import { getSidebarViewTitle } from "@/lib/navigation";
+import {
+	createNoteCaptureRequestId,
+	getNoteCaptureRequestIdForAutoStart,
+} from "@/lib/note-capture-request";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import type { WorkspaceRecord } from "@/lib/workspaces";
 import { api } from "../../../../convex/_generated/api";
@@ -278,6 +282,16 @@ const useAppShellState = ({
 
 			return shouldAutoStartNoteCaptureFromUrl(new URL(window.location.href));
 		});
+	const [noteCaptureRequestId, setNoteCaptureRequestId] = React.useState<
+		string | null
+	>(() => {
+		if (typeof window === "undefined") {
+			return null;
+		}
+
+		return getAppLocationState(new URL(window.location.href))
+			.noteCaptureRequestId;
+	});
 	const [
 		shouldStopNoteCaptureWhenMeetingEnds,
 		setShouldStopNoteCaptureWhenMeetingEnds,
@@ -351,6 +365,7 @@ const useAppShellState = ({
 		(input: {
 			chatId: string | null;
 			inboxOpen: boolean;
+			noteCaptureRequestId: string | null;
 			noteIdString: string | null;
 			pendingCalendarEvent: UpcomingCalendarEvent | null;
 			scheduledAutoStartNoteCaptureAt: string | null;
@@ -365,6 +380,7 @@ const useAppShellState = ({
 			setCurrentChatId(input.chatId);
 			setCurrentNoteId(null);
 			setCurrentRouteNoteId(input.view === "note" ? input.noteIdString : null);
+			setNoteCaptureRequestId(input.noteCaptureRequestId);
 			setShouldAutoStartNoteCapture(input.shouldAutoStartNoteCapture);
 			setShouldStopNoteCaptureWhenMeetingEnds(
 				input.shouldStopNoteCaptureWhenMeetingEnds,
@@ -711,6 +727,7 @@ const useAppShellState = ({
 				(inboxOpenRef.current && readDesktopInboxPanelPinnedState());
 			const nextView = nextInboxOpen ? "home" : nextLocationState.view;
 			const nextNoteIdString = nextLocationState.noteIdString;
+			const nextNoteCaptureRequestId = nextLocationState.noteCaptureRequestId;
 			const nextShouldAutoStartNoteCapture =
 				nextLocationState.shouldAutoStartNoteCapture;
 			const nextShouldStopNoteCaptureWhenMeetingEnds =
@@ -721,6 +738,7 @@ const useAppShellState = ({
 			applyLocationSyncState({
 				chatId: nextChatId,
 				inboxOpen: nextInboxOpen,
+				noteCaptureRequestId: nextNoteCaptureRequestId,
 				noteIdString: nextNoteIdString,
 				pendingCalendarEvent: nextLocationState.pendingCalendarEvent,
 				scheduledAutoStartNoteCaptureAt: nextScheduledAutoStartNoteCaptureAt,
@@ -1117,16 +1135,22 @@ const useAppShellState = ({
 			noteId: Id<"notes">,
 			options?: {
 				autoStartCapture?: boolean;
+				captureRequestId?: string | null;
 				scheduledAutoStartAt?: string | null;
 				stopCaptureWhenMeetingEnds?: boolean;
 			},
 		) => {
+			const captureRequestId = getNoteCaptureRequestIdForAutoStart({
+				autoStartCapture: options?.autoStartCapture,
+				captureRequestId: options?.captureRequestId,
+			});
 			handlePrefetchNote(noteId);
 			setInboxOpen(shouldKeepPinnedInboxOpen());
 			setCurrentView("note");
 			setSettingsOpen(false);
 			setCurrentNoteId(noteId);
 			setCurrentRouteNoteId(noteId);
+			setNoteCaptureRequestId(captureRequestId);
 			setShouldAutoStartNoteCapture(options?.autoStartCapture === true);
 			setShouldStopNoteCaptureWhenMeetingEnds(
 				options?.stopCaptureWhenMeetingEnds === true,
@@ -1142,6 +1166,7 @@ const useAppShellState = ({
 				"",
 				`/note${createNoteSearch({
 					autoStartCapture: options?.autoStartCapture === true,
+					captureRequestId,
 					noteId,
 					scheduledAutoStartAt: options?.scheduledAutoStartAt,
 					stopCaptureWhenMeetingEnds:
@@ -1156,6 +1181,7 @@ const useAppShellState = ({
 		(options?: {
 			autoStartCapture?: boolean;
 			calendarEvent?: UpcomingCalendarEvent | null;
+			captureRequestId?: string | null;
 			stopCaptureWhenMeetingEnds?: boolean;
 		}) => {
 			if (creatingNoteRef.current) {
@@ -1164,6 +1190,10 @@ const useAppShellState = ({
 
 			creatingNoteRef.current = true;
 			const shouldStartCapture = options?.autoStartCapture === true;
+			const captureRequestId = getNoteCaptureRequestIdForAutoStart({
+				autoStartCapture: shouldStartCapture,
+				captureRequestId: options?.captureRequestId,
+			});
 			const shouldStopCaptureWhenMeetingEnds =
 				options?.stopCaptureWhenMeetingEnds === true;
 			const calendarEvent = options?.calendarEvent ?? null;
@@ -1196,6 +1226,7 @@ const useAppShellState = ({
 					setCurrentNoteTitle(calendarEvent?.title.trim() || "");
 					openNote(noteId, {
 						autoStartCapture: shouldStartCapture,
+						captureRequestId,
 						scheduledAutoStartAt,
 						stopCaptureWhenMeetingEnds: shouldStopCaptureWhenMeetingEnds,
 					});
@@ -1217,17 +1248,26 @@ const useAppShellState = ({
 	);
 
 	const handleQuickNote = React.useCallback(() => {
+		const captureRequestId = createNoteCaptureRequestId();
 		setCurrentView("note");
 		setSettingsOpen(false);
 		setCurrentNoteId(null);
 		setCurrentRouteNoteId(null);
+		setNoteCaptureRequestId(captureRequestId);
 		setShouldAutoStartNoteCapture(true);
 		setShouldStopNoteCaptureWhenMeetingEnds(false);
 		setScheduledAutoStartNoteCaptureAt(null);
 		setPendingCalendarEvent(null);
 		setCurrentNoteEditorActions(null);
 		setCurrentNoteCommentsOpener(null);
-		window.history.pushState(null, "", "/note?capture=1");
+		window.history.pushState(
+			null,
+			"",
+			`/note${createNoteSearch({
+				autoStartCapture: true,
+				captureRequestId,
+			})}`,
+		);
 	}, []);
 
 	const handleCreateNoteFromChatResponse = React.useCallback(
@@ -1264,6 +1304,7 @@ const useAppShellState = ({
 		setShouldAutoStartNoteCapture(false);
 		setShouldStopNoteCaptureWhenMeetingEnds(false);
 		setScheduledAutoStartNoteCaptureAt(null);
+		setNoteCaptureRequestId(null);
 
 		if (resolvedCurrentView !== "note" || !resolvedCurrentNoteId) {
 			return;
@@ -1286,12 +1327,14 @@ const useAppShellState = ({
 			handleCreateNote({
 				autoStartCapture: shouldAutoStartNoteCapture,
 				calendarEvent: pendingCalendarEvent,
+				captureRequestId: noteCaptureRequestId,
 				stopCaptureWhenMeetingEnds: shouldStopNoteCaptureWhenMeetingEnds,
 			});
 		}
 	}, [
 		currentRouteNoteId,
 		handleCreateNote,
+		noteCaptureRequestId,
 		pendingCalendarEvent,
 		resolvedCurrentNoteId,
 		resolvedCurrentView,
@@ -1565,6 +1608,7 @@ const useAppShellState = ({
 		currentNoteCommentsOpener,
 		currentNoteEditorActions,
 		currentNoteId: resolvedCurrentNoteId,
+		noteCaptureRequestId,
 		currentNoteTemplateSlug: resolvedSelectedNote?.templateSlug ?? null,
 		currentNoteTitle,
 		currentView: resolvedCurrentView,
@@ -2616,6 +2660,7 @@ function createAppShellContentView({
 			kind: "note",
 			currentNoteId: controller.currentNoteId,
 			currentNoteTitle: controller.currentNoteTitle,
+			noteCaptureRequestId: controller.noteCaptureRequestId,
 			selectedNote: controller.selectedNote,
 			user: controller.user,
 			isDesktopMac: controller.isDesktopMac,

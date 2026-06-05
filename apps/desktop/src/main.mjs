@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { appendFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +32,10 @@ import { createDesktopRealtimeTransport } from "./desktop-realtime-transport.mjs
 import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
-import { createDesktopUpdater } from "./desktop-updater.mjs";
+import {
+	createDesktopUpdater,
+	isDesktopUpdaterAvailable,
+} from "./desktop-updater.mjs";
 import { createDesktopWindow } from "./desktop-window.mjs";
 import { loadRootEnv } from "./env.mjs";
 import { startLocalServer } from "./local-server.mjs";
@@ -43,6 +47,7 @@ import { getRuntimeConfig, hydrateRuntimeConfig } from "./runtime-config.mjs";
 const { autoUpdater } = electronUpdater;
 
 app.setName("Graneri");
+app.commandLine.appendSwitch("use-mock-keychain");
 loadRootEnv({
 	includeWorkingDirectory:
 		app.isPackaged !== true ||
@@ -51,6 +56,7 @@ loadRootEnv({
 await hydrateRuntimeConfig();
 
 const runtimeDir = dirname(fileURLToPath(import.meta.url));
+const appUpdateConfigPath = join(process.resourcesPath, "app-update.yml");
 const trayIconPath = join(runtimeDir, "assets", "GraneriTemplate.png");
 const dockIconPath = join(runtimeDir, "assets", "GraneriDock.png");
 const traySettingsPath = join(app.getPath("userData"), "tray-settings.json");
@@ -233,9 +239,12 @@ const requireDesktopService = (service, name) => {
 };
 
 const isUpdaterAvailable = () =>
-	process.platform === "darwin" &&
-	app.isPackaged === true &&
-	process.env.GRANERI_DISABLE_UPDATER !== "1";
+	isDesktopUpdaterAvailable({
+		hasReleaseUpdateConfig: existsSync(appUpdateConfigPath),
+		isDisabled: process.env.GRANERI_DISABLE_UPDATER === "1",
+		isPackaged: app.isPackaged,
+		platform: process.platform,
+	});
 
 const applyDockIcon = () => {
 	requireDesktopService(desktopShell, "desktopShell").applyDockIcon();
@@ -378,7 +387,6 @@ const nativeAudioCapture = createNativeAudioCapture({
 	emitMicrophoneCaptureEvent,
 	emitSystemAudioCaptureEvent,
 	getSystemAudioPermissionState: () => systemAudioPermissionState,
-	isPackaged: app.isPackaged,
 	logDesktopTurnDebug: (...args) => logDesktopTurnDebug(...args),
 	markSystemAudioPermissionBlocked,
 	markSystemAudioPermissionGranted,
@@ -1535,6 +1543,37 @@ const attachDesktopSystemAudio = async ({
 	}
 };
 
+const scheduleDesktopTranscriptionReconnect = ({
+	message,
+	nextAttempt,
+	preserveUtterances,
+}) => {
+	transcriptionRecoveryAttempt = nextAttempt;
+	patchTranscriptionSessionState({
+		error: null,
+		isConnecting: true,
+		isListening: false,
+		phase: "reconnecting",
+		recoveryStatus: createTranscriptRecoveryStatus({
+			attempt: nextAttempt,
+			maxAttempts: maxRecoveryAttempts,
+			message,
+			state: "reconnecting",
+		}),
+	});
+
+	const delay =
+		recoveryBackoffMs[nextAttempt - 1] ??
+		recoveryBackoffMs[recoveryBackoffMs.length - 1];
+	transcriptionReconnectTimeoutId = setTimeout(() => {
+		transcriptionReconnectTimeoutId = null;
+		void runDesktopTranscriptionStart({
+			preserveUtterances,
+			reason: "reconnect",
+		});
+	}, delay);
+};
+
 const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 	const operationId = ++transcriptionLifecycleOperationId;
 	clearTranscriptionReconnectTimeout();
@@ -1604,6 +1643,19 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 			operationId,
 			preserveUtterances,
 		});
+
+		if (normalizedError.code === "connection_failed") {
+			const nextAttempt = transcriptionRecoveryAttempt + 1;
+			if (nextAttempt <= maxRecoveryAttempts) {
+				scheduleDesktopTranscriptionReconnect({
+					message: normalizedError.message,
+					nextAttempt,
+					preserveUtterances: true,
+				});
+				return false;
+			}
+		}
+
 		patchTranscriptionSessionState({
 			error: normalizedError,
 			isConnecting: false,
@@ -1731,30 +1783,11 @@ async function handleDesktopTransportInterrupted({
 		return;
 	}
 
-	transcriptionRecoveryAttempt = nextAttempt;
-	patchTranscriptionSessionState({
-		error: null,
-		isConnecting: true,
-		isListening: false,
-		phase: "reconnecting",
-		recoveryStatus: createTranscriptRecoveryStatus({
-			attempt: nextAttempt,
-			maxAttempts: maxRecoveryAttempts,
-			message,
-			state: "reconnecting",
-		}),
+	scheduleDesktopTranscriptionReconnect({
+		message,
+		nextAttempt,
+		preserveUtterances: true,
 	});
-
-	const delay =
-		recoveryBackoffMs[nextAttempt - 1] ??
-		recoveryBackoffMs[recoveryBackoffMs.length - 1];
-	transcriptionReconnectTimeoutId = setTimeout(() => {
-		transcriptionReconnectTimeoutId = null;
-		void runDesktopTranscriptionStart({
-			preserveUtterances: true,
-			reason: "reconnect",
-		});
-	}, delay);
 }
 
 const startDesktopTranscriptionSession = async () => {
@@ -2008,9 +2041,10 @@ meetingDetection = createMeetingDetection({
 	getDetectedMeetingCalendarEvent,
 	getNavigationUrl,
 	getTranscriptionPhase: () => latestTranscriptionSessionState.phase,
+	isCalendarSignalEnabled: () =>
+		activeWorkspaceNotificationPreferences.notifyForScheduledMeetings,
 	isNotificationEnabled: () =>
 		activeWorkspaceNotificationPreferences.notifyForAutoDetectedMeetings,
-	isPackaged: app.isPackaged,
 	openCalendarEventNote,
 	preloadPath: join(runtimeDir, "preload.cjs"),
 	runtimeDir,

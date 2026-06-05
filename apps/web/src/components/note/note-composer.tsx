@@ -310,6 +310,7 @@ type NoteComposerProps = {
 		text: string;
 	};
 	autoStartTranscription?: boolean;
+	noteCaptureRequestId?: string | null;
 	onAutoStartTranscriptionHandled?: () => void;
 	onAddMessageToNote?: (text: string) => Promise<void> | void;
 	onEnhanceTranscript?: (transcript: string) => Promise<void>;
@@ -453,6 +454,7 @@ const useNoteComposerController = ({
 	noteContext,
 	getNoteContext,
 	autoStartTranscription,
+	noteCaptureRequestId,
 	onAutoStartTranscriptionHandled,
 	onEnhanceTranscript,
 	stopTranscriptionWhenMeetingEnds,
@@ -798,6 +800,7 @@ const useNoteComposerController = ({
 	const transcriptSession = useNoteTranscriptSession({
 		autoStartTranscription:
 			autoStartTranscription && isTranscriptionLanguageReady,
+		autoStartTranscriptionRequestId: noteCaptureRequestId,
 		noteId,
 		onAutoStartTranscriptionHandled,
 		onEnhanceTranscript,

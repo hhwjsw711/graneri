@@ -57,5 +57,28 @@ test("normalizes source names", () => {
 });
 
 test("does not expose generic helper process names", async () => {
-	assert.equal(await resolveNativeMeetingDetectionSourceName("helper"), null);
+	assert.equal(
+		await resolveNativeMeetingDetectionSourceName("helper", {
+			runAppleScriptImpl: async () => null,
+		}),
+		null,
+	);
+});
+
+test("resolves generic helper process names through active browser meetings", async () => {
+	assert.equal(
+		await resolveNativeMeetingDetectionSourceName("helper", {
+			runAppleScriptImpl: async () => "https://meet.google.com/abc-defg-hij",
+		}),
+		"Google Meet",
+	);
+});
+
+test("keeps browser app labels when provider URL is unknown", async () => {
+	assert.equal(
+		await resolveNativeMeetingDetectionSourceName("Google Chrome", {
+			runAppleScriptImpl: async () => "https://example.com",
+		}),
+		"Google Chrome",
+	);
 });

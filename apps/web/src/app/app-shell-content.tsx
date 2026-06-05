@@ -67,6 +67,7 @@ export type AppShellContentView =
 			kind: "note";
 			currentNoteId: Id<"notes"> | null;
 			currentNoteTitle: string;
+			noteCaptureRequestId: string | null;
 			selectedNote: Doc<"notes"> | null | undefined;
 			user: AppUser;
 			isDesktopMac: boolean;
@@ -194,6 +195,7 @@ export const AppShellContent = React.memo(function AppShellContent({
 					currentUser={view.user}
 					isDesktopMac={view.isDesktopMac}
 					noteId={view.currentNoteId}
+					noteCaptureRequestId={view.noteCaptureRequestId}
 					note={view.selectedNote}
 					externalTitle={view.currentNoteTitle}
 					onAutoStartTranscriptionHandled={view.onAutoStartNoteCaptureHandled}

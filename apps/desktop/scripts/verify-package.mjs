@@ -1,21 +1,19 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
-import { builtinModules, createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
+import { builtinModules } from "node:module";
 import { join, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import {
 	getExpectedConvexDeployment,
 	getForbiddenConvexDeployments,
 	loadSelectedEnvFile,
 } from "../../../scripts/release-contract.mjs";
 
-const require = createRequire(import.meta.url);
 const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = resolve(packageRoot, "../..");
-const appAsarPath = resolve(
+const packagedAppResourcePath = resolve(
 	packageRoot,
-	"release/mac-arm64/Graneri.app/Contents/Resources/app.asar",
+	"release/mac-arm64/Graneri.app/Contents/Resources/app",
 );
 const knownDevDeployments = ["clever-chinchilla-887"];
 
@@ -37,17 +35,6 @@ const forbiddenDeployments = getForbiddenConvexDeployments({
 	expectedDeployment,
 	knownDevDeployments,
 });
-
-const getAsarCliPath = () => {
-	try {
-		return require.resolve("@electron/asar");
-	} catch {
-		return resolve(
-			repoRoot,
-			"node_modules/.bun/@electron+asar@3.4.1/node_modules/@electron/asar/lib/asar.js",
-		);
-	}
-};
 
 const walkFiles = async (directory) => {
 	const entries = await readdir(directory, { withFileTypes: true });
@@ -127,23 +114,14 @@ const scanRuntimeImports = async (extractDir) => {
 	};
 };
 
-const extractAsar = async (destination) => {
-	const asar = await import(pathToFileURL(getAsarCliPath()).href);
-	await asar.extractAll(appAsarPath, destination);
-};
-
-if (!existsSync(appAsarPath)) {
+if (!existsSync(packagedAppResourcePath)) {
 	throw new Error(
-		`Packaged app is missing at ${appAsarPath}. Run bun run dist:mac first.`,
+		`Packaged app resources are missing at ${packagedAppResourcePath}. Run bun run dist:mac first.`,
 	);
 }
 
-const extractDir = await mkdtemp(join(tmpdir(), "graneri-package-verify-"));
-
-try {
-	await extractAsar(extractDir);
-
-	const allFiles = await walkFiles(extractDir);
+{
+	const allFiles = await walkFiles(packagedAppResourcePath);
 	const allText = allFiles
 		.filter((filePath) => /\.(html|js|mjs|cjs|json)$/u.test(filePath))
 		.map((filePath) => readFileSync(filePath, "utf8"))
@@ -164,7 +142,7 @@ try {
 	}
 
 	const { convexServerImports, missing, runtimeFileCount } =
-		await scanRuntimeImports(extractDir);
+		await scanRuntimeImports(packagedAppResourcePath);
 
 	if (convexServerImports.length > 0) {
 		throw new Error(
@@ -197,6 +175,4 @@ try {
 				: "Expected Convex deployment: not configured",
 		].join("\n"),
 	);
-} finally {
-	rmSync(extractDir, { force: true, recursive: true });
 }

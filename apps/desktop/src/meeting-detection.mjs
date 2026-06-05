@@ -1,8 +1,12 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { BrowserWindow, screen, shell } from "electron";
+import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
+import {
+	createMeetingSignal,
+	createMeetingSignalStatePatch,
+	isMeetingSignalDismissed,
+} from "./meeting-signal.mjs";
 import { resolveNativeMeetingDetectionSourceName } from "./meeting-source.mjs";
 
 const meetingDetectionDebounceMs = 8_000;
@@ -10,6 +14,7 @@ const meetingDetectionDismissMs = 30 * 60 * 1000;
 const meetingWidgetAutoHideMs = 12 * 1000;
 
 export const createInitialMeetingDetectionState = () => ({
+	calendarEvent: null,
 	candidateStartedAt: null,
 	confidence: 0,
 	dismissedUntil: null,
@@ -27,7 +32,7 @@ export const createMeetingDetection = ({
 	getDetectedMeetingCalendarEvent,
 	getNavigationUrl,
 	getTranscriptionPhase,
-	isPackaged,
+	isCalendarSignalEnabled,
 	isNotificationEnabled,
 	openCalendarEventNote,
 	preloadPath,
@@ -42,6 +47,23 @@ export const createMeetingDetection = ({
 	let hasPlayedMeetingWidgetSoundForVisiblePrompt = false;
 	let latestMeetingDetectionState = createInitialMeetingDetectionState();
 	let meetingDetectionDebounceTimeoutId = null;
+	let dismissedMeetingSignalKey = null;
+
+	const getCurrentMeetingSignal = () => {
+		return createMeetingSignal({
+			calendarEvent: getDetectedMeetingCalendarEvent(),
+			canUseCalendarEvent: isCalendarSignalEnabled(),
+			isMicrophoneActive: latestMeetingDetectionState.isMicrophoneActive,
+			sourceName: latestMeetingDetectionState.sourceName,
+		});
+	};
+
+	const isCurrentMeetingSignalDismissed = (signal) =>
+		isMeetingSignalDismissed({
+			dismissedUntil: latestMeetingDetectionState.dismissedUntil,
+			signal,
+			signalKey: dismissedMeetingSignalKey,
+		});
 
 	const normalizeMeetingWidgetSize = (value) => {
 		const nextWidth = Number.isFinite(value?.width)
@@ -95,6 +117,14 @@ export const createMeetingDetection = ({
 
 		broadcastState(latestMeetingDetectionState);
 	};
+
+	const createClearedMeetingSignalPatch = (patch = {}) => ({
+		calendarEvent: null,
+		candidateStartedAt: null,
+		confidence: 0,
+		sourceName: null,
+		...patch,
+	});
 
 	const clearMeetingWidgetAutoHideTimeout = () => {
 		if (meetingWidgetAutoHideTimeoutId == null) {
@@ -167,28 +197,27 @@ export const createMeetingDetection = ({
 	const isMeetingDetectionSuppressed = () =>
 		["starting", "listening", "reconnecting", "stopping"].includes(
 			getTranscriptionPhase(),
-		) || (latestMeetingDetectionState.dismissedUntil ?? 0) > Date.now();
+		) || isCurrentMeetingSignalDismissed(getCurrentMeetingSignal());
 
 	const autoHideMeetingWidgetPrompt = () => {
 		hideMeetingWidgetWindow();
 
-		const hasMeetingSignal = latestMeetingDetectionState.isMicrophoneActive;
+		const meetingSignal = getCurrentMeetingSignal();
 
-		if (!hasMeetingSignal || isMeetingDetectionSuppressed()) {
-			syncMeetingDetectionState({
-				candidateStartedAt: null,
-				confidence: 0,
-				isSuppressed: isMeetingDetectionSuppressed(),
-				sourceName: null,
-				status: "idle",
-			});
+		if (!meetingSignal || isMeetingDetectionSuppressed()) {
+			syncMeetingDetectionState(
+				createClearedMeetingSignalPatch({
+					isSuppressed: isMeetingDetectionSuppressed(),
+					status: "idle",
+				}),
+			);
 			return;
 		}
 
 		syncMeetingDetectionState({
+			...createMeetingSignalStatePatch(meetingSignal),
 			confidence: 0.35,
 			isSuppressed: false,
-			sourceName: null,
 			status: "monitoring",
 		});
 	};
@@ -196,7 +225,17 @@ export const createMeetingDetection = ({
 	const showMeetingWidgetWindow = async () => {
 		clearMeetingWidgetAutoHideTimeout();
 
+		if (!getCurrentMeetingSignal() || isMeetingDetectionSuppressed()) {
+			hideMeetingWidgetWindow();
+			return;
+		}
+
 		const nextWindow = await ensureMeetingWidgetWindow();
+		if (!getCurrentMeetingSignal() || isMeetingDetectionSuppressed()) {
+			hideMeetingWidgetWindow();
+			return;
+		}
+
 		const bounds = getMeetingWidgetWindowBounds();
 		const shouldPlaySound =
 			!nextWindow.isVisible() || !hasPlayedMeetingWidgetSoundForVisiblePrompt;
@@ -225,27 +264,26 @@ export const createMeetingDetection = ({
 
 	const reevaluateMeetingDetection = () => {
 		const isSuppressed = isMeetingDetectionSuppressed();
-		const hasMeetingSignal = latestMeetingDetectionState.isMicrophoneActive;
+		const meetingSignal = getCurrentMeetingSignal();
 		const confidence = 0.35;
 		const promptConfidence = 0.82;
 
-		if (!hasMeetingSignal || isSuppressed) {
+		if (!meetingSignal || isSuppressed) {
 			clearMeetingDetectionDebounceTimeout();
 			hideMeetingWidgetWindow();
-			syncMeetingDetectionState({
-				candidateStartedAt: null,
-				confidence: 0,
-				isSuppressed,
-				sourceName: null,
-				status: "idle",
-			});
+			syncMeetingDetectionState(
+				createClearedMeetingSignalPatch({
+					isSuppressed,
+					status: "idle",
+				}),
+			);
 			return;
 		}
 
 		syncMeetingDetectionState({
+			...createMeetingSignalStatePatch(meetingSignal),
 			confidence,
 			isSuppressed: false,
-			sourceName: latestMeetingDetectionState.sourceName,
 			status: "monitoring",
 		});
 
@@ -270,11 +308,17 @@ export const createMeetingDetection = ({
 				return;
 			}
 
+			const currentMeetingSignal = getCurrentMeetingSignal();
+			if (!currentMeetingSignal) {
+				reevaluateMeetingDetection();
+				return;
+			}
+
 			syncMeetingDetectionState({
+				...createMeetingSignalStatePatch(currentMeetingSignal),
 				candidateStartedAt: Date.now(),
 				confidence: promptConfidence,
 				isSuppressed: false,
-				sourceName: latestMeetingDetectionState.sourceName,
 				status: "prompting",
 			});
 			void showMeetingWidgetWindow();
@@ -282,29 +326,32 @@ export const createMeetingDetection = ({
 	};
 
 	const dismissDetectedMeetingWidget = () => {
+		const meetingSignal = getCurrentMeetingSignal();
+		dismissedMeetingSignalKey = meetingSignal?.key ?? null;
 		clearMeetingDetectionDebounceTimeout();
 		hideMeetingWidgetWindow();
-		syncMeetingDetectionState({
-			candidateStartedAt: null,
-			confidence: 0,
-			dismissedUntil: Date.now() + meetingDetectionDismissMs,
-			isSuppressed: true,
-			sourceName: null,
-			status: "idle",
-		});
+		syncMeetingDetectionState(
+			createClearedMeetingSignalPatch({
+				dismissedUntil: dismissedMeetingSignalKey
+					? Date.now() + meetingDetectionDismissMs
+					: null,
+				isSuppressed: Boolean(dismissedMeetingSignalKey),
+				status: "idle",
+			}),
+		);
 	};
 
 	const startDetectedMeetingNote = async () => {
 		clearMeetingDetectionDebounceTimeout();
 		hideMeetingWidgetWindow();
-		syncMeetingDetectionState({
-			candidateStartedAt: null,
-			confidence: 0,
-			dismissedUntil: null,
-			isSuppressed: true,
-			sourceName: null,
-			status: "idle",
-		});
+		dismissedMeetingSignalKey = null;
+		syncMeetingDetectionState(
+			createClearedMeetingSignalPatch({
+				dismissedUntil: null,
+				isSuppressed: true,
+				status: "idle",
+			}),
+		);
 
 		const detectedMeetingCalendarEvent = getDetectedMeetingCalendarEvent();
 
@@ -326,6 +373,7 @@ export const createMeetingDetection = ({
 		clearMeetingDetectionDebounceTimeout();
 		syncMeetingDetectionState({
 			candidateStartedAt: Date.now(),
+			calendarEvent: null,
 			confidence: 1,
 			dismissedUntil: null,
 			isMicrophoneActive: true,
@@ -339,60 +387,34 @@ export const createMeetingDetection = ({
 	const resetMeetingDetectionForTest = () => {
 		clearMeetingDetectionDebounceTimeout();
 		hideMeetingWidgetWindow();
-		syncMeetingDetectionState({
-			candidateStartedAt: null,
-			confidence: 0,
-			dismissedUntil: null,
-			isMicrophoneActive: false,
-			isSuppressed: false,
-			sourceName: null,
-			status: "idle",
-		});
+		syncMeetingDetectionState(
+			createClearedMeetingSignalPatch({
+				dismissedUntil: null,
+				isMicrophoneActive: false,
+				isSuppressed: false,
+				status: "idle",
+			}),
+		);
 	};
 
 	const resolveMicrophoneActivityHelperPath = () => {
-		const envPath = process.env.GRANERI_MICROPHONE_ACTIVITY_HELPER_PATH?.trim();
-		const unpackedHelperPath = isPackaged
-			? resolve(
-					process.resourcesPath,
-					"app.asar.unpacked",
-					".bundle-root",
-					"apps",
-					"desktop",
-					"dist",
-					"bin",
-					"graneri-microphone-activity-helper",
-				)
-			: null;
-		const candidates = [
-			envPath,
-			unpackedHelperPath,
-			resolve(runtimeDir, "bin", "graneri-microphone-activity-helper"),
-			resolve(
-				runtimeDir,
-				"..",
-				".generated",
-				"system-audio",
-				"graneri-microphone-activity-helper",
-			),
-		].filter(Boolean);
-
-		return (
-			candidates.find((candidatePath) => existsSync(candidatePath)) ?? null
-		);
+		return resolveDesktopRuntimeExecutablePath({
+			envPath: process.env.GRANERI_MICROPHONE_ACTIVITY_HELPER_PATH,
+			executableName: "graneri-microphone-activity-helper",
+			runtimeDir,
+		});
 	};
 
 	const stopMicrophoneActivityMonitor = async () => {
 		clearMeetingDetectionDebounceTimeout();
 
 		if (!microphoneActivitySession) {
-			syncMeetingDetectionState({
-				candidateStartedAt: null,
-				confidence: 0,
-				isMicrophoneActive: false,
-				sourceName: null,
-				status: "idle",
-			});
+			syncMeetingDetectionState(
+				createClearedMeetingSignalPatch({
+					isMicrophoneActive: false,
+					status: "idle",
+				}),
+			);
 			hideMeetingWidgetWindow();
 			return;
 		}
@@ -428,6 +450,7 @@ export const createMeetingDetection = ({
 		});
 
 		syncMeetingDetectionState({
+			calendarEvent: null,
 			candidateStartedAt: null,
 			confidence: 0,
 			isMicrophoneActive: false,
@@ -585,13 +608,12 @@ export const createMeetingDetection = ({
 							signal,
 						},
 					);
-					syncMeetingDetectionState({
-						candidateStartedAt: null,
-						confidence: 0,
-						isMicrophoneActive: false,
-						sourceName: null,
-						status: "idle",
-					});
+					syncMeetingDetectionState(
+						createClearedMeetingSignalPatch({
+							isMicrophoneActive: false,
+							status: "idle",
+						}),
+					);
 					hideMeetingWidgetWindow();
 				}
 

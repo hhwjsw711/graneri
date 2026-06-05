@@ -1,7 +1,7 @@
-import { mkdtemp, mkdir, realpath } from "node:fs/promises";
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import assert from "node:assert/strict";
 import test from "node:test";
 import { createDesktopStorage } from "../src/desktop-storage.mjs";
 

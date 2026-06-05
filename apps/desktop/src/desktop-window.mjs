@@ -10,6 +10,8 @@ const defaultWindowSize = {
 	height: 840,
 };
 
+const rendererSessionPartition = "graneri-renderer";
+
 export const createDesktopWindow = ({
 	desktopNavigationChannel,
 	dockIconPath,
@@ -48,6 +50,7 @@ export const createDesktopWindow = ({
 			visualEffectState: isMac ? "active" : undefined,
 			webPreferences: {
 				preload: preloadPath,
+				partition: rendererSessionPartition,
 				contextIsolation: true,
 				nodeIntegration: false,
 				sandbox: false,

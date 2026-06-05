@@ -13,22 +13,18 @@ import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
 import { X } from "lucide-react";
 import * as React from "react";
-
-const widgetTitleByStatus: Record<
-	DesktopMeetingDetectionState["status"],
-	string
-> = {
-	idle: "Listening for calls",
-	monitoring: "Listening for calls",
-	prompting: "Meeting detected",
-};
+import {
+	getMeetingWidgetDetail,
+	getMeetingWidgetTitle,
+} from "@/lib/meeting-widget-title";
 
 export function MeetingWidgetScreen() {
 	const [state, setState] = React.useState<DesktopMeetingDetectionState | null>(
 		null,
 	);
 	const frameRef = React.useRef<HTMLDivElement | null>(null);
-	const title = state ? widgetTitleByStatus[state.status] : "Meeting detected";
+	const title = getMeetingWidgetTitle(state);
+	const detail = getMeetingWidgetDetail(state);
 
 	React.useEffect(() => {
 		document.title = "Graneri meeting widget";
@@ -128,9 +124,9 @@ export function MeetingWidgetScreen() {
 							<p className="truncate text-sm leading-none font-medium text-foreground">
 								{title}
 							</p>
-							{state?.sourceName ? (
+							{detail ? (
 								<p className="truncate text-xs leading-none text-muted-foreground">
-									{state.sourceName}
+									{detail}
 								</p>
 							) : null}
 						</div>

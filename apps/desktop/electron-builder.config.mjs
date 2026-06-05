@@ -29,13 +29,16 @@ export default {
 		main: ".bundle-root/apps/desktop/dist/main.mjs",
 	},
 	files: [".bundle-root/**/*", "package.json"],
-	asarUnpack: [".bundle-root/apps/desktop/dist/bin/**"],
+	asar: false,
+	disableSanityCheckAsar: true,
 	mac: {
 		target: ["dmg", "zip"],
 		category: "public.app-category.productivity",
 		icon: "build/icon.icns",
+		identity: "-",
 		hardenedRuntime: true,
 		gatekeeperAssess: false,
+		notarize: false,
 		extendInfo: {
 			NSMicrophoneUsageDescription:
 				"During your meetings, Graneri transcribes your microphone.",

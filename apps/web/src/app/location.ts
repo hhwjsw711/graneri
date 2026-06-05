@@ -297,12 +297,14 @@ const getPendingCalendarEventFromUrl = (
 export const createNoteSearch = ({
 	autoStartCapture = false,
 	calendarEvent,
+	captureRequestId,
 	noteId,
 	scheduledAutoStartAt,
 	stopCaptureWhenMeetingEnds = false,
 }: {
 	autoStartCapture?: boolean;
 	calendarEvent?: UpcomingCalendarEvent | null;
+	captureRequestId?: string | null;
 	noteId?: string | null;
 	scheduledAutoStartAt?: string | null;
 	stopCaptureWhenMeetingEnds?: boolean;
@@ -313,8 +315,11 @@ export const createNoteSearch = ({
 		searchParams.set("noteId", noteId);
 	}
 
-	if (autoStartCapture) {
+	const normalizedCaptureRequestId = captureRequestId?.trim() ?? null;
+
+	if (autoStartCapture && normalizedCaptureRequestId) {
 		searchParams.set("capture", "1");
+		searchParams.set("captureRequestId", normalizedCaptureRequestId);
 	}
 
 	if (stopCaptureWhenMeetingEnds) {
@@ -400,6 +405,7 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 			view: "notFound",
 			chatId: null,
 			noteIdString: null,
+			noteCaptureRequestId: null,
 			shouldAutoStartNoteCapture: false,
 			shouldStopNoteCaptureWhenMeetingEnds: false,
 			scheduledAutoStartNoteCaptureAt: null,
@@ -409,8 +415,14 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 		};
 	}
 
-	const shouldAutoStartNoteCapture =
-		view === "note" && url.searchParams.get("capture") === "1";
+	const parsedNoteCaptureRequestId =
+		view === "note" && url.searchParams.get("capture") === "1"
+			? (url.searchParams.get("captureRequestId")?.trim() ?? null)
+			: null;
+	const noteCaptureRequestId = parsedNoteCaptureRequestId
+		? parsedNoteCaptureRequestId
+		: null;
+	const shouldAutoStartNoteCapture = noteCaptureRequestId !== null;
 	const shouldStopNoteCaptureWhenMeetingEnds =
 		view === "note" && url.searchParams.get("meeting") === "1";
 	const scheduledAutoStartNoteCaptureAt =
@@ -424,6 +436,7 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 		view,
 		chatId: view === "chat" ? chatId : null,
 		noteIdString: view === "note" ? noteIdString : null,
+		noteCaptureRequestId,
 		shouldAutoStartNoteCapture,
 		shouldStopNoteCaptureWhenMeetingEnds,
 		scheduledAutoStartNoteCaptureAt,
@@ -445,6 +458,7 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 				? createNoteSearch({
 						autoStartCapture: shouldAutoStartNoteCapture,
 						calendarEvent: pendingCalendarEvent,
+						captureRequestId: noteCaptureRequestId,
 						noteId: noteIdString,
 						scheduledAutoStartAt: scheduledAutoStartNoteCaptureAt,
 						stopCaptureWhenMeetingEnds: shouldStopNoteCaptureWhenMeetingEnds,

@@ -1,7 +1,10 @@
-import { EventEmitter } from "node:events";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
-import { createDesktopUpdater } from "../src/desktop-updater.mjs";
+import {
+	createDesktopUpdater,
+	isDesktopUpdaterAvailable,
+} from "../src/desktop-updater.mjs";
 
 const createUpdaterHarness = ({
 	available = true,
@@ -68,6 +71,45 @@ test("desktop updater reports unavailable updates without checking", async () =>
 			detail: "Updates are only available in packaged release builds.",
 		},
 	]);
+});
+
+test("desktop updater is available only for release builds with update metadata", () => {
+	assert.equal(
+		isDesktopUpdaterAvailable({
+			hasReleaseUpdateConfig: true,
+			isDisabled: false,
+			isPackaged: true,
+			platform: "darwin",
+		}),
+		true,
+	);
+	assert.equal(
+		isDesktopUpdaterAvailable({
+			hasReleaseUpdateConfig: false,
+			isDisabled: false,
+			isPackaged: true,
+			platform: "darwin",
+		}),
+		false,
+	);
+	assert.equal(
+		isDesktopUpdaterAvailable({
+			hasReleaseUpdateConfig: true,
+			isDisabled: true,
+			isPackaged: true,
+			platform: "darwin",
+		}),
+		false,
+	);
+	assert.equal(
+		isDesktopUpdaterAvailable({
+			hasReleaseUpdateConfig: true,
+			isDisabled: false,
+			isPackaged: false,
+			platform: "darwin",
+		}),
+		false,
+	);
 });
 
 test("desktop updater blocks duplicate manual checks while checking", async () => {

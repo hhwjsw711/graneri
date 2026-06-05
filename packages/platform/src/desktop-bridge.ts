@@ -56,6 +56,13 @@ export type DesktopTranscriptionControllerErrorCode =
 	| "unknown";
 
 export type DesktopMeetingDetectionState = {
+	calendarEvent: {
+		id: string;
+		calendarName: string;
+		endAt: string;
+		startAt: string;
+		title: string;
+	} | null;
 	candidateStartedAt: number | null;
 	confidence: number;
 	dismissedUntil: number | null;

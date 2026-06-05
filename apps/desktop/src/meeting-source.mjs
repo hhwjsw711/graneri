@@ -124,7 +124,10 @@ export const runAppleScript = (script, timeoutMs = 750) =>
 		child.on("error", () => resolvePromise(null));
 	});
 
-export const resolveNativeMeetingDetectionSourceName = async (value) => {
+export const resolveNativeMeetingDetectionSourceName = async (
+	value,
+	{ runAppleScriptImpl = runAppleScript } = {},
+) => {
 	const sourceName = normalizeMeetingDetectionSourceName(value);
 	if (!sourceName) {
 		return null;
@@ -137,21 +140,25 @@ export const resolveNativeMeetingDetectionSourceName = async (value) => {
 
 	if (!browserAppNames.has(sourceName)) {
 		if (sourceName.toLowerCase() === "helper") {
-			return await resolveActiveBrowserMeetingProviderName();
+			return await resolveActiveBrowserMeetingProviderName({
+				runAppleScriptImpl,
+			});
 		}
 
 		return sourceName;
 	}
 
-	const activeTabUrl = await runAppleScript(
+	const activeTabUrl = await runAppleScriptImpl(
 		getBrowserActiveTabUrlScript(sourceName),
 	);
-	return getMeetingProviderNameFromUrl(activeTabUrl) ?? null;
+	return getMeetingProviderNameFromUrl(activeTabUrl) ?? sourceName;
 };
 
-const resolveActiveBrowserMeetingProviderName = async () => {
+const resolveActiveBrowserMeetingProviderName = async ({
+	runAppleScriptImpl,
+}) => {
 	for (const appName of browserProviderLookupOrder) {
-		const activeTabUrl = await runAppleScript(
+		const activeTabUrl = await runAppleScriptImpl(
 			getBrowserActiveTabUrlScript(appName),
 		);
 		const providerName = getMeetingProviderNameFromUrl(activeTabUrl);
