@@ -274,6 +274,7 @@ function useMobileSidebarNavigation({
 
 function useAppSidebarModel({
 	activeWorkspaceId,
+	automations,
 	chats,
 	currentNoteId,
 	currentNoteTitle,
@@ -292,6 +293,7 @@ function useAppSidebarModel({
 	setOpenMobile,
 }: {
 	activeWorkspaceId: Id<"workspaces"> | null;
+	automations: AutomationListItem[] | undefined;
 	chats: Array<Doc<"chats">> | undefined;
 	currentNoteId: Id<"notes"> | null;
 	currentNoteTitle?: string;
@@ -362,6 +364,8 @@ function useAppSidebarModel({
 		inboxItems?.filter(
 			(item) => !uiState.optimisticReadInboxItemIds.has(String(item._id)),
 		).length ?? 0;
+	const activeAutomationCount =
+		automations?.filter((automation) => !automation.isPaused).length ?? 0;
 	const recordingNoteId = useRecordingNoteId();
 
 	React.useEffect(() => {
@@ -376,18 +380,24 @@ function useAppSidebarModel({
 
 	const navItems = React.useMemo<AppSidebarNavItem[]>(
 		() =>
-			SIDEBAR_NAVIGATION.map((item) => ({
-				...item,
-				isActive:
+			SIDEBAR_NAVIGATION.map((item) => {
+				const badge =
 					item.action === "inbox"
-						? inboxOpen
-						: item.action === "view" && item.view === currentView,
-				badge:
-					item.action === "inbox" && unreadInboxCount > 0
 						? unreadInboxCount
-						: undefined,
-			})),
-		[currentView, inboxOpen, unreadInboxCount],
+						: item.action === "view" && item.view === "automation"
+							? activeAutomationCount
+							: 0;
+
+				return {
+					...item,
+					isActive:
+						item.action === "inbox"
+							? inboxOpen
+							: item.action === "view" && item.view === currentView,
+					badge: badge > 0 ? badge : undefined,
+				};
+			}),
+		[activeAutomationCount, currentView, inboxOpen, unreadInboxCount],
 	);
 	const projectNamesById = React.useMemo(
 		() =>
@@ -528,6 +538,7 @@ export function AppSidebar({
 	);
 	const model = useAppSidebarModel({
 		activeWorkspaceId,
+		automations,
 		chats,
 		currentNoteId,
 		currentNoteTitle,

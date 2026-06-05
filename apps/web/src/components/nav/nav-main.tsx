@@ -1,7 +1,6 @@
 import {
 	SidebarGroup,
 	SidebarMenu,
-	SidebarMenuBadge,
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
@@ -159,13 +158,13 @@ export function NavMain({
 								>
 									{item.icon && <item.icon />}
 									<span>{item.title}</span>
+									{item.badge ? (
+										<span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-sidebar-accent px-1 text-xs font-medium tabular-nums text-sidebar-accent-foreground">
+											{formatBadgeCount(item.badge)}
+										</span>
+									) : null}
 								</button>
 							</SidebarMenuButton>
-							{item.badge ? (
-								<SidebarMenuBadge className="top-1 rounded-full bg-destructive/15 text-destructive peer-hover/menu-button:text-destructive peer-data-active/menu-button:text-destructive dark:text-red-500">
-									{formatBadgeCount(item.badge)}
-								</SidebarMenuBadge>
-							) : null}
 						</SidebarMenuItem>
 					))}
 				</SidebarMenu>
