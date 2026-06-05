@@ -4,6 +4,11 @@ import { builtinModules, createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+	getExpectedConvexDeployment,
+	getForbiddenConvexDeployments,
+	loadSelectedEnvFile,
+} from "../../../scripts/release-contract.mjs";
 
 const require = createRequire(import.meta.url);
 const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -14,76 +19,13 @@ const appAsarPath = resolve(
 );
 const knownDevDeployments = ["clever-chinchilla-887"];
 
-const trim = (value) => (typeof value === "string" ? value.trim() : "");
+loadSelectedEnvFile({
+	envFileName:
+		process.env.GRANERI_ENV_MODE?.trim() === "local" ? ".env.local" : ".env",
+	repoRoot,
+});
 
-const parseEnvLine = (line) => {
-	const trimmed = line.trim();
-
-	if (!trimmed || trimmed.startsWith("#")) {
-		return null;
-	}
-
-	const separatorIndex = trimmed.indexOf("=");
-	if (separatorIndex === -1) {
-		return null;
-	}
-
-	const key = trimmed.slice(0, separatorIndex).trim();
-	let value = trimmed.slice(separatorIndex + 1).trim();
-
-	if (
-		(value.startsWith('"') && value.endsWith('"')) ||
-		(value.startsWith("'") && value.endsWith("'"))
-	) {
-		value = value.slice(1, -1);
-	}
-
-	return { key, value };
-};
-
-const loadSelectedEnvFile = () => {
-	const envFileName =
-		process.env.GRANERI_ENV_MODE?.trim() === "local" ? ".env.local" : ".env";
-	const envFilePath = resolve(repoRoot, envFileName);
-
-	if (!existsSync(envFilePath)) {
-		return;
-	}
-
-	const rawEnv = readFileSync(envFilePath, "utf8");
-
-	for (const line of rawEnv.split(/\r?\n/u)) {
-		const entry = parseEnvLine(line);
-		if (!entry || process.env[entry.key]) {
-			continue;
-		}
-
-		process.env[entry.key] = entry.value;
-	}
-};
-
-const parseDeploymentName = (url) => {
-	const value = trim(url);
-
-	if (!value) {
-		return "";
-	}
-
-	try {
-		const parsed = new URL(value);
-		return parsed.hostname.split(".")[0] ?? "";
-	} catch {
-		return "";
-	}
-};
-
-loadSelectedEnvFile();
-
-const expectedDeployment =
-	trim(process.env.GRANERI_EXPECTED_CONVEX_DEPLOYMENT) ||
-	parseDeploymentName(process.env.GRANERI_HOSTED_CONVEX_URL) ||
-	parseDeploymentName(process.env.VITE_CONVEX_URL) ||
-	parseDeploymentName(process.env.CONVEX_URL);
+const expectedDeployment = getExpectedConvexDeployment();
 
 if (!expectedDeployment) {
 	throw new Error(
@@ -91,13 +33,10 @@ if (!expectedDeployment) {
 	);
 }
 
-const forbiddenDeployments = [
-	...knownDevDeployments,
-	...trim(process.env.GRANERI_FORBIDDEN_CONVEX_DEPLOYMENTS)
-		.split(",")
-		.map((deployment) => deployment.trim())
-		.filter(Boolean),
-].filter((deployment) => deployment !== expectedDeployment);
+const forbiddenDeployments = getForbiddenConvexDeployments({
+	expectedDeployment,
+	knownDevDeployments,
+});
 
 const getAsarCliPath = () => {
 	try {

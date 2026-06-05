@@ -15,14 +15,9 @@ import {
 	systemPreferences,
 } from "electron";
 import electronUpdater from "electron-updater";
-import WebSocket from "ws";
-import { createPcm16Resampler } from "../../../packages/ai/src/pcm16-resampler.mjs";
 import {
-	createDesktopRealtimeTranscriptionSession,
 	isLowConfidenceTranscriptLogprobs,
 	isTranscriptPlaceholderText,
-	normalizeTranscriptionLanguage,
-	resolveDesktopRealtimeProfile,
 	shouldKeepInterruptedTranscriptTurn,
 	summarizeTranscriptConfidence,
 } from "../../../packages/ai/src/transcription.mjs";
@@ -32,6 +27,7 @@ import {
 	createDesktopNavigationState,
 	getDefaultDesktopNavigation,
 } from "./desktop-navigation-state.mjs";
+import { createDesktopRealtimeTransport } from "./desktop-realtime-transport.mjs";
 import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
@@ -73,14 +69,9 @@ const transcriptionSessionStateChannel = "app:transcription-session-state";
 const transcriptionSessionEventChannel = "app:transcription-session-event";
 const meetingDetectionStateChannel = "app:meeting-detection-state";
 const desktopNavigationChannel = "app:navigate";
-const desktopRealtimeConnectTimeoutMs = 10_000;
-const desktopRealtimePendingAudioChunkLimit = 50;
-const desktopRealtimeStopFlushTimeoutMs = 1_500;
-const desktopRealtimeStopFlushSettleTimeoutMs = 750;
 const maxRecoveryAttempts = 3;
 const recoveryBackoffMs = [750, 1_500, 3_000];
 const systemAudioAttachRetryBackoffMs = [750, 1_500, 3_000];
-const realtimeSessionRolloverMs = 29 * 60 * 1000;
 const shouldLogDesktopTurnDebug =
 	app.isPackaged !== true ||
 	process.env.GRANERI_ENABLE_TRANSCRIPTION_DEBUG === "1";
@@ -142,18 +133,6 @@ const createInitialNotificationPreferences = () => ({
 	notifyForScheduledMeetings: false,
 	notifyForAutoDetectedMeetings: false,
 });
-const logOpenAiResponseMetadata = ({ context, requestId, response }) => {
-	const openAiRequestId = response.headers.get("x-request-id");
-	const processingMs = response.headers.get("openai-processing-ms");
-
-	console.info("[openai]", {
-		context,
-		openAiRequestId,
-		processingMs,
-		requestId,
-		status: response.status,
-	});
-};
 const createInitialTranscriptionSessionState = () => ({
 	autoStartKey: null,
 	error: null,
@@ -215,7 +194,6 @@ const desktopStorage = createDesktopStorage({
 });
 let systemAudioPermissionState = "prompt";
 let latestTranscriptionSessionState = createInitialTranscriptionSessionState();
-const desktopRealtimeTransportSessions = new Map();
 const captureEventListeners = {
 	microphone: new Set(),
 	systemAudio: new Set(),
@@ -408,6 +386,16 @@ const nativeAudioCapture = createNativeAudioCapture({
 });
 const resolveMicrophoneHelperPath =
 	nativeAudioCapture.resolveMicrophoneHelperPath;
+const desktopRealtimeTransport = createDesktopRealtimeTransport({
+	canUseHostedDesktopAi: () => canUseHostedDesktopAi(),
+	getCaptureSampleRate: (source) =>
+		nativeAudioCapture.getCaptureSampleRate(source),
+	getHostedConvexSiteUrl: () => process.env.CONVEX_SITE_URL?.trim(),
+	getOpenAIApiKey: () => process.env.OPENAI_API_KEY,
+	handleTransportEvent: (event) => handleDesktopRealtimeTransportEvent(event),
+	logDesktopTurnDebug: (...args) => logDesktopTurnDebug(...args),
+	subscribeToCaptureEvents,
+});
 const resolveSystemAudioHelperPath =
 	nativeAudioCapture.resolveSystemAudioHelperPath;
 const startMicrophoneCapture = nativeAudioCapture.startMicrophoneCapture;
@@ -1066,582 +1054,6 @@ const rememberRendererNavigation = async (urlString) => {
 	).remember(urlString);
 };
 
-const parseDesktopRealtimeTransportEvent = ({ event, speaker }) => {
-	if (!event || typeof event !== "object" || typeof event.type !== "string") {
-		return null;
-	}
-
-	if (event.type === "input_audio_buffer.committed" && event.item_id) {
-		return {
-			speaker,
-			type: "committed",
-			itemId: event.item_id,
-			previousItemId: event.previous_item_id ?? null,
-		};
-	}
-
-	if (
-		event.type === "conversation.item.input_audio_transcription.delta" &&
-		event.item_id &&
-		typeof event.delta === "string"
-	) {
-		return {
-			logprobs: event.logprobs ?? null,
-			speaker,
-			type: "partial",
-			itemId: event.item_id,
-			textDelta: event.delta,
-		};
-	}
-
-	if (
-		event.type === "conversation.item.input_audio_transcription.completed" &&
-		event.item_id
-	) {
-		return {
-			logprobs: event.logprobs ?? null,
-			speaker,
-			type: "final",
-			itemId: event.item_id,
-			text: event.transcript ?? event.text ?? "",
-		};
-	}
-
-	if (event.type === "conversation.item.input_audio_transcription.failed") {
-		if (!event.item_id) {
-			return null;
-		}
-
-		return {
-			itemId: event.item_id,
-			message:
-				event.error?.message ??
-				"Realtime transcription failed for the current turn.",
-			speaker,
-			type: "turn_failed",
-		};
-	}
-
-	if (event.type === "error") {
-		return {
-			speaker,
-			type: "interrupted",
-			message: event.error?.message ?? "Realtime transcription failed.",
-		};
-	}
-
-	return null;
-};
-
-const resolveDesktopRealtimeStopFlush = (session) => {
-	const stopFlush = session.stopFlush;
-
-	if (!stopFlush) {
-		return;
-	}
-
-	clearTimeout(stopFlush.timeoutId);
-	clearTimeout(stopFlush.settleTimeoutId);
-	session.stopFlush = null;
-	stopFlush.resolve();
-};
-
-const settleDesktopRealtimeStopFlush = (session) => {
-	const stopFlush = session.stopFlush;
-
-	if (!stopFlush) {
-		return;
-	}
-
-	clearTimeout(stopFlush.settleTimeoutId);
-	stopFlush.settleTimeoutId = setTimeout(() => {
-		resolveDesktopRealtimeStopFlush(session);
-	}, desktopRealtimeStopFlushSettleTimeoutMs);
-};
-
-const notifyDesktopRealtimeStopFlushEvent = (session, transportEvent) => {
-	const stopFlush = session?.stopFlush;
-
-	if (!stopFlush || !transportEvent) {
-		return;
-	}
-
-	if (transportEvent.type === "committed") {
-		stopFlush.targetItemId ??= transportEvent.itemId;
-		settleDesktopRealtimeStopFlush(session);
-		return;
-	}
-
-	if (
-		(transportEvent.type === "final" ||
-			transportEvent.type === "turn_failed") &&
-		(!stopFlush.targetItemId ||
-			transportEvent.itemId === stopFlush.targetItemId)
-	) {
-		resolveDesktopRealtimeStopFlush(session);
-	}
-};
-
-const flushDesktopRealtimeTransportOnStop = async (session) => {
-	if (session.socket.readyState !== WebSocket.OPEN || session.stopFlush) {
-		return;
-	}
-
-	const targetItemId =
-		transcriptionSpeakers[session.speaker]?.liveItemId ?? null;
-
-	console.info("[desktop-realtime] flushing transport before stop", {
-		profile: session.profile,
-		source: session.source,
-		speaker: session.speaker,
-		targetItemId,
-	});
-
-	await new Promise((resolvePromise) => {
-		session.stopFlush = {
-			resolve: resolvePromise,
-			settleTimeoutId: null,
-			targetItemId,
-			timeoutId: setTimeout(() => {
-				resolveDesktopRealtimeStopFlush(session);
-			}, desktopRealtimeStopFlushTimeoutMs),
-		};
-
-		try {
-			session.socket.send(
-				JSON.stringify({
-					type: "input_audio_buffer.commit",
-				}),
-			);
-			settleDesktopRealtimeStopFlush(session);
-		} catch (error) {
-			console.warn("[desktop-realtime] failed to flush transport on stop", {
-				message: error instanceof Error ? error.message : String(error),
-				profile: session.profile,
-				source: session.source,
-				speaker: session.speaker,
-			});
-			resolveDesktopRealtimeStopFlush(session);
-		}
-	});
-};
-
-const stopDesktopRealtimeTransport = async (speaker) => {
-	const session = desktopRealtimeTransportSessions.get(speaker);
-
-	if (!session) {
-		return { ok: true };
-	}
-
-	desktopRealtimeTransportSessions.delete(speaker);
-	session.isClosing = true;
-	session.unsubscribeCapture?.();
-	session.unsubscribeCapture = null;
-	clearTimeout(session.openTimeout);
-	await flushDesktopRealtimeTransportOnStop(session);
-
-	await new Promise((resolvePromise) => {
-		const finalize = () => {
-			resolvePromise();
-		};
-
-		session.socket.once("close", finalize);
-		session.socket.close();
-
-		setTimeout(() => {
-			if (session.socket.readyState !== WebSocket.CLOSED) {
-				session.socket.terminate();
-			}
-			finalize();
-		}, 1_000);
-	});
-
-	return { ok: true };
-};
-
-const scheduleTranscriptionRollover = () => {
-	clearTranscriptionRolloverTimeout();
-
-	transcriptionRolloverTimeoutId = setTimeout(() => {
-		transcriptionRolloverTimeoutId = null;
-		void handleDesktopTransportInterrupted({
-			message: "Realtime transcription session reached the rollover window.",
-			planned: true,
-			speaker: "you",
-		});
-	}, realtimeSessionRolloverMs);
-};
-
-const createDesktopRealtimeSessionConfig = ({ lang, source, speaker }) => {
-	const language = normalizeTranscriptionLanguage(lang);
-	return createDesktopRealtimeTranscriptionSession({
-		language,
-		source,
-		speaker,
-	});
-};
-
-const sendDesktopRealtimeAudioChunk = ({ audio, socket }) => {
-	socket.send(
-		JSON.stringify({
-			type: "input_audio_buffer.append",
-			audio,
-		}),
-	);
-};
-
-const createDesktopRealtimeClientSecret = async ({ lang, source, speaker }) => {
-	if (!process.env.OPENAI_API_KEY) {
-		const baseUrl = process.env.CONVEX_SITE_URL?.trim();
-
-		if (!baseUrl) {
-			throw new Error("CONVEX_SITE_URL is not configured.");
-		}
-
-		const response = await fetch(
-			new URL("/api/realtime-transcription-session", baseUrl),
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-				},
-				body: JSON.stringify({
-					lang,
-					source,
-					speaker,
-				}),
-			},
-		);
-		const payload = await response.json().catch(() => ({}));
-
-		if (!response.ok) {
-			throw new Error(
-				payload?.error?.message ||
-					payload?.error ||
-					"Failed to create realtime transcription session.",
-			);
-		}
-
-		const clientSecret = payload?.clientSecret;
-
-		if (!clientSecret || typeof clientSecret !== "string") {
-			throw new Error("OpenAI did not return a realtime client secret.");
-		}
-
-		return clientSecret;
-	}
-
-	const requestId = randomUUID();
-	const response = await fetch(
-		"https://api.openai.com/v1/realtime/client_secrets",
-		{
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-				"Content-Type": "application/json",
-				"X-Client-Request-Id": requestId,
-			},
-			body: JSON.stringify({
-				expires_after: {
-					anchor: "created_at",
-					seconds: 600,
-				},
-				session: createDesktopRealtimeSessionConfig({
-					lang,
-					source,
-					speaker,
-				}),
-			}),
-		},
-	);
-
-	logOpenAiResponseMetadata({
-		context: "desktop.realtime.client_secret",
-		requestId,
-		response,
-	});
-
-	const payload = await response.json().catch(() => ({}));
-
-	if (!response.ok) {
-		throw new Error(
-			payload?.error?.message ||
-				"Failed to create realtime transcription session.",
-		);
-	}
-
-	const clientSecret = payload?.value;
-
-	if (!clientSecret) {
-		throw new Error("OpenAI did not return a realtime client secret.");
-	}
-
-	return clientSecret;
-};
-
-const startDesktopRealtimeTransport = async ({ lang, source, speaker }) => {
-	if (process.platform !== "darwin") {
-		throw new Error(
-			"Desktop realtime transcription transport is only available on macOS.",
-		);
-	}
-	const language = normalizeTranscriptionLanguage(lang);
-
-	if (!process.env.OPENAI_API_KEY && !canUseHostedDesktopAi()) {
-		throw new Error(
-			"Realtime transcription is not configured for this desktop build.",
-		);
-	}
-
-	const captureSampleRate = nativeAudioCapture.getCaptureSampleRate(source);
-
-	if (!captureSampleRate) {
-		throw new Error("Desktop audio capture is not active.");
-	}
-
-	await stopDesktopRealtimeTransport(speaker);
-	const clientSecret = await createDesktopRealtimeClientSecret({
-		lang,
-		source,
-		speaker,
-	});
-	const profile = resolveDesktopRealtimeProfile({
-		source,
-		speaker,
-	});
-
-	return await new Promise((resolvePromise, rejectPromise) => {
-		let didResolve = false;
-		const resampleChunk = createPcm16Resampler(captureSampleRate, 24_000);
-		const socket = new WebSocket(
-			"wss://api.openai.com/v1/realtime?intent=transcription",
-			{
-				headers: {
-					Authorization: `Bearer ${clientSecret}`,
-				},
-			},
-		);
-		const session = {
-			isClosing: false,
-			openTimeout: setTimeout(() => {
-				if (didResolve) {
-					return;
-				}
-
-				rejectPromise(
-					new Error(
-						"Timed out while connecting desktop realtime transcription.",
-					),
-				);
-				socket.terminate();
-			}, desktopRealtimeConnectTimeoutMs),
-			pendingAudio: [],
-			profile,
-			socket,
-			source,
-			speaker,
-			language,
-			unsubscribeCapture: null,
-		};
-
-		logDesktopTurnDebug("transport.session_started", {
-			language,
-			profile,
-			source,
-			speaker,
-		});
-
-		console.info("[desktop-realtime] starting transport", {
-			language,
-			profile,
-			source,
-			speaker,
-		});
-
-		const flushPendingAudio = () => {
-			if (socket.readyState !== WebSocket.OPEN) {
-				return;
-			}
-
-			for (const pendingAudio of session.pendingAudio) {
-				sendDesktopRealtimeAudioChunk({
-					audio: pendingAudio,
-					socket,
-				});
-			}
-			session.pendingAudio = [];
-		};
-
-		const finalizeStartError = (error) => {
-			console.warn("[desktop-realtime] transport start failed", {
-				didResolve,
-				message: error instanceof Error ? error.message : String(error),
-				profile,
-				source,
-				speaker,
-			});
-
-			if (didResolve) {
-				void handleDesktopRealtimeTransportEvent({
-					speaker,
-					type: "interrupted",
-					message:
-						error instanceof Error
-							? error.message
-							: "Realtime transcription failed.",
-				});
-				return;
-			}
-
-			didResolve = true;
-			rejectPromise(error);
-		};
-
-		session.unsubscribeCapture = subscribeToCaptureEvents(source, (event) => {
-			if (session.isClosing) {
-				return;
-			}
-
-			if (event.type === "chunk" && event.pcm16) {
-				const audio = resampleChunk(event.pcm16);
-
-				if (!audio) {
-					return;
-				}
-
-				if (socket.readyState !== WebSocket.OPEN) {
-					session.pendingAudio.push(audio);
-					if (
-						session.pendingAudio.length > desktopRealtimePendingAudioChunkLimit
-					) {
-						session.pendingAudio.shift();
-					}
-					return;
-				}
-
-				sendDesktopRealtimeAudioChunk({
-					audio,
-					socket,
-				});
-				return;
-			}
-
-			if (event.type === "error" || event.type === "stopped") {
-				void handleDesktopRealtimeTransportEvent({
-					speaker,
-					type: "interrupted",
-					message: event.message ?? "Desktop audio capture was interrupted.",
-				});
-				void stopDesktopRealtimeTransport(speaker);
-			}
-		});
-
-		desktopRealtimeTransportSessions.set(speaker, session);
-
-		socket.on("open", () => {
-			logDesktopTurnDebug("transport.session_open", {
-				language,
-				profile,
-				source,
-				speaker,
-			});
-			console.info("[desktop-realtime] transport open", {
-				language,
-				profile,
-				source,
-				speaker,
-			});
-			clearTimeout(session.openTimeout);
-			flushPendingAudio();
-
-			if (!didResolve) {
-				didResolve = true;
-				resolvePromise({
-					ok: true,
-				});
-			}
-		});
-
-		socket.on("message", (rawValue) => {
-			try {
-				const payload = JSON.parse(String(rawValue));
-
-				if (payload?.type === "error" && !didResolve) {
-					finalizeStartError(
-						new Error(
-							payload.error?.message ??
-								"Realtime transcription failed during session initialization.",
-						),
-					);
-					return;
-				}
-
-				const transportEvent = parseDesktopRealtimeTransportEvent({
-					event: payload,
-					speaker,
-				});
-
-				if (transportEvent) {
-					notifyDesktopRealtimeStopFlushEvent(session, transportEvent);
-					void handleDesktopRealtimeTransportEvent(transportEvent);
-				}
-			} catch (error) {
-				console.error(
-					"[desktop-realtime] failed to parse websocket event",
-					error,
-				);
-			}
-		});
-
-		socket.on("error", (error) => {
-			clearTimeout(session.openTimeout);
-			console.warn("[desktop-realtime] socket error", {
-				didResolve,
-				isClosing: session.isClosing,
-				message: error instanceof Error ? error.message : String(error),
-				profile,
-				socketState: socket.readyState,
-				source,
-				speaker,
-			});
-			finalizeStartError(error);
-		});
-
-		socket.on("close", (code, reasonBuffer) => {
-			clearTimeout(session.openTimeout);
-			session.unsubscribeCapture?.();
-			session.unsubscribeCapture = null;
-
-			const reason = Buffer.isBuffer(reasonBuffer)
-				? reasonBuffer.toString("utf8")
-				: String(reasonBuffer ?? "");
-
-			console.warn("[desktop-realtime] socket close", {
-				code,
-				didResolve,
-				isClosing: session.isClosing,
-				profile,
-				reason,
-				socketState: socket.readyState,
-				source,
-				speaker,
-			});
-
-			if (desktopRealtimeTransportSessions.get(speaker) === session) {
-				desktopRealtimeTransportSessions.delete(speaker);
-			}
-
-			if (!session.isClosing) {
-				void handleDesktopRealtimeTransportEvent({
-					speaker,
-					type: "interrupted",
-					message: "Realtime transcription connection was interrupted.",
-				});
-			}
-		});
-	});
-};
-
 const requestTranscriptionAutoStart = (autoStartKey) => {
 	if (
 		autoStartKey == null ||
@@ -1721,11 +1133,17 @@ const stopTranscriptionSpeaker = async (speaker) => {
 	const state = transcriptionSpeakers[speaker];
 
 	if (speaker === "you") {
-		await stopDesktopRealtimeTransport("you");
+		await desktopRealtimeTransport.stop("you", {
+			getLiveItemId: (currentSpeaker) =>
+				transcriptionSpeakers[currentSpeaker]?.liveItemId ?? null,
+		});
 		appendTranscriptionTailUtterance(speaker);
 		await stopMicrophoneCapture();
 	} else {
-		await stopDesktopRealtimeTransport("them");
+		await desktopRealtimeTransport.stop("them", {
+			getLiveItemId: (currentSpeaker) =>
+				transcriptionSpeakers[currentSpeaker]?.liveItemId ?? null,
+		});
 		appendTranscriptionTailUtterance(speaker);
 		await stopSystemAudioCapture();
 	}
@@ -1941,7 +1359,7 @@ const connectDesktopTranscriptionSpeaker = async ({
 	}
 
 	try {
-		await startDesktopRealtimeTransport({
+		await desktopRealtimeTransport.start({
 			lang,
 			source,
 			speaker,
@@ -1956,7 +1374,7 @@ const connectDesktopTranscriptionSpeaker = async ({
 	}
 
 	if (!isCurrentTranscriptionOperation(operationId)) {
-		await stopDesktopRealtimeTransport(speaker).catch(() => {});
+		await desktopRealtimeTransport.stop(speaker).catch(() => {});
 		if (speaker === "you") {
 			await stopMicrophoneCapture().catch(() => {});
 		} else {
@@ -3454,8 +2872,8 @@ if (!singleInstanceLock) {
 	});
 
 	app.on("window-all-closed", async () => {
-		await stopDesktopRealtimeTransport("you");
-		await stopDesktopRealtimeTransport("them");
+		await desktopRealtimeTransport.stop("you");
+		await desktopRealtimeTransport.stop("them");
 		await stopMicrophoneActivityMonitor();
 		await stopMicrophoneCapture();
 		await stopSystemAudioCapture();
@@ -3480,8 +2898,8 @@ if (!singleInstanceLock) {
 		}
 
 		isQuitting = true;
-		void stopDesktopRealtimeTransport("you");
-		void stopDesktopRealtimeTransport("them");
+		void desktopRealtimeTransport.stop("you");
+		void desktopRealtimeTransport.stop("them");
 		void stopMicrophoneActivityMonitor();
 		void stopMicrophoneCapture();
 		void stopSystemAudioCapture();

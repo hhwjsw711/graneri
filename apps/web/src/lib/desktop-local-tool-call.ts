@@ -24,7 +24,7 @@ type LocalToolCall = {
 	input: unknown;
 };
 
-export const isDesktopLocalToolName = (toolName: string) =>
+const isDesktopLocalToolName = (toolName: string) =>
 	localToolNames.has(toolName);
 
 export const isDesktopLocalFolderArray = (
@@ -59,7 +59,7 @@ const getRequestLocalFolders = (
 const getErrorMessage = (error: unknown, fallback: string) =>
 	error instanceof Error ? error.message : fallback;
 
-export const executeDesktopLocalToolCall = async ({
+const executeDesktopLocalToolCall = async ({
 	localFolders,
 	toolCall,
 }: {

@@ -3,8 +3,6 @@ import { openai } from "@ai-sdk/openai";
 import {
 	consumeStream,
 	createAgentUIStream,
-	createIdGenerator,
-	generateText,
 	type InferUITools,
 	pipeUIMessageStreamToResponse,
 	stepCountIs,
@@ -27,13 +25,19 @@ import {
 	createChatLatencyLogger,
 	createChatStreamLatencyTracker,
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
-import {
-	buildChatTitlePrompt,
-	deriveFallbackChatTitle,
-	finalizeGeneratedChatTitle,
-} from "../../../packages/ai/src/chat-titles.mjs";
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
+import {
+	buildHostedChatRuntimePrompt,
+	clampHostedNoteContext,
+	fromHostedStoredMessages,
+	generateHostedChatMessageId,
+	generateHostedChatTitle,
+	getHostedChatPreviewFromMessage,
+	getHostedChatRecipeContext,
+	getInlineHostedNoteContext,
+	toHostedStoredMessage,
+} from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildLocalFolderSystemContext,
 	buildLocalFolderTools,
@@ -41,11 +45,6 @@ import {
 } from "../../../packages/ai/src/local-folder-tools.mjs";
 import { finalizeOpenAIToolSet } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
-	buildChatSystemPrompt,
-	CHAT_TITLE_SYSTEM_PROMPT,
-} from "../../../packages/ai/src/prompts.mjs";
-import {
-	CHAT_TITLE_MODEL_ID,
 	findChatModel,
 	getChatModelProviderOptions,
 	normalizeReasoningEffort,
@@ -74,13 +73,6 @@ type ChatRequestBody = {
 	};
 };
 
-const MAX_CHAT_PREVIEW_LENGTH = 180;
-const MAX_CHAT_TITLE_LENGTH = 80;
-const MAX_NOTE_CONTEXT_LENGTH = 16000;
-const generateMessageId = createIdGenerator({
-	prefix: "msg",
-	size: 16,
-});
 const ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
 const activeChatStreamControllers = new Map<string, AbortController>();
 const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
@@ -302,158 +294,6 @@ const getSelectedRecipe = async ({
 	return recipes.find((recipe) => recipe.slug === recipeSlug) ?? null;
 };
 
-const getRecipeContext = (
-	selectedRecipe:
-		| {
-				slug: string;
-				name: string;
-				prompt: string;
-		  }
-		| null
-		| undefined,
-) => {
-	if (!selectedRecipe) {
-		return "";
-	}
-
-	return [
-		"A recipe is selected for this note chat.",
-		"Treat the selected recipe as the active task framing for the conversation.",
-		"Treat the attached note and any other provided note context as the source material to work from.",
-		"If the user's request is ambiguous, interpret it through the selected recipe first.",
-		"If the user explicitly asks for something else, follow the user's latest instruction instead.",
-		"If there is not enough source material to complete the recipe well, ask a focused follow-up question.",
-		`Selected recipe: ${selectedRecipe.name}`,
-		`Recipe prompt:\n${selectedRecipe.prompt.trim()}`,
-	].join("\n\n");
-};
-
-const clampWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
-
-const truncate = (value: string, maxLength: number) =>
-	value.length > maxLength
-		? `${value.slice(0, maxLength - 1).trimEnd()}…`
-		: value;
-
-const clampNoteContext = (value: string) =>
-	value.replace(/\r/g, "").trim().slice(0, MAX_NOTE_CONTEXT_LENGTH);
-
-const getMessageText = (message: UIMessage) =>
-	clampWhitespace(
-		message.parts
-			.flatMap((part) =>
-				part.type === "text" &&
-				typeof part.text === "string" &&
-				part.text.length > 0
-					? [part.text]
-					: [],
-			)
-			.join("\n\n"),
-	);
-
-const generateChatTitle = async ({
-	userMessage,
-	assistantMessage,
-}: {
-	userMessage: UIMessage;
-	assistantMessage?: UIMessage;
-}) => {
-	const userText = getMessageText(userMessage);
-	const assistantText = assistantMessage
-		? getMessageText(assistantMessage)
-		: "";
-
-	if (!userText) {
-		return "Quick chat";
-	}
-
-	try {
-		const { text } = await generateText({
-			model: openai(CHAT_TITLE_MODEL_ID),
-			system: CHAT_TITLE_SYSTEM_PROMPT,
-			prompt: buildChatTitlePrompt({
-				userText,
-				assistantText,
-			}),
-		});
-
-		return finalizeGeneratedChatTitle({
-			generatedTitle: text,
-			userText,
-			maxLength: MAX_CHAT_TITLE_LENGTH,
-		});
-	} catch (error) {
-		console.error("Failed to generate chat title", error);
-		return deriveFallbackChatTitle({
-			userText,
-			maxLength: MAX_CHAT_TITLE_LENGTH,
-		});
-	}
-};
-
-const getChatPreviewFromMessage = (message: UIMessage) =>
-	truncate(getMessageText(message), MAX_CHAT_PREVIEW_LENGTH);
-
-const toStoredMessage = (message: UIMessage) => ({
-	id: message.id || generateMessageId(),
-	role: message.role,
-	partsJson: JSON.stringify(message.parts),
-	metadataJson:
-		message.metadata === undefined
-			? undefined
-			: JSON.stringify(message.metadata),
-	text: getMessageText(message),
-	createdAt: Date.now(),
-});
-
-const parseStoredMessagePartsForModelInput = (
-	partsJson: string,
-): UIMessage["parts"] => {
-	try {
-		const parts = JSON.parse(partsJson) as UIMessage["parts"];
-		if (!Array.isArray(parts)) {
-			return [];
-		}
-
-		return parts.flatMap((part) =>
-			part.type === "text" &&
-			typeof part.text === "string" &&
-			part.text.length > 0
-				? [{ type: "text" as const, text: part.text }]
-				: [],
-		);
-	} catch {
-		return [];
-	}
-};
-
-const fromStoredMessages = (
-	messages: Array<{
-		id: string;
-		role: "system" | "user" | "assistant";
-		partsJson: string;
-		metadataJson?: string;
-	}>,
-): UIMessage[] =>
-	messages.flatMap((message) => {
-		const parts = parseStoredMessagePartsForModelInput(message.partsJson);
-
-		if (parts.length === 0) {
-			return [];
-		}
-
-		return [
-			{
-				id: message.id,
-				role: message.role,
-				metadata: message.metadataJson
-					? (JSON.parse(message.metadataJson) as UIMessage["metadata"])
-					: undefined,
-				parts,
-			},
-		];
-	});
-
 const readJsonBody = async (request: IncomingMessage) => {
 	const chunks: Uint8Array[] = [];
 
@@ -480,31 +320,6 @@ const sendJson = (
 	response.end(JSON.stringify(payload));
 };
 
-const getInlineNoteContext = ({
-	title,
-	text,
-}: {
-	title?: string;
-	text?: string;
-}) => {
-	const noteTitle = title?.trim() ?? "";
-	const noteText = clampNoteContext(text ?? "");
-
-	if (!noteTitle && !noteText) {
-		return "";
-	}
-
-	return [
-		"The current note is attached below. Use it as the primary context for this chat.",
-		noteTitle ? `Current note title: ${noteTitle}` : "",
-		noteText
-			? `Current note content:\n${noteText}`
-			: "Current note content: (empty note)",
-	]
-		.filter(Boolean)
-		.join("\n\n");
-};
-
 const getStoredNoteContext = async ({
 	client,
 	noteId,
@@ -528,7 +343,7 @@ const getStoredNoteContext = async ({
 		"The current note is attached below. Use it as the primary context for this chat.",
 		`Current note title: ${note.title}`,
 		note.searchableText
-			? `Current note content:\n${clampNoteContext(note.searchableText)}`
+			? `Current note content:\n${clampHostedNoteContext(note.searchableText)}`
 			: "Current note content: (empty note)",
 	].join("\n\n");
 };
@@ -667,7 +482,7 @@ export const handleChatRequest = async (
 			: storedChatMessages;
 	const incomingMessages =
 		convexClient && id
-			? [...fromStoredMessages(baseStoredMessages), message]
+			? [...fromHostedStoredMessages(baseStoredMessages), message]
 			: [message];
 	const shouldTruncateChatBranch =
 		convexClient &&
@@ -708,12 +523,12 @@ export const handleChatRequest = async (
 					noteId: resolvedNoteId,
 					workspaceId: resolvedWorkspaceId,
 				}).catch(() =>
-					getInlineNoteContext({
+					getInlineHostedNoteContext({
 						title: noteContext?.title,
 						text: noteContext?.text,
 					}),
 				)
-			: getInlineNoteContext({
+			: getInlineHostedNoteContext({
 					title: noteContext?.title,
 					text: noteContext?.text,
 				});
@@ -722,7 +537,7 @@ export const handleChatRequest = async (
 		recipeSlug,
 		workspaceId: resolvedWorkspaceId,
 	});
-	const recipeContext = getRecipeContext(selectedRecipe);
+	const recipeContext = getHostedChatRecipeContext(selectedRecipe);
 	const userProfileContext = convexClient
 		? await convexClient
 				.query(api.userPreferences.getAiProfileContext, {})
@@ -787,21 +602,17 @@ export const handleChatRequest = async (
 		defaultTimezone: resolvedTimezone,
 		webSearchEnabled,
 	});
-	const systemPrompt = `${buildChatSystemPrompt({
+	const systemPrompt = buildHostedChatRuntimePrompt({
 		notesContext,
 		attachedNoteContext,
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}${coreToolPolicy.instruction ? `\n\n${coreToolPolicy.instruction}` : ""}${
-		automationContext.instruction ? `\n\n${automationContext.instruction}` : ""
-	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
-		selectedAppSourceInstructions ? `\n\n${selectedAppSourceInstructions}` : ""
-	}${
-		localFolderContext
-			? "\n\nLocal folder priority: if the user's request is about a local path, shared folder, local file, local audio, local video, local transcript, or local recording, use the local folder tools first and do not use connected app tools unless the user explicitly asks for connected app data."
-			: ""
-	}`;
+		coreToolInstruction: coreToolPolicy.instruction,
+		automationInstruction: automationContext.instruction,
+		localFolderContext,
+		selectedAppSourceInstructions,
+	});
 	const enabledTools: ToolSet = { ...coreToolPolicy.enabledTools };
 	Object.assign(enabledTools, automationContext.tools);
 	Object.assign(enabledTools, appTools);
@@ -844,10 +655,10 @@ export const handleChatRequest = async (
 				workspaceId: resolvedWorkspaceId,
 				chatId: id,
 				noteId: resolvedNoteId ?? undefined,
-				preview: getChatPreviewFromMessage(lastUserMessage),
+				preview: getHostedChatPreviewFromMessage(lastUserMessage),
 				model: resolvedModel.model,
 				reasoningEffort: resolvedReasoningEffort,
-				message: toStoredMessage(lastUserMessage),
+				message: toHostedStoredMessage(lastUserMessage),
 			});
 		} catch (error) {
 			console.error("Failed to persist user chat message", error);
@@ -914,7 +725,7 @@ export const handleChatRequest = async (
 		uiMessages: chatMessages,
 		abortSignal: activeStreamAbortController?.signal,
 		originalMessages: chatMessages,
-		generateMessageId,
+		generateMessageId: generateHostedChatMessageId,
 		sendReasoning: true,
 		sendSources: true,
 		onFinish: async ({ responseMessage }) => {
@@ -927,7 +738,7 @@ export const handleChatRequest = async (
 			try {
 				const generatedChatTitle =
 					shouldGenerateChatTitle && lastUserMessage
-						? await generateChatTitle({
+						? await generateHostedChatTitle({
 								userMessage: lastUserMessage,
 								assistantMessage: responseMessage,
 							})
@@ -937,10 +748,10 @@ export const handleChatRequest = async (
 					chatId: id,
 					noteId: resolvedNoteId ?? undefined,
 					title: generatedChatTitle,
-					preview: getChatPreviewFromMessage(responseMessage),
+					preview: getHostedChatPreviewFromMessage(responseMessage),
 					model: resolvedModel.model,
 					reasoningEffort: resolvedReasoningEffort,
-					message: toStoredMessage(responseMessage),
+					message: toHostedStoredMessage(responseMessage),
 				});
 				await activeStreamPersister?.finish("done");
 			} catch (error) {

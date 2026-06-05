@@ -62,6 +62,7 @@ import {
 import { getChatId } from "@/lib/chat";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
+import { prepareSharedLocalFoldersForChatRequest } from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getChatComposerDraftScope } from "@/lib/composer-draft";
@@ -71,8 +72,6 @@ import { createDesktopLocalToolCallHandler } from "@/lib/desktop-local-tool-call
 import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
-	shareLocalFoldersFromText,
-	storeSharedLocalFolders,
 } from "@/lib/local-folder-sharing";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import { getChatApiUrl } from "@/lib/runtime-config";
@@ -594,16 +593,12 @@ const useChatPageController = ({
 
 		try {
 			const convexToken = await getCachedConvexToken();
-			const currentSharedLocalFolders = await rehydrateSharedLocalFolders(
-				localFolderStorageScope,
-			);
-			const { allFolders: nextSharedLocalFolders } =
-				await shareLocalFoldersFromText({
-					currentFolders: currentSharedLocalFolders,
+			const nextSharedLocalFolders =
+				await prepareSharedLocalFoldersForChatRequest({
+					storageScope: localFolderStorageScope,
 					text: value,
 				});
 			setSharedLocalFolders(nextSharedLocalFolders);
-			storeSharedLocalFolders(localFolderStorageScope, nextSharedLocalFolders);
 			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onChatPersisted?.(chatId);
 			const readyFiles = getReadyFileParts(attachedFiles);

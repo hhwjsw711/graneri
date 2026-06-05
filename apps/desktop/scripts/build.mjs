@@ -1,8 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	buildHostedRuntimeConfig,
+	loadSelectedEnvFile,
+	validateProductionRuntimeConfig,
+} from "../../../scripts/release-contract.mjs";
 import "./build-system-audio-helper.mjs";
 
 const require = createRequire(import.meta.url);
@@ -18,97 +23,6 @@ const bundleConvexGeneratedDir = resolve(bundleRootDir, "convex", "_generated");
 const packageAiSrcDir = resolve(packageRoot, "../../packages/ai/src");
 const bundleAiSrcDir = resolve(bundleRootDir, "packages", "ai", "src");
 const desktopAssetsDir = resolve(sourceDir, "assets");
-
-const parseEnvLine = (line) => {
-	const trimmed = line.trim();
-
-	if (!trimmed || trimmed.startsWith("#")) {
-		return null;
-	}
-
-	const separatorIndex = trimmed.indexOf("=");
-	if (separatorIndex === -1) {
-		return null;
-	}
-
-	const key = trimmed.slice(0, separatorIndex).trim();
-	let value = trimmed.slice(separatorIndex + 1).trim();
-
-	if (
-		(value.startsWith('"') && value.endsWith('"')) ||
-		(value.startsWith("'") && value.endsWith("'"))
-	) {
-		value = value.slice(1, -1);
-	}
-
-	return { key, value };
-};
-
-const loadSelectedEnvFile = () => {
-	const envFileName =
-		process.env.GRANERI_ENV_MODE?.trim() === "production"
-			? ".env"
-			: ".env.local";
-	const envFilePath = resolve(repoRoot, envFileName);
-
-	if (!existsSync(envFilePath)) {
-		return;
-	}
-
-	const rawEnv = readFileSync(envFilePath, "utf8");
-
-	for (const line of rawEnv.split(/\r?\n/u)) {
-		const entry = parseEnvLine(line);
-		if (!entry || process.env[entry.key]) {
-			continue;
-		}
-
-		process.env[entry.key] = entry.value;
-	}
-};
-
-const requiredProductionEnv = (name) => {
-	const value =
-		process.env[`GRANERI_HOSTED_${name}`]?.trim() ??
-		process.env[name]?.trim() ??
-		"";
-
-	if (!value) {
-		throw new Error(
-			`Missing required production desktop build config: ${name}. Set ${name} in .env or GRANERI_HOSTED_${name} in the build environment.`,
-		);
-	}
-
-	return value;
-};
-
-const buildHostedRuntimeConfig = () => ({
-	convexUrl:
-		process.env.GRANERI_HOSTED_CONVEX_URL?.trim() ??
-		process.env.CONVEX_URL?.trim() ??
-		"",
-	convexSiteUrl:
-		process.env.GRANERI_HOSTED_CONVEX_SITE_URL?.trim() ??
-		process.env.CONVEX_SITE_URL?.trim() ??
-		"",
-	siteUrl:
-		process.env.GRANERI_HOSTED_SITE_URL?.trim() ??
-		process.env.SITE_URL?.trim() ??
-		"",
-});
-
-const validateProductionRuntimeConfig = (config) => {
-	if (process.env.GRANERI_ENV_MODE?.trim() !== "production") {
-		return;
-	}
-
-	requiredProductionEnv("CONVEX_URL");
-	requiredProductionEnv("CONVEX_SITE_URL");
-
-	if (!config.convexUrl || !config.convexSiteUrl) {
-		throw new Error("Production desktop runtime config is incomplete.");
-	}
-};
 
 const writeHostedRuntimeConfig = async () => {
 	const config = buildHostedRuntimeConfig();
@@ -152,7 +66,13 @@ if (!existsSync(resolve(webDistDir, "index.html"))) {
 	);
 }
 
-loadSelectedEnvFile();
+loadSelectedEnvFile({
+	envFileName:
+		process.env.GRANERI_ENV_MODE?.trim() === "production"
+			? ".env"
+			: ".env.local",
+	repoRoot,
+});
 
 await rm(distDir, { recursive: true, force: true });
 await rm(bundleRootDir, { recursive: true, force: true });

@@ -126,6 +126,7 @@ import {
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
+import { prepareSharedLocalFoldersForChatRequest } from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getNoteComposerDraftScope } from "@/lib/composer-draft";
@@ -135,8 +136,6 @@ import { createDesktopLocalToolCallHandler } from "@/lib/desktop-local-tool-call
 import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
-	shareLocalFoldersFromText,
-	storeSharedLocalFolders,
 } from "@/lib/local-folder-sharing";
 import { ENHANCED_NOTE_TEMPLATE_SLUG } from "@/lib/note-templates";
 import { createPlainTextEditorExtensions } from "@/lib/plain-text-editor";
@@ -1582,16 +1581,12 @@ const useNoteComposerController = ({
 			const currentNoteContext = readNoteContext();
 			const convexToken = await getCachedConvexToken();
 			const outgoingText = nextMessage || selectedRecipe?.name || "";
-			const currentSharedLocalFolders = await rehydrateSharedLocalFolders(
-				localFolderStorageScope,
-			);
-			const { allFolders: nextSharedLocalFolders } =
-				await shareLocalFoldersFromText({
-					currentFolders: currentSharedLocalFolders,
+			const nextSharedLocalFolders =
+				await prepareSharedLocalFoldersForChatRequest({
+					storageScope: localFolderStorageScope,
 					text: outgoingText,
 				});
 			setSharedLocalFolders(nextSharedLocalFolders);
-			storeSharedLocalFolders(localFolderStorageScope, nextSharedLocalFolders);
 			const requestBody = {
 				model: selectedModel.model,
 				reasoningEffort: selectedReasoningEffort,

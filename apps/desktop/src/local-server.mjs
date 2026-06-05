@@ -8,7 +8,6 @@ import { openai } from "@ai-sdk/openai";
 import {
 	consumeStream,
 	createAgentUIStream,
-	createIdGenerator,
 	generateText,
 	Output,
 	pipeUIMessageStreamToResponse,
@@ -31,20 +30,24 @@ import {
 	createChatLatencyLogger,
 	createChatStreamLatencyTracker,
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
-import {
-	buildChatTitlePrompt,
-	deriveFallbackChatTitle,
-	finalizeGeneratedChatTitle,
-} from "../../../packages/ai/src/chat-titles.mjs";
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
+import {
+	buildHostedChatRuntimePrompt,
+	clampHostedNoteContext,
+	generateHostedChatMessageId,
+	generateHostedChatTitle,
+	getHostedChatPreviewFromMessage,
+	getHostedChatRecipeContext,
+	getInlineHostedNoteContext,
+	toHostedStoredMessage,
+} from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildLocalFolderSystemContext,
 	buildLocalFolderTools,
 } from "../../../packages/ai/src/local-folder-tools.mjs";
 import {
 	CHAT_SERVER_MODELS,
-	CHAT_TITLE_MODEL_ID,
 	getChatModelProviderOptions,
 	NOTE_GENERATION_MODEL_ID,
 	normalizeReasoningEffort,
@@ -57,15 +60,13 @@ import { finalizeOpenAIToolSet } from "../../../packages/ai/src/openai-tool-sear
 import {
 	APPLY_TEMPLATE_SYSTEM_PROMPT,
 	buildApplyTemplatePrompt,
-	buildChatSystemPrompt,
 	buildEnhancedNotePrompt,
-	CHAT_TITLE_SYSTEM_PROMPT,
 	ENHANCED_NOTE_SYSTEM_PROMPT,
 } from "../../../packages/ai/src/prompts.mjs";
 import {
-	createDesktopRealtimeTranscriptionSession,
-	normalizeTranscriptionLanguage,
-} from "../../../packages/ai/src/transcription.mjs";
+	createDesktopRealtimeClientSecret,
+	DesktopRealtimeClientSecretError,
+} from "./desktop-realtime-client-secret.mjs";
 
 const runtimeDir = dirname(fileURLToPath(import.meta.url));
 const webDistDir = resolve(runtimeDir, "../../web/dist");
@@ -81,20 +82,12 @@ const mimeTypes = {
 	".woff2": "font/woff2",
 };
 
-const MAX_CHAT_PREVIEW_LENGTH = 180;
-const MAX_CHAT_TITLE_LENGTH = 80;
-const MAX_NOTE_CONTEXT_LENGTH = 16_000;
 const chatModels = CHAT_SERVER_MODELS;
 const fallbackChatModel = chatModels[0];
 const preferredLocalServerPorts = Array.from(
 	{ length: 20 },
 	(_value, index) => 42831 + index,
 );
-const generateMessageId = createIdGenerator({
-	prefix: "msg",
-	size: 16,
-});
-
 const structuredNoteSchema = z.object({
 	title: z.string().min(1),
 	overview: z.array(z.string()),
@@ -202,19 +195,6 @@ const getConvexUrl = () => {
 	return value;
 };
 
-const logOpenAiResponseMetadata = ({ context, requestId, response }) => {
-	const openAiRequestId = response.headers.get("x-request-id");
-	const processingMs = response.headers.get("openai-processing-ms");
-
-	console.info("[openai]", {
-		context,
-		openAiRequestId,
-		processingMs,
-		requestId,
-		status: response.status,
-	});
-};
-
 const getHostedApiBaseUrl = () =>
 	process.env.CONVEX_SITE_URL?.trim() || process.env.SITE_URL?.trim() || "";
 
@@ -294,35 +274,6 @@ const getSelectedAppConnections = async ({
 	];
 };
 
-const clampWhitespace = (value) => value.replace(/\s+/g, " ").trim();
-
-const clampNoteContext = (value) =>
-	value.replace(/\r/g, "").trim().slice(0, MAX_NOTE_CONTEXT_LENGTH);
-
-const truncate = (value, maxLength) =>
-	value.length > maxLength
-		? `${value.slice(0, maxLength - 1).trimEnd()}…`
-		: value;
-
-const getInlineNoteContext = ({ title, text }) => {
-	const noteTitle = title?.trim() ?? "";
-	const noteText = clampNoteContext(text ?? "");
-
-	if (!noteTitle && !noteText) {
-		return "";
-	}
-
-	return [
-		"The current note is attached below. Use it as the primary context for this chat.",
-		noteTitle ? `Current note title: ${noteTitle}` : "",
-		noteText
-			? `Current note content:\n${noteText}`
-			: "Current note content: (empty note)",
-	]
-		.filter(Boolean)
-		.join("\n\n");
-};
-
 const getStoredNoteContext = async ({ convexToken, noteId, workspaceId }) => {
 	if (!convexToken || !noteId || !workspaceId) {
 		return "";
@@ -343,7 +294,7 @@ const getStoredNoteContext = async ({ convexToken, noteId, workspaceId }) => {
 		"The current note is attached below. Use it as the primary context for this chat.",
 		`Current note title: ${note.title}`,
 		note.searchableText
-			? `Current note content:\n${clampNoteContext(note.searchableText)}`
+			? `Current note content:\n${clampHostedNoteContext(note.searchableText)}`
 			: "Current note content: (empty note)",
 	].join("\n\n");
 };
@@ -360,85 +311,6 @@ const getSelectedRecipe = async ({ convexToken, recipeSlug, workspaceId }) => {
 
 	return recipes.find((recipe) => recipe.slug === recipeSlug) ?? null;
 };
-
-const getRecipeContext = (selectedRecipe) => {
-	if (!selectedRecipe) {
-		return "";
-	}
-
-	return [
-		"A recipe is selected for this note chat.",
-		"Treat the selected recipe as the active task framing for the conversation.",
-		"Treat the attached note and any other provided note context as the source material to work from.",
-		"If the user's request is ambiguous, interpret it through the selected recipe first.",
-		"If the user explicitly asks for something else, follow the user's latest instruction instead.",
-		"If there is not enough source material to complete the recipe well, ask a focused follow-up question.",
-		`Selected recipe: ${selectedRecipe.name}`,
-		`Recipe prompt:\n${selectedRecipe.prompt.trim()}`,
-	].join("\n\n");
-};
-
-const getMessageText = (message) =>
-	clampWhitespace(
-		message.parts
-			.filter(
-				(part) =>
-					part.type === "text" &&
-					typeof part.text === "string" &&
-					part.text.length > 0,
-			)
-			.map((part) => part.text)
-			.join("\n\n"),
-	);
-
-const generateChatTitle = async ({ userMessage, assistantMessage }) => {
-	const userText = getMessageText(userMessage);
-	const assistantText = assistantMessage
-		? getMessageText(assistantMessage)
-		: "";
-
-	if (!userText) {
-		return "Quick chat";
-	}
-
-	try {
-		const { text } = await generateText({
-			model: openai(CHAT_TITLE_MODEL_ID),
-			system: CHAT_TITLE_SYSTEM_PROMPT,
-			prompt: buildChatTitlePrompt({
-				userText,
-				assistantText,
-			}),
-		});
-
-		return finalizeGeneratedChatTitle({
-			generatedTitle: text,
-			userText,
-			maxLength: MAX_CHAT_TITLE_LENGTH,
-		});
-	} catch (error) {
-		console.error("Failed to generate chat title", error);
-		return deriveFallbackChatTitle({
-			userText,
-			maxLength: MAX_CHAT_TITLE_LENGTH,
-		});
-	}
-};
-
-const getChatPreviewFromMessage = (message) =>
-	truncate(getMessageText(message), MAX_CHAT_PREVIEW_LENGTH);
-
-const toStoredMessage = (message) => ({
-	id: message.id || generateMessageId(),
-	role: message.role,
-	partsJson: JSON.stringify(message.parts),
-	metadataJson:
-		message.metadata === undefined
-			? undefined
-			: JSON.stringify(message.metadata),
-	text: getMessageText(message),
-	createdAt: Date.now(),
-});
 
 const fromStoredMessages = (messages) =>
 	messages.map((message) => ({
@@ -758,10 +630,10 @@ const handleChatRequest = async ({
 				workspaceId: resolvedWorkspaceId,
 				chatId: id,
 				noteId: resolvedNoteId ?? undefined,
-				preview: getChatPreviewFromMessage(lastUserMessage),
+				preview: getHostedChatPreviewFromMessage(lastUserMessage),
 				model: selectedModel.model,
 				reasoningEffort: resolvedReasoningEffort,
-				message: toStoredMessage(lastUserMessage),
+				message: toHostedStoredMessage(lastUserMessage),
 			});
 		} catch (error) {
 			console.error("Failed to persist user chat message", error);
@@ -785,12 +657,12 @@ const handleChatRequest = async ({
 					noteId: resolvedNoteId,
 					workspaceId: resolvedWorkspaceId,
 				}).catch(() =>
-					getInlineNoteContext({
+					getInlineHostedNoteContext({
 						title: noteContext?.title,
 						text: noteContext?.text,
 					}),
 				)
-			: getInlineNoteContext({
+			: getInlineHostedNoteContext({
 					title: noteContext?.title,
 					text: noteContext?.text,
 				});
@@ -799,7 +671,7 @@ const handleChatRequest = async ({
 		recipeSlug,
 		workspaceId: resolvedWorkspaceId,
 	});
-	const recipeContext = getRecipeContext(selectedRecipe);
+	const recipeContext = getHostedChatRecipeContext(selectedRecipe);
 	const userProfileContext = convexClient
 		? await convexClient
 				.query(api.userPreferences.getAiProfileContext, {})
@@ -862,21 +734,17 @@ const handleChatRequest = async ({
 		defaultTimezone: resolvedTimezone,
 		webSearchEnabled,
 	});
-	const systemPrompt = `${buildChatSystemPrompt({
+	const systemPrompt = buildHostedChatRuntimePrompt({
 		notesContext,
 		attachedNoteContext,
 		recipeContext,
 		userProfileContext: userProfileContext ?? undefined,
 		webSearchEnabled,
-	})}${coreToolPolicy.instruction ? `\n\n${coreToolPolicy.instruction}` : ""}${
-		automationContext.instruction ? `\n\n${automationContext.instruction}` : ""
-	}${localFolderContext ? `\n\n${localFolderContext}` : ""}${
-		selectedAppSourceInstructions ? `\n\n${selectedAppSourceInstructions}` : ""
-	}${
-		localFolderContext
-			? "\n\nLocal folder priority: if the user's request is about a local path, shared folder, local file, local audio, local video, local transcript, or local recording, use the local folder tools first and do not use connected app tools unless the user explicitly asks for connected app data."
-			: ""
-	}`;
+		coreToolInstruction: coreToolPolicy.instruction,
+		automationInstruction: automationContext.instruction,
+		localFolderContext,
+		selectedAppSourceInstructions,
+	});
 	const enabledTools = {
 		...coreToolPolicy.enabledTools,
 		...automationContext.tools,
@@ -911,7 +779,7 @@ const handleChatRequest = async ({
 		agent,
 		uiMessages: chatMessages,
 		originalMessages: chatMessages,
-		generateMessageId,
+		generateMessageId: generateHostedChatMessageId,
 		onFinish: async ({ responseMessage }) => {
 			logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
 
@@ -922,7 +790,7 @@ const handleChatRequest = async ({
 			try {
 				const generatedChatTitle =
 					shouldGenerateChatTitle && lastUserMessage
-						? await generateChatTitle({
+						? await generateHostedChatTitle({
 								userMessage: lastUserMessage,
 								assistantMessage: responseMessage,
 							})
@@ -932,10 +800,10 @@ const handleChatRequest = async ({
 					chatId: id,
 					noteId: resolvedNoteId ?? undefined,
 					title: generatedChatTitle,
-					preview: getChatPreviewFromMessage(responseMessage),
+					preview: getHostedChatPreviewFromMessage(responseMessage),
 					model: selectedModel.model,
 					reasoningEffort: resolvedReasoningEffort,
-					message: toStoredMessage(responseMessage),
+					message: toHostedStoredMessage(responseMessage),
 				});
 			} catch (error) {
 				console.error("Failed to persist assistant chat message", error);
@@ -970,61 +838,34 @@ const handleRealtimeTranscriptionSessionRequest = async (request, response) => {
 	}
 
 	const { lang, source, speaker } = await readJsonBody(request);
-	const language = normalizeTranscriptionLanguage(lang);
-	const requestId = crypto.randomUUID();
+	try {
+		const clientSecret = await createDesktopRealtimeClientSecret({
+			fetchImpl: fetch,
+			getHostedConvexSiteUrl: () => process.env.CONVEX_SITE_URL?.trim(),
+			getOpenAIApiKey: () => process.env.OPENAI_API_KEY,
+			lang,
+			logContext: "desktop.local_server.realtime.client_secret",
+			source,
+			speaker,
+		});
 
-	const sessionResponse = await fetch(
-		"https://api.openai.com/v1/realtime/client_secrets",
-		{
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-				"Content-Type": "application/json",
-				"X-Client-Request-Id": requestId,
+		sendJson(response, 200, {
+			clientSecret,
+		});
+	} catch (error) {
+		sendJson(
+			response,
+			error instanceof DesktopRealtimeClientSecretError
+				? error.statusCode
+				: 500,
+			{
+				error:
+					error instanceof Error
+						? error.message
+						: "Failed to create realtime transcription session.",
 			},
-			body: JSON.stringify({
-				expires_after: {
-					anchor: "created_at",
-					seconds: 600,
-				},
-				session: createDesktopRealtimeTranscriptionSession({
-					language,
-					source,
-					speaker,
-				}),
-			}),
-		},
-	);
-
-	logOpenAiResponseMetadata({
-		context: "desktop.local_server.realtime.client_secret",
-		requestId,
-		response: sessionResponse,
-	});
-
-	const payload = await sessionResponse.json().catch(() => ({}));
-
-	if (!sessionResponse.ok) {
-		sendJson(response, sessionResponse.status, {
-			error:
-				payload?.error?.message ||
-				"Failed to create realtime transcription session.",
-		});
-		return;
+		);
 	}
-
-	const clientSecret = payload?.value;
-
-	if (!clientSecret) {
-		sendJson(response, 500, {
-			error: "OpenAI did not return a client secret.",
-		});
-		return;
-	}
-
-	sendJson(response, 200, {
-		clientSecret,
-	});
 };
 
 const handleEnhanceNoteRequest = async (request, response) => {
