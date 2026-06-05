@@ -19,6 +19,7 @@ import {
 	type TranscriptUtterance,
 } from "@/lib/transcript";
 import { createTranscriptText } from "@/lib/transcript-session";
+import { TranscriptionAutoStopController } from "@/lib/transcription-auto-stop";
 import { transcriptionSessionManager } from "@/lib/transcription-session-manager";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -67,9 +68,9 @@ export const useNoteTranscriptSession = ({
 	const previousSpeechListeningRef = React.useRef(false);
 	const lastQueuedAutoStartKeyRef = React.useRef<string | null>(null);
 	const hasHandledAutoStartRef = React.useRef(false);
-	const shouldStopWhenMeetingEndsRef = React.useRef(false);
-	const hasSeenMeetingSignalRef = React.useRef(false);
-	const hasRequestedAutomaticStopRef = React.useRef(false);
+	const transcriptionAutoStopStateRef = React.useRef(
+		new TranscriptionAutoStopController(),
+	);
 	const hasRestoredTranscriptDraftRef = React.useRef(false);
 	const hasHydratedStoredTranscriptSessionRef = React.useRef(false);
 	const hasLoadedTranscriptDraftContentRef = React.useRef(false);
@@ -240,9 +241,17 @@ export const useNoteTranscriptSession = ({
 		}
 
 		lastQueuedAutoStartKeyRef.current = nextAutoStartKey;
+		transcriptionAutoStopStateRef.current.queueMeetingAutoStart({
+			enabled: stopTranscriptionWhenMeetingEnds === true && isDesktopRuntime(),
+		});
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setPendingAutoStartKey(nextAutoStartKey);
-	}, [autoStartTranscription, noteId, transcriptionLanguage]);
+	}, [
+		autoStartTranscription,
+		noteId,
+		stopTranscriptionWhenMeetingEnds,
+		transcriptionLanguage,
+	]);
 
 	React.useEffect(() => {
 		if (!pendingAutoStartKey) {
@@ -264,10 +273,9 @@ export const useNoteTranscriptSession = ({
 		// Latch meeting-controlled auto-stop for the active capture even after
 		// the route/query state is cleaned up post-start.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
-		if (stopTranscriptionWhenMeetingEnds && isDesktopRuntime()) {
-			// react-doctor-disable-next-line react-doctor/no-event-handler
-			shouldStopWhenMeetingEndsRef.current = true;
-		}
+		transcriptionAutoStopStateRef.current.latchMeetingAutoStop({
+			enabled: stopTranscriptionWhenMeetingEnds === true && isDesktopRuntime(),
+		});
 	}, [stopTranscriptionWhenMeetingEnds]);
 
 	React.useEffect(() => {
@@ -276,25 +284,14 @@ export const useNoteTranscriptSession = ({
 		}
 
 		return onDesktopMeetingDetectionState((state) => {
-			if (state.hasMeetingSignal) {
-				hasSeenMeetingSignalRef.current = true;
-				shouldStopWhenMeetingEndsRef.current = true;
-				return;
-			}
-
 			if (
-				!shouldStopWhenMeetingEndsRef.current ||
-				!hasSeenMeetingSignalRef.current ||
-				!isSpeechListening ||
-				hasRequestedAutomaticStopRef.current ||
-				state.hasMeetingSignal
+				transcriptionAutoStopStateRef.current.observeMeetingSignal({
+					hasMeetingSignal: state.hasMeetingSignal,
+					isSpeechListening,
+				})
 			) {
-				return;
+				void transcriptionSessionManager.controller.stop();
 			}
-
-			shouldStopWhenMeetingEndsRef.current = false;
-			hasRequestedAutomaticStopRef.current = true;
-			void transcriptionSessionManager.controller.stop();
 		});
 	}, [isSpeechListening]);
 
@@ -394,14 +391,12 @@ export const useNoteTranscriptSession = ({
 	const markSpeechListeningStarted = React.useCallback(() => {
 		listeningStartedAtRef.current = Date.now();
 		setPendingGenerateTranscript("");
-		hasRequestedAutomaticStopRef.current = false;
+		transcriptionAutoStopStateRef.current.resetRequest();
 		lastAudioActivityAtRef.current = Date.now();
 	}, []);
 
 	const markSpeechListeningStopped = React.useCallback(() => {
-		shouldStopWhenMeetingEndsRef.current = false;
-		hasSeenMeetingSignalRef.current = false;
-		hasRequestedAutomaticStopRef.current = false;
+		transcriptionAutoStopStateRef.current.reset();
 		const completedTranscript = createTranscriptText(
 			transcriptUtterancesRef.current,
 		);
@@ -695,16 +690,14 @@ export const useNoteTranscriptSession = ({
 
 		const intervalId = window.setInterval(() => {
 			if (
-				hasRequestedAutomaticStopRef.current ||
+				transcriptionAutoStopStateRef.current.hasRequestedStop() ||
 				Date.now() - (lastAudioActivityAtRef.current ?? Date.now()) <
 					granolaIdleStopMs
 			) {
 				return;
 			}
 
-			shouldStopWhenMeetingEndsRef.current = false;
-			hasSeenMeetingSignalRef.current = false;
-			hasRequestedAutomaticStopRef.current = true;
+			transcriptionAutoStopStateRef.current.markRequested();
 			void transcriptionSessionManager.controller.stop();
 		}, granolaIdleCheckIntervalMs);
 

@@ -95,6 +95,18 @@ On macOS, live transcription must use the desktop transcription controller. It
 must not silently fall back to the browser transcription controller when the
 packaged desktop bridge is missing or stale.
 
+Desktop realtime transcription is a long-lived native capture session. Starting
+the microphone transport must schedule the realtime session rollover, and
+stopping a transport must only commit the OpenAI input audio buffer when there
+is a known live realtime item to finalize. Empty-buffer commits are not a valid
+stop path; they create recoverable-looking OpenAI errors that can collapse into
+start/stop loops.
+
+Meeting-controlled and idle-controlled automatic stops must be modeled as
+explicit transcription auto-stop state in the renderer, not scattered hook
+refs. A newly auto-started note must not inherit stale meeting-detection state
+from a previous note or from a pre-listening meeting signal.
+
 Proxy response handling must match the body strategy. Streamed routes may pipe
 the upstream body with upstream headers. Buffered or decoded proxy responses
 must emit fresh body headers and must not forward stale `content-encoding`,
@@ -134,6 +146,8 @@ The verifier must fail if:
 
 `bun run check`, `bun run typecheck`, targeted tests, and
 `bun --filter=desktop run verify:package` enforce this document's invariants.
+Desktop realtime transcription changes must include the desktop transport tests
+for stop-flush behavior and renderer auto-stop tests for meeting/idle state.
 
 Repeated architecture failures should become scripts, lint rules,
 package-boundary checks, or tests instead of more prose.

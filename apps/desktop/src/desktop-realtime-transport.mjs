@@ -21,6 +21,7 @@ export const createDesktopRealtimeTransport = ({
 	handleTransportEvent,
 	logDesktopTurnDebug,
 	subscribeToCaptureEvents,
+	WebSocketImpl = WebSocket,
 }) => {
 	const sessions = new Map();
 
@@ -74,11 +75,14 @@ export const createDesktopRealtimeTransport = ({
 	};
 
 	const flushOnStop = async (session, getLiveItemId) => {
-		if (session.socket.readyState !== WebSocket.OPEN || session.stopFlush) {
+		if (session.socket.readyState !== WebSocketImpl.OPEN || session.stopFlush) {
 			return;
 		}
 
 		const targetItemId = getLiveItemId(session.speaker);
+		if (!targetItemId) {
+			return;
+		}
 
 		console.info("[desktop-realtime] flushing transport before stop", {
 			profile: session.profile,
@@ -139,7 +143,7 @@ export const createDesktopRealtimeTransport = ({
 			session.socket.close();
 
 			setTimeout(() => {
-				if (session.socket.readyState !== WebSocket.CLOSED) {
+				if (session.socket.readyState !== WebSocketImpl.CLOSED) {
 					session.socket.terminate();
 				}
 				finalize();
@@ -195,7 +199,7 @@ export const createDesktopRealtimeTransport = ({
 		return await new Promise((resolvePromise, rejectPromise) => {
 			let didResolve = false;
 			const resampleChunk = createPcm16Resampler(captureSampleRate, 24_000);
-			const socket = new WebSocket(
+			const socket = new WebSocketImpl(
 				"wss://api.openai.com/v1/realtime?intent=transcription",
 				{
 					headers: {
@@ -241,7 +245,7 @@ export const createDesktopRealtimeTransport = ({
 			});
 
 			const flushPendingAudio = () => {
-				if (socket.readyState !== WebSocket.OPEN) {
+				if (socket.readyState !== WebSocketImpl.OPEN) {
 					return;
 				}
 
@@ -291,7 +295,7 @@ export const createDesktopRealtimeTransport = ({
 						return;
 					}
 
-					if (socket.readyState !== WebSocket.OPEN) {
+					if (socket.readyState !== WebSocketImpl.OPEN) {
 						session.pendingAudio.push(audio);
 						if (
 							session.pendingAudio.length >

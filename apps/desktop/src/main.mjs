@@ -72,6 +72,7 @@ const desktopNavigationChannel = "app:navigate";
 const maxRecoveryAttempts = 3;
 const recoveryBackoffMs = [750, 1_500, 3_000];
 const systemAudioAttachRetryBackoffMs = [750, 1_500, 3_000];
+const realtimeSessionRolloverMs = 29 * 60 * 1000;
 const shouldLogDesktopTurnDebug =
 	app.isPackaged !== true ||
 	process.env.GRANERI_ENABLE_TRANSCRIPTION_DEBUG === "1";
@@ -798,6 +799,19 @@ const clearTranscriptionRolloverTimeout = () => {
 
 	clearTimeout(transcriptionRolloverTimeoutId);
 	transcriptionRolloverTimeoutId = null;
+};
+
+const scheduleTranscriptionRollover = () => {
+	clearTranscriptionRolloverTimeout();
+
+	transcriptionRolloverTimeoutId = setTimeout(() => {
+		transcriptionRolloverTimeoutId = null;
+		void handleDesktopTransportInterrupted({
+			message: "Realtime transcription session reached the rollover window.",
+			planned: true,
+			speaker: "you",
+		});
+	}, realtimeSessionRolloverMs);
 };
 
 const isCurrentTranscriptionOperation = (operationId) =>
@@ -1763,11 +1777,41 @@ const startDesktopTranscriptionSession = async () => {
 	return await startPromise;
 };
 
+const isDesktopTranscriptionSessionIdle = () =>
+	latestTranscriptionSessionState.phase === "idle" &&
+	!latestTranscriptionSessionState.isConnecting &&
+	!latestTranscriptionSessionState.isListening &&
+	!transcriptionSpeakers.them.transportActive &&
+	!transcriptionSpeakers.you.transportActive;
+
+const resetIdleDesktopTranscriptionSession = ({
+	resetError,
+	resetRecovery,
+}) => {
+	transcriptionRecoveryAttempt = 0;
+	if (resetError || resetRecovery) {
+		patchTranscriptionSessionState({
+			error: resetError ? null : latestTranscriptionSessionState.error,
+			recoveryStatus: resetRecovery
+				? createTranscriptRecoveryStatus()
+				: latestTranscriptionSessionState.recoveryStatus,
+		});
+	}
+};
+
 const stopDesktopTranscriptionSession = async ({
 	preserveUtterances = true,
 	resetError = false,
 	resetRecovery = true,
 } = {}) => {
+	if (isDesktopTranscriptionSessionIdle()) {
+		resetIdleDesktopTranscriptionSession({
+			resetError,
+			resetRecovery,
+		});
+		return;
+	}
+
 	if (transcriptionPendingStopPromise) {
 		return await transcriptionPendingStopPromise;
 	}
