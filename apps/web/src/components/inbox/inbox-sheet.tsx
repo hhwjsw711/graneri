@@ -210,7 +210,7 @@ export function InboxSheet({
 						onTogglePinned={togglePinned}
 					/>
 				</div>
-				<div className="min-h-0 flex-1">
+				<div className="flex min-h-0 flex-1 flex-col">
 					<InboxPanel
 						view={view}
 						currentUser={currentUser}
