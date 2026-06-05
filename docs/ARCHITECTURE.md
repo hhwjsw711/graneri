@@ -125,12 +125,13 @@ package imported by packaged desktop runtime code through `apps/desktop`,
 The desktop build copies runtime source into `.bundle-root`. Packaged runtime
 code must not rely on source-tree imports outside `.bundle-root`.
 
-Desktop packages must keep the app runtime unpacked under
-`Contents/Resources/app`; do not move it into `app.asar`. Electron's ASAR
-filesystem adapter emits Node `DEP0180` warnings during packaged startup, and
-Graneri treats runtime warnings as defects. Native helpers and bundled media
-tools resolve from `.bundle-root/apps/desktop/dist/bin` inside that unpacked
-runtime.
+Desktop packages must keep the app runtime in `Contents/Resources/app.asar`.
+Only native helpers and bundled media tools may be unpacked into
+`Contents/Resources/app.asar.unpacked` through targeted `asarUnpack` rules.
+Runtime helper resolution must prefer the unpacked mirror before development
+helper paths. Electron currently emits a terminal-only Node `DEP0180` warning
+from its internal ASAR filesystem adapter (`electron/electron#47390`); do not
+disable ASAR or add app-level suppression for that upstream warning.
 
 Desktop auth cookies persist in an explicit JSON store under Electron's
 `userData` directory with owner-only file permissions. Packaged OSS builds must
