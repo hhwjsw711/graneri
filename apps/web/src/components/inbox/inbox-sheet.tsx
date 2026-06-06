@@ -48,6 +48,7 @@ import {
 } from "@workspace/ui/lib/panel-dimensions";
 import { cn } from "@workspace/ui/lib/utils";
 import { useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import {
 	Archive,
 	Check,
@@ -91,6 +92,7 @@ import type { Id } from "../../../../../convex/_generated/dataModel";
 const JiraLogo = Icons.jiraLogo;
 
 type InboxView = "all" | "unread" | "archived";
+type InboxItem = FunctionReturnType<typeof api.inboxItems.list>[number];
 
 const INBOX_VIEW_OPTIONS: Array<{
 	value: InboxView;
@@ -112,6 +114,7 @@ export type InboxSheetProps = {
 	onOpenChange: (open: boolean) => void;
 	sidebarState: "expanded" | "collapsed";
 	isMobile: boolean;
+	initialAllItems?: InboxItem[];
 	currentUser: {
 		name: string;
 		email: string;
@@ -127,6 +130,7 @@ export function InboxSheet({
 	onOpenChange,
 	sidebarState,
 	isMobile,
+	initialAllItems,
 	currentUser,
 	desktopSafeTop = false,
 	onMarkItemsRead,
@@ -213,6 +217,7 @@ export function InboxSheet({
 				<div className="flex min-h-0 flex-1 flex-col">
 					<InboxPanel
 						view={view}
+						initialAllItems={initialAllItems}
 						currentUser={currentUser}
 						markAllReadRequestId={markAllReadRequestId}
 						archiveReadRequestId={archiveReadRequestId}
@@ -267,6 +272,7 @@ export function InboxSheet({
 				/>
 				<InboxPanel
 					view={view}
+					initialAllItems={initialAllItems}
 					currentUser={currentUser}
 					markAllReadRequestId={markAllReadRequestId}
 					archiveReadRequestId={archiveReadRequestId}
@@ -554,6 +560,7 @@ function InboxPaneHeader({
 
 const InboxPanel = React.memo(function InboxPanel({
 	view,
+	initialAllItems,
 	currentUser,
 	markAllReadRequestId,
 	archiveReadRequestId,
@@ -561,6 +568,7 @@ const InboxPanel = React.memo(function InboxPanel({
 	onMarkItemsRead,
 }: {
 	view: InboxView;
+	initialAllItems?: InboxItem[];
 	currentUser: {
 		name: string;
 		email: string;
@@ -572,10 +580,22 @@ const InboxPanel = React.memo(function InboxPanel({
 	onMarkItemsRead?: (itemIds: string[]) => void;
 }) {
 	const activeWorkspaceId = useActiveWorkspaceId();
-	const items = useQuery(
+	const queriedItems = useQuery(
 		api.inboxItems.list,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, view } : "skip",
 	);
+	const initialItems = React.useMemo(() => {
+		if (!initialAllItems) {
+			return [];
+		}
+
+		if (view === "unread") {
+			return initialAllItems.filter((item) => !item.isRead);
+		}
+
+		return view === "all" ? initialAllItems : [];
+	}, [initialAllItems, view]);
+	const items = queriedItems ?? initialItems;
 	const markRead = useMutation(api.inboxItems.markRead);
 	const [optimisticReadItemIds, setOptimisticReadItemIds] = React.useState(
 		() => new Set<string>(),
@@ -584,7 +604,7 @@ const InboxPanel = React.memo(function InboxPanel({
 		React.useState(() => new Set<string>());
 
 	React.useEffect(() => {
-		if (markAllReadRequestId === 0 || !items) {
+		if (markAllReadRequestId === 0) {
 			return;
 		}
 
@@ -609,7 +629,7 @@ const InboxPanel = React.memo(function InboxPanel({
 	}, [activeWorkspaceId, view]);
 
 	React.useEffect(() => {
-		if (archiveReadRequestId === 0 || !items || view === "archived") {
+		if (archiveReadRequestId === 0 || view === "archived") {
 			return;
 		}
 
@@ -629,7 +649,7 @@ const InboxPanel = React.memo(function InboxPanel({
 	}, [archiveReadRequestId, items, optimisticReadItemIds, view]);
 
 	React.useEffect(() => {
-		if (clearArchivedRequestId === 0 || !items || view !== "archived") {
+		if (clearArchivedRequestId === 0 || view !== "archived") {
 			return;
 		}
 
@@ -710,10 +730,6 @@ const InboxPanel = React.memo(function InboxPanel({
 				</Empty>
 			</ScrollArea>
 		);
-	}
-
-	if (!items) {
-		return null;
 	}
 
 	if (items.length === 0) {

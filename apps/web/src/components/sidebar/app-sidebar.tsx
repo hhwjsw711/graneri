@@ -11,7 +11,7 @@ import { useQuery } from "convex/react";
 import { FileText, MessageCircle } from "lucide-react";
 import * as React from "react";
 import type { AutomationListItem } from "@/components/automations/automation-types";
-import { InboxSheetEntry } from "@/components/inbox/inbox-sheet-entry";
+import { InboxSheet } from "@/components/inbox/inbox-sheet";
 import { NavMain } from "@/components/nav/nav-main";
 import { NavNotes } from "@/components/nav/nav-notes";
 import { NavProjects } from "@/components/nav/nav-projects";
@@ -55,6 +55,10 @@ type AppSidebarNavItem = (typeof SIDEBAR_NAVIGATION)[number] & {
 	isActive: boolean;
 	badge?: number;
 };
+
+type SidebarInboxItem = NonNullable<
+	ReturnType<typeof useAppSidebarModel>["inboxItems"]
+>[number];
 
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
 	workspaces: Array<WorkspaceRecord>;
@@ -1061,7 +1065,7 @@ const AppSidebarInboxSheet = React.memo(function AppSidebarInboxSheet({
 	user,
 }: {
 	desktopSafeTop: boolean;
-	inboxItems: Array<{ _id: unknown }> | undefined;
+	inboxItems: SidebarInboxItem[] | undefined;
 	inboxOpen: boolean;
 	isMobile: boolean;
 	onInboxOpenChange: (open: boolean) => void;
@@ -1082,13 +1086,14 @@ const AppSidebarInboxSheet = React.memo(function AppSidebarInboxSheet({
 	}, [inboxItems, onMarkInboxItemsRead]);
 
 	return (
-		<InboxSheetEntry
+		<InboxSheet
 			open={inboxOpen}
 			onOpenChange={onInboxOpenChange}
 			sidebarState={sidebarState}
 			isMobile={isMobile}
 			desktopSafeTop={desktopSafeTop}
 			currentUser={user}
+			initialAllItems={inboxItems}
 			onMarkItemsRead={onMarkInboxItemsRead}
 			onMarkAllRead={handleMarkAllRead}
 		/>
