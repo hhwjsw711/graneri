@@ -32,6 +32,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import { Kbd } from "@workspace/ui/components/kbd";
 import {
 	Popover,
 	PopoverAnchor,
@@ -1178,10 +1179,11 @@ const useAppShellState = ({
 	);
 
 	const handleCreateNote = React.useCallback(
-		(options?: {
+		(options: {
 			autoStartCapture?: boolean;
 			calendarEvent?: UpcomingCalendarEvent | null;
 			captureRequestId?: string | null;
+			projectId: Id<"projects"> | null;
 			stopCaptureWhenMeetingEnds?: boolean;
 		}) => {
 			if (creatingNoteRef.current) {
@@ -1189,14 +1191,15 @@ const useAppShellState = ({
 			}
 
 			creatingNoteRef.current = true;
-			const shouldStartCapture = options?.autoStartCapture === true;
+			const shouldStartCapture = options.autoStartCapture === true;
 			const captureRequestId = getNoteCaptureRequestIdForAutoStart({
 				autoStartCapture: shouldStartCapture,
-				captureRequestId: options?.captureRequestId,
+				captureRequestId: options.captureRequestId,
 			});
 			const shouldStopCaptureWhenMeetingEnds =
-				options?.stopCaptureWhenMeetingEnds === true;
-			const calendarEvent = options?.calendarEvent ?? null;
+				options.stopCaptureWhenMeetingEnds === true;
+			const calendarEvent = options.calendarEvent ?? null;
+			const projectId = options.projectId;
 			const scheduledAutoStartAt =
 				!shouldStartCapture && calendarEvent ? calendarEvent.startAt : null;
 
@@ -1219,7 +1222,10 @@ const useAppShellState = ({
 							event: calendarEvent,
 						}),
 					})
-				: createNote({ workspaceId: resolvedActiveWorkspaceId });
+				: createNote({
+						workspaceId: resolvedActiveWorkspaceId,
+						projectId,
+					});
 
 			void createNotePromise
 				.then((noteId) => {
@@ -1328,6 +1334,7 @@ const useAppShellState = ({
 				autoStartCapture: shouldAutoStartNoteCapture,
 				calendarEvent: pendingCalendarEvent,
 				captureRequestId: noteCaptureRequestId,
+				projectId: null,
 				stopCaptureWhenMeetingEnds: shouldStopNoteCaptureWhenMeetingEnds,
 			});
 		}
@@ -1391,7 +1398,18 @@ const useAppShellState = ({
 			handleCreateNote({
 				autoStartCapture: options?.autoStartCapture,
 				calendarEvent: event,
+				projectId: null,
 				stopCaptureWhenMeetingEnds: options?.stopCaptureWhenMeetingEnds ?? true,
+			});
+		},
+		[handleCreateNote],
+	);
+
+	const handleCreateNoteInsideProject = React.useCallback(
+		(projectId: Id<"projects">) => {
+			handleCreateNote({
+				autoStartCapture: true,
+				projectId,
 			});
 		},
 		[handleCreateNote],
@@ -1637,6 +1655,7 @@ const useAppShellState = ({
 		handleChatPersisted,
 		handleChatRemoved,
 		handleCreateNote,
+		handleCreateNoteInsideProject,
 		handleCreateNoteFromChatResponse,
 		handleCreateAutomationOpen,
 		handleCreateChatAutomationOpen,
@@ -1915,9 +1934,10 @@ function AppShellHeader({
 					<TooltipContent side="bottom" align="start" sideOffset={8}>
 						<div className="flex items-center gap-2">
 							<span>Toggle sidebar</span>
-							<kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-								<span className="text-xs">⌘</span>B
-							</kbd>
+							<Kbd className="border border-border/60 bg-muted px-1.5 font-mono text-[10px] opacity-100">
+								<span className="text-xs">⌘</span>
+								<span>B</span>
+							</Kbd>
 						</div>
 					</TooltipContent>
 				</Tooltip>
@@ -2764,6 +2784,7 @@ export function AuthenticatedAppShell({
 					onNoteTitleChange={controller.setCurrentNoteTitle}
 					onNoteTrashed={controller.handleNoteTrashed}
 					onCreateNote={controller.handleQuickNote}
+					onCreateNoteInsideProject={controller.handleCreateNoteInsideProject}
 				/>
 				<AppShellInset reserveRightSidebar={controller.currentView === "note"}>
 					<AppShellHeader

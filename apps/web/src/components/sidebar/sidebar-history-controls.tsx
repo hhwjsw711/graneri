@@ -12,14 +12,14 @@ function HistoryButton({
 	"aria-label": ariaLabel,
 	disabled,
 	icon: Icon,
+	keyLabel,
 	onClick,
-	shortcut,
 }: {
 	"aria-label": string;
 	disabled: boolean;
 	icon: LucideIcon;
+	keyLabel: string;
 	onClick: () => void;
-	shortcut: string;
 }) {
 	return (
 		<Tooltip>
@@ -39,7 +39,10 @@ function HistoryButton({
 			<TooltipContent side="bottom" align="center" sideOffset={8}>
 				<div className="flex items-center gap-2">
 					<span>{ariaLabel}</span>
-					<Kbd className="h-5 px-1.5 text-[10px]">{shortcut}</Kbd>
+					<Kbd className="h-5 px-1.5 text-[10px]">
+						<span>⌘</span>
+						<span>{keyLabel}</span>
+					</Kbd>
 				</div>
 			</TooltipContent>
 		</Tooltip>
@@ -58,15 +61,15 @@ export function SidebarHistoryControls() {
 				aria-label="Back"
 				disabled={!navigationState.canGoBack}
 				icon={ArrowLeft}
+				keyLabel="["
 				onClick={() => window.history.back()}
-				shortcut="⌘["
 			/>
 			<HistoryButton
 				aria-label="Forward"
 				disabled={!navigationState.canGoForward}
 				icon={ArrowRight}
+				keyLabel="]"
 				onClick={() => window.history.forward()}
-				shortcut="⌘]"
 			/>
 		</div>
 	);

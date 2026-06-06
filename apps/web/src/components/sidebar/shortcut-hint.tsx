@@ -14,7 +14,7 @@ export function ShortcutHint({
 			className={cn("ml-auto shrink-0 font-mono", className)}
 		>
 			<span className="text-xs">⌘</span>
-			{keyLabel}
+			<span>{keyLabel}</span>
 		</Kbd>
 	);
 }

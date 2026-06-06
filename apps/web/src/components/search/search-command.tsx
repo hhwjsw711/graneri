@@ -632,10 +632,11 @@ function SearchCommandKeyboardHints({
 			<div className="flex items-center gap-2">
 				{searchKind === "chats" ? (
 					<Kbd aria-hidden="true" className={kbdClassName}>
-						⌘K
+						<span>⌘</span>
+						<span>K</span>
 					</Kbd>
 				) : (
-					<Kbd aria-hidden="true" className={cn(kbdClassName, "flex gap-1")}>
+					<Kbd aria-hidden="true" className={kbdClassName}>
 						<span>⌘</span>
 						<span>⌥</span>
 						<span>K</span>

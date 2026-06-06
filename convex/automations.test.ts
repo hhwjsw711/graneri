@@ -175,6 +175,7 @@ test("creating a note automation does not seed a chat transcript", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 	const noteId = await asOwner.mutation(api.notes.create, {
 		workspaceId,
+		projectId: null,
 	});
 	await asOwner.mutation(api.notes.save, {
 		workspaceId,

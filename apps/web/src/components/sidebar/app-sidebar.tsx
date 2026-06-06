@@ -90,6 +90,7 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	onCreateNote: () => void;
+	onCreateNoteInsideProject: (projectId: Id<"projects">) => void;
 };
 
 type SidebarUiState = {
@@ -529,6 +530,7 @@ export function AppSidebar({
 	onNoteTitleChange,
 	onNoteTrashed,
 	onCreateNote,
+	onCreateNoteInsideProject,
 	...props
 }: AppSidebarProps) {
 	const { isMobile, setOpenMobile, state } = useSidebarShell();
@@ -588,6 +590,7 @@ export function AppSidebar({
 					onAddAutomation={onAddAutomation}
 					notes={notes}
 					onCreateNote={model.handleCreateNote}
+					onCreateNoteInsideProject={onCreateNoteInsideProject}
 					onNotePrefetch={onNotePrefetch}
 					onNoteSelect={model.handleNoteSelect}
 					onNoteTitleChange={onNoteTitleChange}
@@ -801,6 +804,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	onAddAutomation,
 	notes,
 	onCreateNote,
+	onCreateNoteInsideProject,
 	onNotePrefetch,
 	onNoteSelect,
 	onNoteTitleChange,
@@ -822,6 +826,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	onAddAutomation?: (chatId: string) => void;
 	notes: Array<Doc<"notes">> | undefined;
 	onCreateNote: () => void;
+	onCreateNoteInsideProject: (projectId: Id<"projects">) => void;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
 	onNoteTitleChange?: (title: string) => void;
@@ -908,6 +913,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 				onNoteSelect={handleProjectNoteSelect}
 				onNoteTitleChange={onNoteTitleChange}
 				onNoteTrashed={onNoteTrashed}
+				onCreateNoteInsideProject={onCreateNoteInsideProject}
 			/>
 		</SidebarContent>
 	);

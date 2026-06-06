@@ -26,7 +26,6 @@ import {
 	HoverCardContent,
 	HoverCardTrigger,
 } from "@workspace/ui/components/hover-card";
-import { Kbd } from "@workspace/ui/components/kbd";
 import {
 	Popover,
 	PopoverContent,
@@ -83,6 +82,7 @@ import {
 	SearchCommand,
 	type SearchCommandItem,
 } from "@/components/search/search-command";
+import { ShortcutHint } from "@/components/sidebar/shortcut-hint";
 import {
 	extractFileParts,
 	extractGeneratedArtifacts,
@@ -705,13 +705,10 @@ function SummaryAddPopover({
 function SummaryAddShortcut({ keyLabel }: { keyLabel: string }) {
 	return (
 		<CommandShortcut className="opacity-0 transition-opacity duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] group-hover/summary-add-item:opacity-100 group-focus-visible/summary-add-item:opacity-100">
-			<Kbd
-				aria-hidden="true"
-				className="border border-border/60 bg-muted px-1.5 font-mono"
-			>
-				<span className="text-xs">⌘</span>
-				{keyLabel}
-			</Kbd>
+			<ShortcutHint
+				keyLabel={keyLabel}
+				className="border border-border/60 bg-muted px-1.5"
+			/>
 		</CommandShortcut>
 	);
 }

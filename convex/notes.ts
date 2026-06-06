@@ -656,18 +656,22 @@ export const getShared = query({
 export const create = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
+		projectId: v.union(v.id("projects"), v.null()),
 	},
 	returns: v.id("notes"),
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
 		const ownerTokenIdentifier = identity.tokenIdentifier;
 		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
+		if (args.projectId) {
+			await requireOwnedProject(ctx, args.projectId, args.workspaceId);
+		}
 		const now = Date.now();
 
 		return await ctx.db.insert("notes", {
 			ownerTokenIdentifier,
 			workspaceId: args.workspaceId,
-			projectId: undefined,
+			projectId: args.projectId ?? undefined,
 			authorName: getAuthorName(identity),
 			isStarred: false,
 			starredSortOrder: now,

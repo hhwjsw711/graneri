@@ -579,6 +579,7 @@ function StarredProjectItem({
 			onNoteTitleChange={onNoteTitleChange}
 			onNoteTrashed={onNoteTrashed}
 			onOpenChange={setOpen}
+			projectRowActions={null}
 			sortable={sortable}
 		/>
 	);

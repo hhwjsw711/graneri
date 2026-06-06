@@ -35,7 +35,10 @@ const createWorkspace = async () => {
 
 test("starred.reorder persists mixed starred item order", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
-	const noteId = await asOwner.mutation(api.notes.create, { workspaceId });
+	const noteId = await asOwner.mutation(api.notes.create, {
+		workspaceId,
+		projectId: null,
+	});
 	await asOwner.mutation(api.notes.toggleStar, { workspaceId, id: noteId });
 	const project = await asOwner.mutation(api.projects.create, {
 		workspaceId,

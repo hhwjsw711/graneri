@@ -155,6 +155,7 @@ type NavProjectsProps = {
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	onPrefetchNote: (noteId: Id<"notes">) => void;
+	onCreateNoteInsideProject: (projectId: Id<"projects">) => void;
 	projects: Array<Doc<"projects">> | undefined;
 	recordingNoteId?: Id<"notes"> | null;
 	workspaceId: Id<"workspaces"> | null;
@@ -171,6 +172,7 @@ type ProjectSidebarItemProps = {
 	onPrefetchNote: (noteId: Id<"notes">) => void;
 	open: boolean;
 	project: Doc<"projects">;
+	projectRowActions: React.ReactNode;
 	recordingNoteId: Id<"notes"> | null;
 	sortable?: SidebarSortableBindings;
 	workspaceId: Id<"workspaces"> | null;
@@ -352,6 +354,7 @@ export function NavProjects({
 	onNoteSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
+	onCreateNoteInsideProject,
 }: NavProjectsProps) {
 	const [state, dispatch] = React.useReducer(
 		navProjectsReducer,
@@ -570,6 +573,7 @@ export function NavProjects({
 						onNoteSelect={onNoteSelect}
 						onNoteTitleChange={onNoteTitleChange}
 						onNoteTrashed={onNoteTrashed}
+						onCreateNoteInsideProject={onCreateNoteInsideProject}
 						onOpenChange={(projectId, open) =>
 							dispatch({
 								type: "setProjectOpen",
@@ -728,6 +732,7 @@ function ProjectSidebarList({
 	onNoteSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
+	onCreateNoteInsideProject,
 	onOpenChange,
 	onPrefetchNote,
 	onReorder,
@@ -743,6 +748,7 @@ function ProjectSidebarList({
 	onNoteSelect: (noteId: Id<"notes">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
+	onCreateNoteInsideProject: (projectId: Id<"projects">) => void;
 	onOpenChange: (projectId: Id<"projects">, open: boolean) => void;
 	onPrefetchNote: (noteId: Id<"notes">) => void;
 	onReorder: (projectIds: Array<Id<"projects">>) => void;
@@ -795,6 +801,15 @@ function ProjectSidebarList({
 						onNoteTitleChange={onNoteTitleChange}
 						onNoteTrashed={onNoteTrashed}
 						onOpenChange={(open) => onOpenChange(project._id, open)}
+						projectRowActions={
+							<ProjectAddNoteButton
+								projectName={project.name}
+								workspaceId={workspaceId}
+								onCreateNoteInsideProject={() =>
+									onCreateNoteInsideProject(project._id)
+								}
+							/>
+						}
 					/>
 				);
 			})}
@@ -823,6 +838,7 @@ export function ProjectSidebarItem({
 	onNoteTitleChange,
 	onNoteTrashed,
 	onOpenChange,
+	projectRowActions,
 	sortable,
 }: ProjectSidebarItemProps) {
 	const hasNotes = notes.length > 0;
@@ -1074,6 +1090,7 @@ export function ProjectSidebarItem({
 							dispatch({ type: "setMenuOpen", value: false });
 							dispatch({ type: "setConfirmOpen", value: true });
 						}}
+						rowActions={projectRowActions}
 					/>
 					<ProjectSidebarContent
 						hasNotes={hasNotes}
@@ -1178,6 +1195,7 @@ function ProjectSidebarRow({
 	onRenameCommit,
 	onRenameCancel,
 	onDeleteSelect,
+	rowActions,
 }: {
 	projectName: string;
 	hasNotes: boolean;
@@ -1201,13 +1219,14 @@ function ProjectSidebarRow({
 	onRenameCommit: () => void;
 	onRenameCancel: () => void;
 	onDeleteSelect: () => void;
+	rowActions: React.ReactNode;
 }) {
 	return (
 		<Popover open={renameOpen} onOpenChange={onRenameOpenChange}>
 			<PopoverAnchor asChild>
 				<div className="group/project-row relative">
 					<SidebarMenuButton
-						className="pr-8"
+						className="pr-14"
 						aria-expanded={isOpen}
 						onClick={onToggleOpen}
 						{...sortableButtonProps}
@@ -1239,6 +1258,7 @@ function ProjectSidebarRow({
 						onMoveNotesToTrash={onMoveNotesToTrash}
 						onDeleteSelect={onDeleteSelect}
 					/>
+					{rowActions}
 				</div>
 			</PopoverAnchor>
 			<PopoverContent
@@ -1283,6 +1303,39 @@ function ProjectSidebarRow({
 	);
 }
 
+function ProjectAddNoteButton({
+	projectName,
+	workspaceId,
+	onCreateNoteInsideProject,
+}: {
+	projectName: string;
+	workspaceId: Id<"workspaces"> | null;
+	onCreateNoteInsideProject: () => void;
+}) {
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<SidebarMenuAction
+					className="right-1 pointer-events-none cursor-pointer opacity-0 transition-opacity group-hover/project-row:pointer-events-auto group-hover/project-row:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+					aria-label={`Add a note inside ${projectName}`}
+					disabled={!workspaceId}
+					onPointerDown={(event) => {
+						event.stopPropagation();
+					}}
+					onClick={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						onCreateNoteInsideProject();
+					}}
+				>
+					<Plus />
+				</SidebarMenuAction>
+			</TooltipTrigger>
+			<TooltipContent side="right">Add a note inside</TooltipContent>
+		</Tooltip>
+	);
+}
+
 function ProjectActionsMenu({
 	projectName,
 	hasNotes,
@@ -1312,7 +1365,7 @@ function ProjectActionsMenu({
 		<DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
 			<DropdownMenuTrigger asChild>
 				<SidebarMenuAction
-					className="pointer-events-none cursor-pointer opacity-0 transition-opacity group-hover/project-row:pointer-events-auto group-hover/project-row:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+					className="right-7 pointer-events-none cursor-pointer opacity-0 transition-opacity group-hover/project-row:pointer-events-auto group-hover/project-row:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
 					aria-label={`Open actions for ${projectName}`}
 					onPointerDown={(event) => {
 						event.stopPropagation();

@@ -325,6 +325,7 @@ test("notes.create and notes.rename preserve empty titles", async () => {
 
 	const noteId = await asOwner.mutation(api.notes.create, {
 		workspaceId,
+		projectId: null,
 	});
 	const createdNote = await asOwner.query(api.notes.get, {
 		id: noteId,
@@ -347,6 +348,27 @@ test("notes.create and notes.rename preserve empty titles", async () => {
 	expect(renamed.title).toBe("");
 	expect(renamedNote).not.toBeNull();
 	expect(renamedNote?.title).toBe("");
+});
+
+test("notes.create can place a note inside a project", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+	const project = await asOwner.mutation(api.projects.create, {
+		workspaceId,
+		name: "Product",
+	});
+
+	const noteId = await asOwner.mutation(api.notes.create, {
+		workspaceId,
+		projectId: project._id,
+	});
+	const createdNote = await asOwner.query(api.notes.get, {
+		id: noteId,
+		workspaceId,
+	});
+
+	expect(createdNote).not.toBeNull();
+	expect(createdNote?.projectId).toBe(project._id);
+	expect(createdNote?.title).toBe("");
 });
 
 test("notes.setProject assigns and clears a project without dropping note metadata", async () => {
