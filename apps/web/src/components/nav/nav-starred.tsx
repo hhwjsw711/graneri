@@ -506,7 +506,7 @@ function StarredChatItem({
 				side="right"
 			>
 				<SidebarMenuAction
-					className="cursor-pointer opacity-0 pointer-events-none transition-opacity group-hover/menu-item:opacity-100 group-hover/menu-item:pointer-events-auto"
+					className="pointer-events-none cursor-pointer opacity-0 transition-opacity group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:text-sidebar-accent-foreground data-[state=open]:opacity-100"
 					aria-label={`Open actions for ${displayTitle}`}
 				>
 					<MoreHorizontal />
@@ -655,7 +655,7 @@ function StarredNoteItem({
 				}
 			>
 				<SidebarMenuAction
-					className="cursor-pointer opacity-0 pointer-events-none transition-opacity group-hover/menu-item:opacity-100 group-hover/menu-item:pointer-events-auto"
+					className="pointer-events-none cursor-pointer opacity-0 transition-opacity group-hover/menu-item:pointer-events-auto group-hover/menu-item:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:text-sidebar-accent-foreground data-[state=open]:opacity-100"
 					aria-label={`Open actions for ${displayTitle}`}
 				>
 					<MoreHorizontal />
