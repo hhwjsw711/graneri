@@ -673,116 +673,76 @@ export function NoteActionsMenu({
 	) : (
 		<DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
 	);
+	const actionsDropdown = (
+		<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+			{trigger}
+			<NoteActionsDropdownContent
+				align={align}
+				side={side}
+				itemsBeforeDefaults={itemsBeforeDefaults}
+				itemsAfterDefaults={itemsAfterDefaults}
+				preventMenuCloseAutoFocusRef={preventMenuCloseAutoFocusRef}
+				note={note}
+				projects={projects}
+				status={{
+					isUpdatingShare,
+					isUpdatingProject,
+					isUpdatingStar,
+					showRename,
+					showVersionHistory,
+				}}
+				onSetVisibility={handleSetVisibility}
+				onSetProject={handleSetProject}
+				onStartRename={handleStartRename}
+				onToggleStar={handleToggleStar}
+				onCopyLink={handleCopyLink}
+				onOpenVersionHistory={handleVersionHistoryOpen}
+				onConfirmTrash={handleConfirmTrashOpen}
+			/>
+		</DropdownMenu>
+	);
+	const renameEditor = showRename ? (
+		<NoteRenameEditor
+			usePopover={Boolean(renameAnchor)}
+			renameOpen={renameOpen}
+			onRenameOpenChange={handleRenameOpenChange}
+			renamePopoverAlign={renamePopoverAlign}
+			renamePopoverSide={renamePopoverSide}
+			renamePopoverSideOffset={renamePopoverSideOffset}
+			renamePopoverClassName={renamePopoverClassName}
+			renameInputRef={renameInputRef}
+			renameValue={renameValue}
+			onRenameValueChange={setRenameValue}
+			onRename={() => {
+				void handleRename();
+			}}
+			onRenameCancel={() => {
+				handleRenameCancel();
+				onRenamePreviewReset?.();
+			}}
+			ignoreInitialRenameInteractOutsideRef={
+				ignoreInitialRenameInteractOutsideRef
+			}
+			isRenaming={isRenaming}
+		/>
+	) : null;
 
 	return (
 		<>
 			{renameAnchor ? (
 				<Popover open={renameOpen} onOpenChange={handleRenameOpenChange}>
-					<PopoverAnchor asChild>{renameAnchor}</PopoverAnchor>
-					<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-						{trigger}
-						<NoteActionsDropdownContent
-							align={align}
-							side={side}
-							itemsBeforeDefaults={itemsBeforeDefaults}
-							itemsAfterDefaults={itemsAfterDefaults}
-							preventMenuCloseAutoFocusRef={preventMenuCloseAutoFocusRef}
-							note={note}
-							projects={projects}
-							status={{
-								isUpdatingShare,
-								isUpdatingProject,
-								isUpdatingStar,
-								showRename,
-								showVersionHistory,
-							}}
-							onSetVisibility={handleSetVisibility}
-							onSetProject={handleSetProject}
-							onStartRename={handleStartRename}
-							onToggleStar={handleToggleStar}
-							onCopyLink={handleCopyLink}
-							onOpenVersionHistory={handleVersionHistoryOpen}
-							onConfirmTrash={handleConfirmTrashOpen}
-						/>
-					</DropdownMenu>
-					{showRename ? (
-						<NoteRenameEditor
-							renameAnchor={renameAnchor}
-							renameOpen={renameOpen}
-							onRenameOpenChange={handleRenameOpenChange}
-							renamePopoverAlign={renamePopoverAlign}
-							renamePopoverSide={renamePopoverSide}
-							renamePopoverSideOffset={renamePopoverSideOffset}
-							renamePopoverClassName={renamePopoverClassName}
-							renameInputRef={renameInputRef}
-							renameValue={renameValue}
-							onRenameValueChange={setRenameValue}
-							onRename={() => {
-								void handleRename();
-							}}
-							onRenameCancel={() => {
-								handleRenameCancel();
-								onRenamePreviewReset?.();
-							}}
-							ignoreInitialRenameInteractOutsideRef={
-								ignoreInitialRenameInteractOutsideRef
-							}
-							isRenaming={isRenaming}
-						/>
-					) : null}
+					<PopoverAnchor asChild>
+						<div className="relative">
+							{renameAnchor}
+							{actionsDropdown}
+						</div>
+					</PopoverAnchor>
+					{renameEditor}
 				</Popover>
 			) : (
 				<>
-					<DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-						{trigger}
-						<NoteActionsDropdownContent
-							align={align}
-							side={side}
-							itemsBeforeDefaults={itemsBeforeDefaults}
-							itemsAfterDefaults={itemsAfterDefaults}
-							preventMenuCloseAutoFocusRef={preventMenuCloseAutoFocusRef}
-							note={note}
-							projects={projects}
-							status={{
-								isUpdatingShare,
-								isUpdatingProject,
-								isUpdatingStar,
-								showRename,
-								showVersionHistory,
-							}}
-							onSetVisibility={handleSetVisibility}
-							onSetProject={handleSetProject}
-							onStartRename={handleStartRename}
-							onToggleStar={handleToggleStar}
-							onCopyLink={handleCopyLink}
-							onOpenVersionHistory={handleVersionHistoryOpen}
-							onConfirmTrash={handleConfirmTrashOpen}
-						/>
-					</DropdownMenu>
-					{showRename ? (
-						<NoteRenameEditor
-							renameOpen={renameOpen}
-							onRenameOpenChange={handleRenameOpenChange}
-							renamePopoverAlign={renamePopoverAlign}
-							renamePopoverSide={renamePopoverSide}
-							renamePopoverSideOffset={renamePopoverSideOffset}
-							renamePopoverClassName={renamePopoverClassName}
-							renameInputRef={renameInputRef}
-							renameValue={renameValue}
-							onRenameValueChange={setRenameValue}
-							onRename={() => {
-								void handleRename();
-							}}
-							onRenameCancel={() => {
-								handleRenameCancel();
-								onRenamePreviewReset?.();
-							}}
-							ignoreInitialRenameInteractOutsideRef={
-								ignoreInitialRenameInteractOutsideRef
-							}
-							isRenaming={isRenaming}
-						/>
-					) : null}
+					{actionsDropdown}
+					{renameEditor}
 				</>
 			)}
 			<AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -829,7 +789,7 @@ export function NoteActionsMenu({
 }
 
 function NoteRenameEditor({
-	renameAnchor,
+	usePopover,
 	renameOpen,
 	onRenameOpenChange,
 	renamePopoverAlign,
@@ -844,7 +804,7 @@ function NoteRenameEditor({
 	ignoreInitialRenameInteractOutsideRef,
 	isRenaming,
 }: {
-	renameAnchor?: React.ReactNode;
+	usePopover: boolean;
 	renameOpen: boolean;
 	onRenameOpenChange: (open: boolean) => void;
 	renamePopoverAlign: "start" | "center" | "end";
@@ -859,7 +819,7 @@ function NoteRenameEditor({
 	ignoreInitialRenameInteractOutsideRef: React.MutableRefObject<boolean>;
 	isRenaming: boolean;
 }) {
-	if (renameAnchor) {
+	if (usePopover) {
 		return (
 			<PopoverContent
 				align={renamePopoverAlign}

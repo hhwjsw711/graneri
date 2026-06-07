@@ -65,12 +65,12 @@ import {
 	Check,
 	Link2,
 	LoaderCircle,
+	MessageSquareDot,
 	MessageSquareMore,
 	Minus,
 	MoreHorizontal,
 	PencilLine,
 	SlidersHorizontal,
-	Square,
 	Trash2,
 } from "lucide-react";
 import * as React from "react";
@@ -944,7 +944,7 @@ function DiscussionThreadSummary({
 								}
 							>
 								{isRead ? (
-									<Square className="size-4" />
+									<MessageSquareDot className="size-4" />
 								) : (
 									<Check className="size-4" />
 								)}
