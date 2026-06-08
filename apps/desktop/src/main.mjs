@@ -138,7 +138,7 @@ nativeTheme.on("updated", () => {
 
 const createInitialNotificationPreferences = () => ({
 	notifyForScheduledMeetings: false,
-	notifyForAutoDetectedMeetings: false,
+	notifyForAutoDetectedMeetings: true,
 });
 const createInitialTranscriptionSessionState = () => ({
 	autoStartKey: null,
@@ -423,16 +423,16 @@ const reevaluateMeetingDetection = () => {
 		"meetingDetection",
 	).reevaluateMeetingDetection();
 };
-const startMicrophoneActivityMonitor = async () =>
+const startMeetingDetectionMonitors = async () =>
 	await requireDesktopService(
 		meetingDetection,
 		"meetingDetection",
-	).startMicrophoneActivityMonitor();
-const stopMicrophoneActivityMonitor = async () => {
+	).startMeetingDetectionMonitors();
+const stopMeetingDetectionMonitors = async () => {
 	await requireDesktopService(
 		meetingDetection,
 		"meetingDetection",
-	).stopMicrophoneActivityMonitor();
+	).stopMeetingDetectionMonitors();
 };
 const startDetectedMeetingNote = async () => {
 	await requireDesktopService(
@@ -2042,7 +2042,8 @@ meetingDetection = createMeetingDetection({
 	getNavigationUrl,
 	getTranscriptionPhase: () => latestTranscriptionSessionState.phase,
 	isCalendarSignalEnabled: () =>
-		activeWorkspaceNotificationPreferences.notifyForScheduledMeetings,
+		activeWorkspaceNotificationPreferences.notifyForScheduledMeetings ||
+		activeWorkspaceNotificationPreferences.notifyForAutoDetectedMeetings,
 	isNotificationEnabled: () =>
 		activeWorkspaceNotificationPreferences.notifyForAutoDetectedMeetings,
 	openCalendarEventNote,
@@ -2923,7 +2924,7 @@ if (!singleInstanceLock) {
 		).load();
 		await ensureLocalServer();
 		await createMainWindow();
-		await startMicrophoneActivityMonitor().catch((error) => {
+		await startMeetingDetectionMonitors().catch((error) => {
 			console.error("Failed to start meeting detection", error);
 		});
 		requireDesktopService(desktopTray, "desktopTray").create();
@@ -2952,7 +2953,7 @@ if (!singleInstanceLock) {
 	app.on("window-all-closed", async () => {
 		await desktopRealtimeTransport.stop("you");
 		await desktopRealtimeTransport.stop("them");
-		await stopMicrophoneActivityMonitor();
+		await stopMeetingDetectionMonitors();
 		await stopMicrophoneCapture();
 		await stopSystemAudioCapture();
 		await closeLocalServer();
@@ -2978,7 +2979,7 @@ if (!singleInstanceLock) {
 		isQuitting = true;
 		void desktopRealtimeTransport.stop("you");
 		void desktopRealtimeTransport.stop("them");
-		void stopMicrophoneActivityMonitor();
+		void stopMeetingDetectionMonitors();
 		void stopMicrophoneCapture();
 		void stopSystemAudioCapture();
 		void closeLocalServer();

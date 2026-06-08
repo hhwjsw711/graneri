@@ -8,6 +8,7 @@ import {
 const createState = (
 	overrides: Partial<DesktopMeetingDetectionState> = {},
 ): DesktopMeetingDetectionState => ({
+	activeMicApps: [],
 	calendarEvent: null,
 	candidateStartedAt: Date.now(),
 	confidence: 0.82,
@@ -15,6 +16,16 @@ const createState = (
 	hasMeetingSignal: true,
 	isMicrophoneActive: true,
 	isSuppressed: false,
+	meetingWindowState: {
+		appName: null,
+		bundleId: null,
+		permissionGranted: false,
+		pid: null,
+		provider: null,
+		source: "accessibility",
+		status: "unavailable",
+		title: null,
+	},
 	sourceName: null,
 	status: "prompting",
 	...overrides,

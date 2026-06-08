@@ -1,9 +1,14 @@
 import { ConvexHttpClient } from "convex/browser";
 import { Notification, shell } from "electron";
 import { api } from "../../../convex/_generated/api.js";
+import {
+	getDetectedMeetingCalendarEventFromEvents,
+	scheduledMeetingNotificationLeadTimeMs,
+} from "./desktop-tray-calendar-detection.mjs";
 import { toErrorLogDetails } from "./network.mjs";
 
-const scheduledMeetingNotificationLeadTimeMs = 5 * 60 * 1000;
+export { getUpcomingTrayEventsForDay } from "./desktop-tray-calendar-detection.mjs";
+
 const trayCalendarActiveRefreshMs = 60 * 1000;
 const trayCalendarIdleRefreshMs = 5 * 60 * 1000;
 const trayCalendarUnavailableRefreshMs = 15 * 60 * 1000;
@@ -22,11 +27,6 @@ const createLoadingTrayCalendarState = () => ({
 	connectedCalendarCount: 0,
 });
 
-const isSameCalendarDay = (left, right) =>
-	left.getFullYear() === right.getFullYear() &&
-	left.getMonth() === right.getMonth() &&
-	left.getDate() === right.getDate();
-
 export const isTrayEventLive = (event, currentDate) => {
 	const startAt = new Date(event.startAt).getTime();
 	const endAt = new Date(event.endAt).getTime();
@@ -34,23 +34,6 @@ export const isTrayEventLive = (event, currentDate) => {
 
 	return now >= startAt && now <= endAt;
 };
-
-const isTrayEventToday = (event, currentDate) => {
-	const startAt = new Date(event.startAt);
-	const endAt = new Date(event.endAt).getTime();
-
-	return (
-		isSameCalendarDay(startAt, currentDate) && endAt >= currentDate.getTime()
-	);
-};
-
-export const getTrayTodayEvents = (events, currentDate) =>
-	events
-		.filter((event) => isTrayEventToday(event, currentDate))
-		.sort(
-			(left, right) =>
-				new Date(left.startAt).getTime() - new Date(right.startAt).getTime(),
-		);
 
 const getCurrentDayWindow = () => {
 	const now = new Date();
@@ -186,36 +169,7 @@ export const createDesktopTrayCalendar = ({
 			return null;
 		}
 
-		const currentTimestamp = currentDate.getTime();
-		const liveMeeting = getTrayTodayEvents(state.events, currentDate)
-			.filter((event) => event?.isMeeting)
-			.find((event) => {
-				const startAt = new Date(event.startAt).getTime();
-				const endAt = new Date(event.endAt).getTime();
-
-				return (
-					Number.isFinite(startAt) &&
-					Number.isFinite(endAt) &&
-					startAt <= currentTimestamp &&
-					endAt >= currentTimestamp
-				);
-			});
-
-		if (liveMeeting) {
-			return liveMeeting;
-		}
-
-		return getTrayTodayEvents(state.events, currentDate)
-			.filter((event) => event?.isMeeting)
-			.find((event) => {
-				const startAt = new Date(event.startAt).getTime();
-
-				return (
-					Number.isFinite(startAt) &&
-					Math.abs(startAt - currentTimestamp) <=
-						scheduledMeetingNotificationLeadTimeMs
-				);
-			});
+		return getDetectedMeetingCalendarEventFromEvents(state.events, currentDate);
 	};
 
 	const clearRefresh = () => {

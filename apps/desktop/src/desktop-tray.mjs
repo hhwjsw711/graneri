@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { Menu, nativeImage, Tray } from "electron";
 import {
 	createDesktopTrayCalendar,
-	getTrayTodayEvents,
+	getUpcomingTrayEventsForDay,
 	isTrayEventLive,
 } from "./desktop-tray-calendar.mjs";
 
@@ -147,7 +147,10 @@ export const createDesktopTray = ({
 	const getTrayTitle = () => {
 		const currentDate = new Date();
 		const calendarState = calendar.getState();
-		const todayEvents = getTrayTodayEvents(calendarState.events, currentDate);
+		const todayEvents = getUpcomingTrayEventsForDay(
+			calendarState.events,
+			currentDate,
+		);
 
 		if (todayEvents.length === 0) {
 			return "";
@@ -170,7 +173,7 @@ export const createDesktopTray = ({
 		const currentDate = new Date();
 		const calendarState = calendar.getState();
 		const todayLabel = `Today (${trayDateFormatter.format(currentDate)})`;
-		const todayEvents = getTrayTodayEvents(
+		const todayEvents = getUpcomingTrayEventsForDay(
 			calendarState.events,
 			currentDate,
 		).slice(0, trayCalendarMenuEventLimit);

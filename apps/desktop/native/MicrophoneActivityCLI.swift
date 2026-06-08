@@ -4,39 +4,6 @@ import CoreAudio
 import Dispatch
 import Foundation
 
-final class StdoutEmitter: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.graneri.microphone-activity.stdout")
-	private let fileHandle = FileHandle.standardOutput
-
-	func send(event: [String: Any]) {
-		queue.async {
-			guard JSONSerialization.isValidJSONObject(event),
-				let data = try? JSONSerialization.data(withJSONObject: event)
-			else {
-				return
-			}
-
-			self.fileHandle.write(data)
-			self.fileHandle.write(Data([0x0A]))
-		}
-	}
-}
-
-final class StderrLogger: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.graneri.microphone-activity.stderr")
-	private let fileHandle = FileHandle.standardError
-
-	func log(_ message: String) {
-		queue.async {
-			guard let data = "\(message)\n".data(using: .utf8) else {
-				return
-			}
-
-			self.fileHandle.write(data)
-		}
-	}
-}
-
 final class MicrophoneActivityMonitor: @unchecked Sendable {
 	private struct ActiveInputClient {
 		let bundleID: String?
@@ -44,14 +11,14 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 		let pid: pid_t
 	}
 
-	private let emitter: StdoutEmitter
-	private let logger: StderrLogger
+	private let emitter: LineEventStdoutEmitter
+	private let logger: LineEventStderrLogger
 	private let queue = DispatchQueue(label: "com.graneri.microphone-activity.listener")
 	private var deviceIDs: [AudioDeviceID] = []
 	private var lastActive = false
 	private var lastSourceName: String?
 
-	init(emitter: StdoutEmitter, logger: StderrLogger) {
+	init(emitter: LineEventStdoutEmitter, logger: LineEventStderrLogger) {
 		self.emitter = emitter
 		self.logger = logger
 	}
@@ -74,7 +41,7 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 			let snapshot = Self.inputActivitySnapshot(deviceIDs: deviceIDs)
 			lastActive = snapshot.active
 			lastSourceName = snapshot.sourceName
-			emitter.send(event: Self.eventPayload(type: "ready", active: lastActive, sourceName: lastSourceName))
+			emitter.send(event: Self.eventPayload(type: "ready", snapshot: snapshot))
 		}
 	}
 
@@ -124,37 +91,53 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 
 			self.lastActive = snapshot.active
 			self.lastSourceName = snapshot.sourceName
-			self.emitter.send(event: Self.eventPayload(type: "active-changed", active: snapshot.active, sourceName: snapshot.sourceName))
+			self.emitter.send(event: Self.eventPayload(type: "active-changed", snapshot: snapshot))
 		}
 	}
 
-	private static func eventPayload(type: String, active: Bool, sourceName: String?) -> [String: Any] {
+	private static func eventPayload(
+		type: String,
+		snapshot: (active: Bool, sourceName: String?, clients: [ActiveInputClient])
+	) -> [String: Any] {
 		var payload: [String: Any] = [
 			"type": type,
-			"active": active,
+			"active": snapshot.active,
+			"activeClients": snapshot.clients.map { client in
+				var clientPayload: [String: Any] = [
+					"name": client.name,
+					"pid": Int(client.pid),
+				]
+
+				if let bundleID = client.bundleID, !bundleID.isEmpty {
+					clientPayload["bundleId"] = bundleID
+				}
+
+				return clientPayload
+			},
 		]
 
-		if let sourceName, !sourceName.isEmpty {
+		if let sourceName = snapshot.sourceName, !sourceName.isEmpty {
 			payload["sourceName"] = sourceName
 		}
 
 		return payload
 	}
 
-	private static func inputActivitySnapshot(deviceIDs: [AudioDeviceID]) -> (active: Bool, sourceName: String?) {
+	private static func inputActivitySnapshot(
+		deviceIDs: [AudioDeviceID]
+	) -> (active: Bool, sourceName: String?, clients: [ActiveInputClient]) {
 		let active = deviceIDs.contains { Self.isDeviceRunning($0) }
 		guard active else {
-			return (false, nil)
+			return (false, nil, [])
 		}
 
-		return (true, Self.preferredActiveInputClientName(matching: Set(deviceIDs)))
+		let clients = activeInputClients().filter { client in
+			!Self.isGraneriClient(client) && Self.clientUsesInputDevice(client.pid, matching: Set(deviceIDs))
+		}
+		return (true, Self.preferredActiveInputClientName(from: clients), clients)
 	}
 
-	private static func preferredActiveInputClientName(matching inputDeviceIDs: Set<AudioDeviceID>) -> String? {
-		let clients = activeInputClients().filter { client in
-			!Self.isGraneriClient(client) && Self.clientUsesInputDevice(client.pid, matching: inputDeviceIDs)
-		}
-
+	private static func preferredActiveInputClientName(from clients: [ActiveInputClient]) -> String? {
 		return clients.sorted { left, right in
 			Self.clientRank(left) < Self.clientRank(right)
 		}.first?.name
@@ -318,6 +301,10 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 			return "Microsoft Edge"
 		}
 
+		if normalizedBundleID.contains("org.mozilla.firefox") {
+			return "Firefox"
+		}
+
 		if normalizedBundleID.contains("org.chromium.chromium") {
 			return "Chromium"
 		}
@@ -330,13 +317,17 @@ final class MicrophoneActivityMonitor: @unchecked Sendable {
 			return "zoom.us"
 		}
 
+		if normalizedBundleID.contains("com.hnc.discord") {
+			return "Discord"
+		}
+
 		return localizedName?.trimmingCharacters(in: .whitespacesAndNewlines)
 	}
 
 	private static func clientRank(_ client: ActiveInputClient) -> Int {
 		let normalizedName = client.name.lowercased()
 		let normalizedBundleID = client.bundleID?.lowercased() ?? ""
-		let preferredTokens = ["zoom", "teams", "slack", "facetime", "whatsapp", "chrome", "safari", "arc", "brave", "edge", "firefox"]
+		let preferredTokens = ["zoom", "teams", "slack", "facetime", "whatsapp", "discord", "chrome", "safari", "arc", "brave", "edge", "firefox"]
 
 		if preferredTokens.contains(where: { normalizedName.contains($0) || normalizedBundleID.contains($0) }) {
 			return 0
@@ -412,8 +403,8 @@ enum MicrophoneActivityCLI {
 	static func main() {
 		setbuf(stdout, nil)
 
-		let emitter = StdoutEmitter()
-		let logger = StderrLogger()
+		let emitter = LineEventStdoutEmitter(label: "com.graneri.microphone-activity")
+		let logger = LineEventStderrLogger(label: "com.graneri.microphone-activity")
 		let monitor = MicrophoneActivityMonitor(emitter: emitter, logger: logger)
 
 		logger.log("[helper] microphone activity monitor starting")

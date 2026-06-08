@@ -100,6 +100,7 @@ if (process.platform === "darwin") {
 		"graneri-system-audio-helper",
 		"graneri-microphone-helper",
 		"graneri-microphone-activity-helper",
+		"graneri-meeting-window-helper",
 	]) {
 		await cp(
 			resolve(packageRoot, ".generated", "system-audio", helperName),

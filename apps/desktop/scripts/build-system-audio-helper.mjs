@@ -16,15 +16,27 @@ const tmpDir = resolve(outDir, ".tmp");
 const helpers = [
 	{
 		outputFile: resolve(outDir, "graneri-system-audio-helper"),
-		sourceFile: resolve(packageRoot, "native", "SystemAudioCaptureCLI.swift"),
+		sourceFiles: [
+			resolve(packageRoot, "native", "SystemAudioCaptureCLI.swift"),
+		],
 	},
 	{
 		outputFile: resolve(outDir, "graneri-microphone-helper"),
-		sourceFile: resolve(packageRoot, "native", "MicrophoneCaptureCLI.swift"),
+		sourceFiles: [resolve(packageRoot, "native", "MicrophoneCaptureCLI.swift")],
 	},
 	{
 		outputFile: resolve(outDir, "graneri-microphone-activity-helper"),
-		sourceFile: resolve(packageRoot, "native", "MicrophoneActivityCLI.swift"),
+		sourceFiles: [
+			resolve(packageRoot, "native", "LineEventIO.swift"),
+			resolve(packageRoot, "native", "MicrophoneActivityCLI.swift"),
+		],
+	},
+	{
+		outputFile: resolve(outDir, "graneri-meeting-window-helper"),
+		sourceFiles: [
+			resolve(packageRoot, "native", "LineEventIO.swift"),
+			resolve(packageRoot, "native", "MeetingWindowCLI.swift"),
+		],
 	},
 ];
 
@@ -63,7 +75,7 @@ await mkdir(outDir, { recursive: true });
 await mkdir(clangModuleCacheDir, { recursive: true });
 await mkdir(tmpDir, { recursive: true });
 
-for (const { outputFile, sourceFile } of helpers) {
+for (const { outputFile, sourceFiles } of helpers) {
 	await run("swiftc", [
 		"-O",
 		"-module-cache-path",
@@ -71,7 +83,7 @@ for (const { outputFile, sourceFile } of helpers) {
 		"-parse-as-library",
 		"-o",
 		outputFile,
-		sourceFile,
+		...sourceFiles,
 	]);
 	await chmod(outputFile, 0o755);
 }

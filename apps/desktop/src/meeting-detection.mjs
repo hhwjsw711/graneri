@@ -1,19 +1,33 @@
-import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
 import { BrowserWindow, screen, shell } from "electron";
+import { createBrowserMeetingWindowMonitor } from "./browser-meeting-window-monitor.mjs";
 import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
+import {
+	startLineEventHelperSession,
+	stopLineEventHelperSession,
+} from "./line-event-helper-session.mjs";
 import {
 	createMeetingSignal,
 	createMeetingSignalStatePatch,
+	hasMeetingSignal,
 	isMeetingSignalDismissed,
 } from "./meeting-signal.mjs";
 import { resolveNativeMeetingDetectionSourceName } from "./meeting-source.mjs";
+import {
+	aggregateMeetingWindowState,
+	createInactiveBrowserMeetingWindowState,
+	createInitialMeetingWindowState,
+	createUnavailableMeetingWindowState,
+	getMeetingWindowSourceName,
+	normalizeActiveMicApps,
+	normalizeMeetingWindowState,
+} from "./meeting-window-state.mjs";
 
 const meetingDetectionDebounceMs = 8_000;
 const meetingDetectionDismissMs = 30 * 60 * 1000;
 const meetingWidgetAutoHideMs = 12 * 1000;
 
 export const createInitialMeetingDetectionState = () => ({
+	activeMicApps: [],
 	calendarEvent: null,
 	candidateStartedAt: null,
 	confidence: 0,
@@ -21,6 +35,7 @@ export const createInitialMeetingDetectionState = () => ({
 	hasMeetingSignal: false,
 	isMicrophoneActive: false,
 	isSuppressed: false,
+	meetingWindowState: createInitialMeetingWindowState(),
 	sourceName: null,
 	status: "idle",
 });
@@ -40,7 +55,9 @@ export const createMeetingDetection = ({
 	showMainWindow,
 }) => {
 	let microphoneActivitySession = null;
+	let meetingWindowSession = null;
 	let microphoneActivityEventSequence = 0;
+	let meetingWindowEventSequence = 0;
 	let meetingWidgetWindow = null;
 	let latestMeetingWidgetSize = { width: 360, height: 104 };
 	let meetingWidgetAutoHideTimeoutId = null;
@@ -48,14 +65,75 @@ export const createMeetingDetection = ({
 	let latestMeetingDetectionState = createInitialMeetingDetectionState();
 	let meetingDetectionDebounceTimeoutId = null;
 	let dismissedMeetingSignalKey = null;
+	let nativeMeetingWindowState =
+		createInitialMeetingDetectionState().meetingWindowState;
+	let microphoneSourceName = null;
+	let browserMeetingWindowState = createInactiveBrowserMeetingWindowState();
+	const browserMeetingWindowMonitor = createBrowserMeetingWindowMonitor({
+		onState: (meetingWindowState) => {
+			setBrowserMeetingWindowState(meetingWindowState);
+			syncMeetingDetectionState();
+			reevaluateMeetingDetection();
+		},
+	});
+	const createMeetingSignalInput = (state = latestMeetingDetectionState) => ({
+		calendarEvent: getDetectedMeetingCalendarEvent(),
+		canUseCalendarEvent: isCalendarSignalEnabled(),
+		isMicrophoneActive: state.isMicrophoneActive,
+		meetingWindowState: state.meetingWindowState,
+		sourceName: state.sourceName,
+	});
 
 	const getCurrentMeetingSignal = () => {
-		return createMeetingSignal({
-			calendarEvent: getDetectedMeetingCalendarEvent(),
-			canUseCalendarEvent: isCalendarSignalEnabled(),
-			isMicrophoneActive: latestMeetingDetectionState.isMicrophoneActive,
-			sourceName: latestMeetingDetectionState.sourceName,
+		return createMeetingSignal(createMeetingSignalInput());
+	};
+
+	const hasCurrentMeetingSignal = (state = latestMeetingDetectionState) => {
+		return hasMeetingSignal(createMeetingSignalInput(state));
+	};
+
+	const getAggregateMeetingWindowState = () =>
+		aggregateMeetingWindowState({
+			browserState: browserMeetingWindowState,
+			nativeState: nativeMeetingWindowState,
 		});
+
+	const setBrowserMeetingWindowState = (meetingWindowState) => {
+		browserMeetingWindowState = normalizeMeetingWindowState({
+			...meetingWindowState,
+			source: "browser",
+		});
+	};
+
+	const setNativeMeetingWindowState = (meetingWindowState) => {
+		nativeMeetingWindowState = normalizeMeetingWindowState({
+			...meetingWindowState,
+			source: "accessibility",
+		});
+	};
+
+	const syncMeetingDetectionState = (patch) => {
+		const nextActiveMicApps =
+			"activeMicApps" in (patch ?? {})
+				? normalizeActiveMicApps(patch.activeMicApps)
+				: latestMeetingDetectionState.activeMicApps;
+		const aggregateWindowState = getAggregateMeetingWindowState();
+		const nextMeetingDetectionState = {
+			...latestMeetingDetectionState,
+			...(patch ?? {}),
+			activeMicApps: nextActiveMicApps,
+			meetingWindowState: aggregateWindowState,
+			sourceName:
+				getMeetingWindowSourceName(aggregateWindowState) ??
+				microphoneSourceName,
+		};
+
+		latestMeetingDetectionState = {
+			...nextMeetingDetectionState,
+			hasMeetingSignal: hasCurrentMeetingSignal(nextMeetingDetectionState),
+		};
+
+		broadcastState(latestMeetingDetectionState);
 	};
 
 	const isCurrentMeetingSignalDismissed = (signal) =>
@@ -103,26 +181,10 @@ export const createMeetingDetection = ({
 		);
 	};
 
-	const syncMeetingDetectionState = (patch) => {
-		const isMicrophoneActive = Boolean(
-			patch?.isMicrophoneActive ??
-				latestMeetingDetectionState.isMicrophoneActive,
-		);
-
-		latestMeetingDetectionState = {
-			...latestMeetingDetectionState,
-			...patch,
-			hasMeetingSignal: isMicrophoneActive,
-		};
-
-		broadcastState(latestMeetingDetectionState);
-	};
-
 	const createClearedMeetingSignalPatch = (patch = {}) => ({
 		calendarEvent: null,
 		candidateStartedAt: null,
 		confidence: 0,
-		sourceName: null,
 		...patch,
 	});
 
@@ -300,10 +362,7 @@ export const createMeetingDetection = ({
 		meetingDetectionDebounceTimeoutId = setTimeout(() => {
 			meetingDetectionDebounceTimeoutId = null;
 
-			if (
-				!latestMeetingDetectionState.isMicrophoneActive ||
-				isMeetingDetectionSuppressed()
-			) {
+			if (isMeetingDetectionSuppressed()) {
 				reevaluateMeetingDetection();
 				return;
 			}
@@ -371,14 +430,15 @@ export const createMeetingDetection = ({
 
 	const showMeetingWidgetForTest = async () => {
 		clearMeetingDetectionDebounceTimeout();
+		microphoneSourceName = "Test Meeting";
 		syncMeetingDetectionState({
+			activeMicApps: [],
 			candidateStartedAt: Date.now(),
 			calendarEvent: null,
 			confidence: 1,
 			dismissedUntil: null,
 			isMicrophoneActive: true,
 			isSuppressed: false,
-			sourceName: null,
 			status: "prompting",
 		});
 		await showMeetingWidgetWindow();
@@ -387,9 +447,13 @@ export const createMeetingDetection = ({
 	const resetMeetingDetectionForTest = () => {
 		clearMeetingDetectionDebounceTimeout();
 		hideMeetingWidgetWindow();
+		browserMeetingWindowState = createInactiveBrowserMeetingWindowState();
+		nativeMeetingWindowState = createUnavailableMeetingWindowState();
+		microphoneSourceName = null;
 		syncMeetingDetectionState(
 			createClearedMeetingSignalPatch({
 				dismissedUntil: null,
+				activeMicApps: [],
 				isMicrophoneActive: false,
 				isSuppressed: false,
 				status: "idle",
@@ -405,12 +469,21 @@ export const createMeetingDetection = ({
 		});
 	};
 
+	const resolveMeetingWindowHelperPath = () => {
+		return resolveDesktopRuntimeExecutablePath({
+			envPath: process.env.GRANERI_MEETING_WINDOW_HELPER_PATH,
+			executableName: "graneri-meeting-window-helper",
+			runtimeDir,
+		});
+	};
+
 	const stopMicrophoneActivityMonitor = async () => {
 		clearMeetingDetectionDebounceTimeout();
 
 		if (!microphoneActivitySession) {
 			syncMeetingDetectionState(
 				createClearedMeetingSignalPatch({
+					activeMicApps: [],
 					isMicrophoneActive: false,
 					status: "idle",
 				}),
@@ -421,40 +494,15 @@ export const createMeetingDetection = ({
 
 		const session = microphoneActivitySession;
 		microphoneActivitySession = null;
-		session.isStopping = true;
-
-		if (session.cleanupTimeout) {
-			clearTimeout(session.cleanupTimeout);
-			session.cleanupTimeout = null;
-		}
-
-		session.lineReader?.removeAllListeners();
-		session.process.stdout?.removeAllListeners();
-		session.process.stderr?.removeAllListeners();
-		session.process.removeAllListeners();
-
-		await new Promise((resolvePromise) => {
-			const finalize = () => {
-				resolvePromise();
-			};
-
-			session.process.once("exit", finalize);
-			session.process.kill("SIGTERM");
-
-			setTimeout(() => {
-				if (!session.process.killed) {
-					session.process.kill("SIGKILL");
-				}
-				finalize();
-			}, 1_000);
-		});
+		microphoneSourceName = null;
+		await stopLineEventHelperSession(session);
 
 		syncMeetingDetectionState({
+			activeMicApps: [],
 			calendarEvent: null,
 			candidateStartedAt: null,
 			confidence: 0,
 			isMicrophoneActive: false,
-			sourceName: null,
 			status: "idle",
 		});
 		hideMeetingWidgetWindow();
@@ -473,88 +521,29 @@ export const createMeetingDetection = ({
 
 		await stopMicrophoneActivityMonitor();
 
-		return await new Promise((resolvePromise, rejectPromise) => {
-			const child = spawn(helperPath, [], {
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			const lineReader = createInterface({
-				input: child.stdout,
-				crlfDelay: Infinity,
-			});
-			let didResolve = false;
-			let session;
-
-			const failStart = (error) => {
-				if (didResolve) {
-					console.error(
-						"[meeting-detection] microphone activity helper failed after start",
-						error,
-					);
-					void stopMicrophoneActivityMonitor();
-					return;
-				}
-
-				didResolve = true;
-				rejectPromise(error);
-			};
-
-			const startupTimeout = setTimeout(() => {
-				failStart(
-					new Error(
-						"Timed out while starting the microphone activity monitor.",
-					),
-				);
-				child.kill("SIGKILL");
-			}, 5_000);
-
-			session = {
-				cleanupTimeout: startupTimeout,
-				isStopping: false,
-				lineReader,
-				process: child,
-			};
-			microphoneActivitySession = session;
-
-			child.stderr.setEncoding("utf8");
-			child.stderr.on("data", (chunk) => {
-				const message = String(chunk).trim();
-				if (message) {
-					console.error("[microphone-activity-helper]", message);
-				}
-			});
-
-			lineReader.on("line", (line) => {
-				let event;
-
-				try {
-					event = JSON.parse(line);
-				} catch (error) {
-					console.error(
-						"[meeting-detection] failed to parse microphone activity event",
-						error,
-						line,
-					);
-					return;
-				}
-
-				if (event?.type !== "ready" && event?.type !== "active-changed") {
-					return;
-				}
-
+		const session = await startLineEventHelperSession({
+			helperPath,
+			isExpectedEvent: (event) =>
+				event?.type === "ready" || event?.type === "active-changed",
+			label: "microphone-activity-helper",
+			onEvent: async ({ event, resolveReady, session }) => {
 				const eventSequence = ++microphoneActivityEventSequence;
-				void (async () => {
-					const isActive = event.active === true;
-					const sourceName = isActive
-						? await resolveNativeMeetingDetectionSourceName(event.sourceName)
-						: null;
+				const isActive = event.active === true;
+				const activeMicApps = normalizeActiveMicApps(event.activeClients);
+				const activeMicApp =
+					activeMicApps.find((client) => client.name === event.sourceName) ??
+					activeMicApps[0] ??
+					event.sourceName;
+				const sourceName = isActive
+					? await resolveNativeMeetingDetectionSourceName(activeMicApp)
+					: null;
 
-					if (
-						microphoneActivitySession !== session ||
-						eventSequence !== microphoneActivityEventSequence
-					) {
+				if (microphoneActivitySession === session) {
+					if (eventSequence !== microphoneActivityEventSequence) {
 						return;
 					}
 
+					microphoneSourceName = sourceName;
 					syncMeetingDetectionState({
 						...(event.type === "ready"
 							? {
@@ -562,70 +551,161 @@ export const createMeetingDetection = ({
 										latestMeetingDetectionState.dismissedUntil ?? null,
 								}
 							: {}),
+						activeMicApps,
 						isMicrophoneActive: isActive,
-						sourceName,
 					});
 					reevaluateMeetingDetection();
+				}
 
-					if (event.type === "ready") {
-						clearTimeout(startupTimeout);
-						session.cleanupTimeout = null;
-						if (!didResolve) {
-							didResolve = true;
-							resolvePromise(true);
-						}
-					}
-				})().catch((error) => {
-					console.error(
-						"[meeting-detection] failed to handle microphone activity event",
-						error,
-					);
-					if (event?.type === "ready" && !didResolve) {
-						failStart(error);
-					}
+				if (event.type === "ready") {
+					resolveReady();
+				}
+			},
+			onSessionStarted: (session) => {
+				microphoneActivitySession = session;
+			},
+			onStartFailure: (session) => {
+				if (microphoneActivitySession === session) {
+					microphoneActivitySession = null;
+				}
+			},
+			onUnexpectedExit: ({ code, session, signal }) => {
+				if (microphoneActivitySession === session) {
+					microphoneActivitySession = null;
+					microphoneSourceName = null;
+				}
+
+				console.error("[meeting-detection] microphone activity helper exited", {
+					code,
+					signal,
 				});
-			});
-
-			child.on("error", (error) => {
-				clearTimeout(startupTimeout);
-				if (microphoneActivitySession === session) {
-					microphoneActivitySession = null;
-				}
-				failStart(error);
-			});
-
-			child.on("exit", (code, signal) => {
-				clearTimeout(startupTimeout);
-				if (microphoneActivitySession === session) {
-					microphoneActivitySession = null;
-				}
-
-				if (!session.isStopping) {
-					console.error(
-						"[meeting-detection] microphone activity helper exited",
-						{
-							code,
-							signal,
-						},
-					);
-					syncMeetingDetectionState(
-						createClearedMeetingSignalPatch({
-							isMicrophoneActive: false,
-							status: "idle",
-						}),
-					);
-					hideMeetingWidgetWindow();
-				}
-
-				if (!didResolve && !session.isStopping) {
-					failStart(
-						new Error(
-							`Microphone activity monitor exited before it became ready (code ${code ?? "null"}, signal ${signal ?? "null"}).`,
-						),
-					);
-				}
-			});
+				syncMeetingDetectionState(
+					createClearedMeetingSignalPatch({
+						activeMicApps: [],
+						isMicrophoneActive: false,
+						status: "idle",
+					}),
+				);
+				hideMeetingWidgetWindow();
+			},
+			startupTimeoutMessage:
+				"Timed out while starting the microphone activity monitor.",
 		});
+		return Boolean(session);
+	};
+
+	const stopMeetingWindowMonitor = async () => {
+		if (!meetingWindowSession) {
+			setNativeMeetingWindowState(createUnavailableMeetingWindowState());
+			syncMeetingDetectionState();
+			return;
+		}
+
+		const session = meetingWindowSession;
+		meetingWindowSession = null;
+		await stopLineEventHelperSession(session);
+
+		setNativeMeetingWindowState(createUnavailableMeetingWindowState());
+		syncMeetingDetectionState();
+	};
+
+	const startMeetingWindowMonitor = async () => {
+		if (process.platform !== "darwin") {
+			return false;
+		}
+
+		const helperPath = resolveMeetingWindowHelperPath();
+		if (!helperPath) {
+			console.warn("[meeting-detection] meeting window helper is missing");
+			return false;
+		}
+
+		await stopMeetingWindowMonitor();
+
+		const session = await startLineEventHelperSession({
+			helperPath,
+			isExpectedEvent: (event) =>
+				event?.type === "ready" || event?.type === "window-changed",
+			label: "meeting-window-helper",
+			onEvent: ({ event, resolveReady, session }) => {
+				const eventSequence = ++meetingWindowEventSequence;
+				if (
+					meetingWindowSession !== session ||
+					eventSequence !== meetingWindowEventSequence
+				) {
+					return;
+				}
+
+				setNativeMeetingWindowState(event);
+				syncMeetingDetectionState();
+				reevaluateMeetingDetection();
+
+				if (event.type === "ready") {
+					resolveReady();
+				}
+			},
+			onSessionStarted: (session) => {
+				meetingWindowSession = session;
+			},
+			onStartFailure: (session) => {
+				if (meetingWindowSession === session) {
+					meetingWindowSession = null;
+				}
+			},
+			onUnexpectedExit: ({ code, session, signal }) => {
+				if (meetingWindowSession === session) {
+					meetingWindowSession = null;
+				}
+
+				console.error("[meeting-detection] meeting window helper exited", {
+					code,
+					signal,
+				});
+				setNativeMeetingWindowState(createUnavailableMeetingWindowState());
+				syncMeetingDetectionState();
+			},
+			startupTimeoutMessage:
+				"Timed out while starting the meeting window monitor.",
+		});
+		return Boolean(session);
+	};
+
+	const startMeetingDetectionMonitors = async () => {
+		const monitorStarts = [
+			{
+				label: "microphone activity detection",
+				start: startMicrophoneActivityMonitor,
+			},
+			{
+				label: "meeting window detection",
+				start: startMeetingWindowMonitor,
+			},
+			{
+				label: "browser meeting detection",
+				start: browserMeetingWindowMonitor.start,
+			},
+		];
+
+		const results = await Promise.all(
+			monitorStarts.map(async ({ label, start }) => {
+				try {
+					return await start();
+				} catch (error) {
+					console.error(`Failed to start ${label}`, error);
+					return false;
+				}
+			}),
+		);
+
+		return results.some(Boolean);
+	};
+
+	const stopMeetingDetectionMonitors = async () => {
+		await Promise.all([
+			stopMicrophoneActivityMonitor(),
+			stopMeetingWindowMonitor(),
+			Promise.resolve(browserMeetingWindowMonitor.stop()),
+		]);
 	};
 
 	return {
@@ -646,9 +726,9 @@ export const createMeetingDetection = ({
 		reevaluateMeetingDetection,
 		resetMeetingDetectionForTest,
 		startDetectedMeetingNote,
-		startMicrophoneActivityMonitor,
+		startMeetingDetectionMonitors,
 		showMeetingWidgetForTest,
-		stopMicrophoneActivityMonitor,
+		stopMeetingDetectionMonitors,
 		updateMeetingWidgetWindowSize,
 	};
 };

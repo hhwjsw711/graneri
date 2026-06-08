@@ -107,6 +107,14 @@ explicit transcription auto-stop state in the renderer, not scattered hook
 refs. A newly auto-started note must not inherit stale meeting-detection state
 from a previous note or from a pre-listening meeting signal.
 
+Desktop meeting detection owns its signal inputs in Electron. Calendar
+candidate selection, native microphone activity clients, source normalization,
+debounce, dismissal, suppression, and widget window visibility stay in
+`apps/desktop`; the renderer receives an aggregate meeting-detection state and
+may render it or send user actions back through `packages/platform`. Renderer
+code must not inspect running applications, microphone activity, calendar state,
+or desktop windows directly to decide whether a meeting exists.
+
 Proxy response handling must match the body strategy. Streamed routes may pipe
 the upstream body with upstream headers. Buffered or decoded proxy responses
 must emit fresh body headers and must not forward stale `content-encoding`,

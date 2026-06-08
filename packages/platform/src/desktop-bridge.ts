@@ -56,6 +56,11 @@ export type DesktopTranscriptionControllerErrorCode =
 	| "unknown";
 
 export type DesktopMeetingDetectionState = {
+	activeMicApps: Array<{
+		bundleId: string | null;
+		name: string;
+		pid: number | null;
+	}>;
 	calendarEvent: {
 		id: string;
 		calendarName: string;
@@ -69,6 +74,16 @@ export type DesktopMeetingDetectionState = {
 	hasMeetingSignal: boolean;
 	isMicrophoneActive: boolean;
 	isSuppressed: boolean;
+	meetingWindowState: {
+		appName: string | null;
+		bundleId: string | null;
+		permissionGranted: boolean;
+		pid: number | null;
+		provider: string | null;
+		source: "accessibility" | "browser";
+		status: "active" | "inactive" | "unavailable";
+		title: string | null;
+	};
 	sourceName: string | null;
 	status: "idle" | "monitoring" | "prompting";
 };

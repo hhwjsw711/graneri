@@ -21,9 +21,22 @@ export const createMeetingSignal = ({
 	calendarEvent,
 	canUseCalendarEvent = true,
 	isMicrophoneActive,
+	meetingWindowState,
 	sourceName,
 }) => {
-	if (!isMicrophoneActive) {
+	const hasActiveMeetingWindow = meetingWindowState?.status === "active";
+	const hasActiveStandaloneMeetingWindow =
+		hasActiveMeetingWindow && meetingWindowState?.source !== "browser";
+	const hasCorroboratedBrowserMeetingWindow =
+		hasActiveMeetingWindow &&
+		meetingWindowState?.source === "browser" &&
+		(isMicrophoneActive || (canUseCalendarEvent && calendarEvent));
+
+	if (
+		!isMicrophoneActive &&
+		!hasActiveStandaloneMeetingWindow &&
+		!hasCorroboratedBrowserMeetingWindow
+	) {
 		return null;
 	}
 
@@ -32,6 +45,15 @@ export const createMeetingSignal = ({
 			calendarEvent,
 			key: `calendar:${calendarEvent.id}:${calendarEvent.startAt}`,
 			sourceName,
+		};
+	}
+
+	if (hasActiveMeetingWindow) {
+		const provider = meetingWindowState.provider ?? "Meeting";
+		return {
+			calendarEvent: null,
+			key: `window:${provider}:${meetingWindowState.pid ?? "unknown"}:${meetingWindowState.title ?? ""}`,
+			sourceName: provider,
 		};
 	}
 
@@ -45,6 +67,9 @@ export const createMeetingSignal = ({
 
 	return null;
 };
+
+export const hasMeetingSignal = (options) =>
+	Boolean(createMeetingSignal(options));
 
 export const isMeetingSignalDismissed = ({
 	dismissedUntil,

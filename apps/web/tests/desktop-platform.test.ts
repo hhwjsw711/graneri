@@ -89,6 +89,7 @@ describe("desktop platform bridge", () => {
 		const unsubscribe = vi.fn();
 		const onMeetingDetectionState = vi.fn().mockReturnValue(unsubscribe);
 		const getMeetingDetectionState = vi.fn().mockResolvedValue({
+			activeMicApps: [],
 			calendarEvent: null,
 			candidateStartedAt: null,
 			confidence: 0,
@@ -96,6 +97,16 @@ describe("desktop platform bridge", () => {
 			hasMeetingSignal: false,
 			isMicrophoneActive: false,
 			isSuppressed: false,
+			meetingWindowState: {
+				appName: null,
+				bundleId: null,
+				permissionGranted: false,
+				pid: null,
+				provider: null,
+				source: "accessibility",
+				status: "unavailable",
+				title: null,
+			},
 			sourceName: null,
 			status: "idle",
 		} satisfies DesktopMeetingDetectionState);

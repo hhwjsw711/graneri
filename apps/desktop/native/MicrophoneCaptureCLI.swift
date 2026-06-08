@@ -181,8 +181,8 @@ final class MicrophoneCapture: @unchecked Sendable {
 		let nextEngine = AVAudioEngine()
 		let inputNode = nextEngine.inputNode
 		let outputNode = nextEngine.outputNode
-		let inputFormatBeforeVoiceProcessing = inputNode.outputFormat(forBus: 0)
-		let outputFormatBeforeVoiceProcessing = outputNode.inputFormat(forBus: 0)
+		let initialInputFormat = inputNode.outputFormat(forBus: 0)
+		let initialOutputFormat = outputNode.inputFormat(forBus: 0)
 		let inputDevice = Self.defaultInputDevice()
 		let outputDevice = Self.defaultOutputDevice()
 		routeSignature = Self.routeSignature(
@@ -190,45 +190,20 @@ final class MicrophoneCapture: @unchecked Sendable {
 			outputDevice: outputDevice
 		)
 
-		if #available(macOS 10.15, *) {
-			do {
-				try inputNode.setVoiceProcessingEnabled(true)
-				inputNode.isVoiceProcessingBypassed = false
-
-				if #available(macOS 14.0, *) {
-					inputNode.voiceProcessingOtherAudioDuckingConfiguration =
-						AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
-							enableAdvancedDucking: false,
-							duckingLevel: .min
-						)
-				}
-
-				voiceProcessingEnabled = inputNode.isVoiceProcessingEnabled
-				voiceProcessingOutputEnabled = outputNode.isVoiceProcessingEnabled
-				logger.log(
-					"[helper] microphone voice processing input=\(voiceProcessingEnabled) output=\(voiceProcessingOutputEnabled)"
-				)
-			} catch {
-				logger.log(
-					"[helper] microphone voice processing unavailable: \(error.localizedDescription)"
-				)
-			}
-		}
-
 		let inputFormat = inputNode.outputFormat(forBus: 0)
 		let outputFormat = outputNode.inputFormat(forBus: 0)
+		if #available(macOS 10.15, *) {
+			voiceProcessingEnabled = inputNode.isVoiceProcessingEnabled
+			voiceProcessingOutputEnabled = outputNode.isVoiceProcessingEnabled
+		}
 		routeDebugInfo = [
 			"devicesMatch": inputDevice["uid"] as? String == outputDevice["uid"] as? String,
 			"inputDevice": inputDevice,
-			"inputFormatBeforeVoiceProcessing": Self.describeFormat(
-				inputFormatBeforeVoiceProcessing
-			),
-			"inputFormatAfterVoiceProcessing": Self.describeFormat(inputFormat),
+			"inputFormatBeforeCapture": Self.describeFormat(initialInputFormat),
+			"inputFormatForCapture": Self.describeFormat(inputFormat),
 			"outputDevice": outputDevice,
-			"outputFormatBeforeVoiceProcessing": Self.describeFormat(
-				outputFormatBeforeVoiceProcessing
-			),
-			"outputFormatAfterVoiceProcessing": Self.describeFormat(outputFormat),
+			"outputFormatBeforeCapture": Self.describeFormat(initialOutputFormat),
+			"outputFormatForCapture": Self.describeFormat(outputFormat),
 		]
 		logger.log("[helper] microphone route \(routeDebugInfo)")
 

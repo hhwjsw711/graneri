@@ -4,6 +4,7 @@ import {
 	createMeetingSignal,
 	createMeetingSignalCalendarEvent,
 	createMeetingSignalStatePatch,
+	hasMeetingSignal,
 	isMeetingSignalDismissed,
 } from "../src/meeting-signal.mjs";
 
@@ -95,6 +96,120 @@ test("does not prompt on generic microphone activity without source or calendar"
 			sourceName: null,
 		}),
 		null,
+	);
+});
+
+test("does not expose generic microphone activity as a meeting signal", () => {
+	assert.equal(
+		hasMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: true,
+			sourceName: null,
+		}),
+		false,
+	);
+});
+
+test("exposes calendar and source matches as meeting signals", () => {
+	assert.equal(
+		hasMeetingSignal({
+			calendarEvent,
+			isMicrophoneActive: true,
+			sourceName: null,
+		}),
+		true,
+	);
+	assert.equal(
+		hasMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: true,
+			sourceName: "Zoom",
+		}),
+		true,
+	);
+});
+
+test("creates meeting signals from active meeting windows", () => {
+	assert.deepEqual(
+		createMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: false,
+			meetingWindowState: {
+				pid: 123,
+				provider: "Zoom",
+				status: "active",
+				title: "Zoom Meeting",
+			},
+			sourceName: null,
+		}),
+		{
+			calendarEvent: null,
+			key: "window:Zoom:123:Zoom Meeting",
+			sourceName: "Zoom",
+		},
+	);
+	assert.equal(
+		hasMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: false,
+			meetingWindowState: {
+				provider: null,
+				status: "unavailable",
+			},
+			sourceName: null,
+		}),
+		false,
+	);
+});
+
+test("treats active native meeting windows as signals without microphone activity", () => {
+	assert.equal(
+		hasMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: false,
+			meetingWindowState: {
+				pid: null,
+				provider: "Google Meet",
+				source: "accessibility",
+				status: "active",
+				title: null,
+			},
+			sourceName: null,
+		}),
+		true,
+	);
+});
+
+test("does not treat browser meeting windows as standalone signals", () => {
+	assert.equal(
+		hasMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: false,
+			meetingWindowState: {
+				pid: null,
+				provider: "Google Meet",
+				source: "browser",
+				status: "active",
+				title: "Google Chrome:Google Meet",
+			},
+			sourceName: null,
+		}),
+		false,
+	);
+	assert.equal(
+		hasMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: true,
+			meetingWindowState: {
+				pid: null,
+				provider: "Google Meet",
+				source: "browser",
+				status: "active",
+				title: "Google Chrome:Google Meet",
+			},
+			sourceName: null,
+		}),
+		true,
 	);
 });
 
