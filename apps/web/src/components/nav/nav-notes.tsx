@@ -21,12 +21,12 @@ import { NoteActionsMenu } from "@/components/note/note-actions-menu";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { NoteRenameAnchor } from "./note-rename-anchor";
+import { SidebarSortMenu } from "./sidebar-sort-menu";
 import {
 	getSidebarSortOptions,
 	SIDEBAR_HEADER_ACTION_ROW_CLASS_NAME,
-	SidebarSortMenu,
 	type SidebarSortValue,
-} from "./sidebar-sort-menu";
+} from "./sidebar-sort-options";
 
 const MAX_VISIBLE_NOTES = 5;
 const SIDEBAR_NOTE_SKELETON_IDS = [

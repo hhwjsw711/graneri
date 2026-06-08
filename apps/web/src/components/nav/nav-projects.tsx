@@ -80,11 +80,11 @@ import {
 	SIDEBAR_COLLAPSIBLE_GROUP_ACTION_OPEN_CLASS_NAME,
 	SidebarCollapsibleGroup,
 } from "./sidebar-collapsible-group";
+import { SidebarSortMenu } from "./sidebar-sort-menu";
 import {
 	getSidebarSortOptions,
 	SIDEBAR_HEADER_ACTION_ROW_CLASS_NAME,
-	SidebarSortMenu,
-} from "./sidebar-sort-menu";
+} from "./sidebar-sort-options";
 import {
 	type SidebarSortableBindings,
 	SidebarSortableList,
