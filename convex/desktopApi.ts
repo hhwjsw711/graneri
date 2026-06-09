@@ -22,10 +22,8 @@ import {
 import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
 import { buildChatAutomationContext } from "../packages/ai/src/automation-tools.mjs";
 import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace-tools.mjs";
-import { createHostedChatAgent } from "../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatSaveMessageArgs,
-	buildHostedChatRuntimePrompt,
 	buildHostedNotesContext,
 	generateHostedChatMessageId,
 	generateHostedChatTitle,
@@ -33,6 +31,7 @@ import {
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
 } from "../packages/ai/src/hosted-chat-runtime.mjs";
+import { buildHostedChatRunPlan } from "../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
 	buildLocalFolderSystemContext,
 	buildLocalFolderToolConfigs,
@@ -547,37 +546,29 @@ export const handleChatRequest = async (request: Request) => {
 		defaultTimezone: resolvedTimezone,
 		webSearchEnabled,
 	});
-	const enabledTools = {
-		...coreToolPolicy.enabledTools,
-		...automationContext.tools,
-		...appTools,
-	};
-
 	const userProfileContext =
 		convexClient &&
 		(await convexClient
 			.query(api.userPreferences.getAiProfileContext, {})
 			.catch(() => null));
-	const systemPrompt = buildHostedChatRuntimePrompt({
-		notesContext,
-		attachedNoteContext,
-		recipeContext,
-		userProfileContext: userProfileContext ?? undefined,
-		webSearchEnabled,
-		coreToolInstruction: coreToolPolicy.instruction,
-		automationInstruction: automationContext.instruction,
-		localFolderContext,
-		selectedAppSourceInstructions,
-	});
 	const localFolderTools = buildDesktopLocalFolderClientTools(localFolderRoots);
-	const { agent } = createHostedChatAgent({
+	const { agent } = buildHostedChatRunPlan({
 		additionalAgentTools: localFolderTools,
-		enabledTools,
+		appTools,
+		automationContext,
+		context: {
+			notesContext,
+			attachedNoteContext,
+			recipeContext,
+			userProfileContext,
+		},
+		coreToolPolicy,
 		emptyToolsWhenNone: true,
+		localFolderContext,
 		model: selectedModel.model,
-		prepareStep: coreToolPolicy.prepareStep,
 		providerOptions,
-		systemPrompt,
+		selectedAppSourceInstructions,
+		webSearchEnabled,
 	});
 
 	return await createAgentUIStreamResponse({

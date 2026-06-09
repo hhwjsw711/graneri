@@ -19,9 +19,8 @@ import {
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
-import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agent.mjs";
+import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
-	buildHostedChatRuntimePrompt,
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
 	generateHostedChatMessageId,
@@ -501,31 +500,25 @@ const handleChatRequest = async ({
 		defaultTimezone: resolvedTimezone,
 		webSearchEnabled,
 	});
-	const systemPrompt = buildHostedChatRuntimePrompt({
-		notesContext,
-		attachedNoteContext,
-		recipeContext,
-		userProfileContext: userProfileContext ?? undefined,
-		webSearchEnabled,
-		coreToolInstruction: coreToolPolicy.instruction,
-		automationInstruction: automationContext.instruction,
+	const { agent, finalizedToolSet, systemPrompt } = buildHostedChatRunPlan({
+		appTools,
+		automationContext,
+		context: {
+			notesContext,
+			attachedNoteContext,
+			recipeContext,
+			userProfileContext,
+		},
+		coreToolPolicy,
 		localFolderContext,
-		selectedAppSourceInstructions,
-	});
-	const enabledTools = {
-		...coreToolPolicy.enabledTools,
-		...automationContext.tools,
-		...appTools,
-		...(localFolderRoots.length > 0
-			? buildLocalFolderTools(localFolderRoots)
-			: {}),
-	};
-	const { agent, finalizedToolSet } = createHostedChatAgent({
-		enabledTools,
+		localFolderTools:
+			localFolderRoots.length > 0
+				? buildLocalFolderTools(localFolderRoots)
+				: {},
 		model: selectedModel.model,
-		prepareStep: coreToolPolicy.prepareStep,
 		providerOptions,
-		systemPrompt,
+		selectedAppSourceInstructions,
+		webSearchEnabled,
 	});
 	logLatency("tools.finalized", {
 		deferredToolCount: finalizedToolSet.deferredToolCount,

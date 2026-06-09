@@ -4,7 +4,6 @@ import {
 	createAgentUIStream,
 	type InferUITools,
 	pipeUIMessageStreamToResponse,
-	type ToolSet,
 	type UIMessage,
 	type UIMessageChunk,
 	validateUIMessages,
@@ -30,9 +29,8 @@ import {
 	HostedActiveChatStreamPersister,
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
-import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agent.mjs";
+import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
-	buildHostedChatRuntimePrompt,
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
 	fromHostedStoredMessages,
@@ -476,31 +474,27 @@ export const handleChatRequest = async (
 		defaultTimezone: resolvedTimezone,
 		webSearchEnabled,
 	});
-	const systemPrompt = buildHostedChatRuntimePrompt({
-		notesContext,
-		attachedNoteContext,
-		recipeContext,
-		userProfileContext: userProfileContext ?? undefined,
-		webSearchEnabled,
-		coreToolInstruction: coreToolPolicy.instruction,
-		automationInstruction: automationContext.instruction,
-		localFolderContext,
-		selectedAppSourceInstructions,
-	});
-	const enabledTools: ToolSet = { ...coreToolPolicy.enabledTools };
-	Object.assign(enabledTools, automationContext.tools);
-	Object.assign(enabledTools, appTools);
-	if (localFolderRoots.length > 0) {
-		Object.assign(enabledTools, buildLocalFolderTools(localFolderRoots));
-	}
-
-	const { agent, finalizedToolSet, tools } = createHostedChatAgent({
-		enabledTools,
-		model: resolvedModel.model,
-		prepareStep: coreToolPolicy.prepareStep,
-		providerOptions,
-		systemPrompt,
-	});
+	const { agent, finalizedToolSet, systemPrompt, tools } =
+		buildHostedChatRunPlan({
+			appTools,
+			automationContext,
+			context: {
+				notesContext,
+				attachedNoteContext,
+				recipeContext,
+				userProfileContext,
+			},
+			coreToolPolicy,
+			localFolderContext,
+			localFolderTools:
+				localFolderRoots.length > 0
+					? buildLocalFolderTools(localFolderRoots)
+					: {},
+			model: resolvedModel.model,
+			providerOptions,
+			selectedAppSourceInstructions,
+			webSearchEnabled,
+		});
 	logLatency("tools.finalized", {
 		deferredToolCount: finalizedToolSet.deferredToolCount,
 		hasEnabledTools: finalizedToolSet.hasTools,
