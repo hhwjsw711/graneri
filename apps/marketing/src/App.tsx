@@ -5,11 +5,7 @@ import { Icons } from "@workspace/ui/components/icons";
 const githubOwner = import.meta.env.VITE_GITHUB_OWNER?.trim() || "murabcd";
 const githubRepo = import.meta.env.VITE_GITHUB_REPO?.trim() || "graneri";
 const githubProjectUrl = `https://github.com/${githubOwner}/${githubRepo}`;
-const desktopDownloadUrl =
-	import.meta.env.VITE_DESKTOP_DOWNLOAD_URL?.trim() ||
-	`${githubProjectUrl}/releases/latest`;
 const GithubLogo = Icons.githubLogo;
-const MacLogo = Icons.macLogo;
 
 function App() {
 	return (
@@ -48,9 +44,9 @@ function App() {
 							size="lg"
 							className="h-13 rounded-full border-0 bg-primary px-7 text-base font-medium text-primary-foreground shadow-[0_22px_50px_rgba(0,0,0,0.34)] hover:bg-primary/90"
 						>
-							<a href={desktopDownloadUrl} target="_blank" rel="noreferrer">
-								<MacLogo className="size-4.5" />
-								Download for Mac
+							<a href={githubProjectUrl} target="_blank" rel="noreferrer">
+								<GithubLogo className="size-4.5" />
+								View source
 							</a>
 						</Button>
 					</div>
