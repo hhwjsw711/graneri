@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import { remoteMcpToolPrefixes } from "../../../../packages/ai/src/app-source-providers.mjs";
+import { remoteMcpToolPrefixes } from "../../../../packages/ai/src/capability-metadata.mjs";
 
 export type ToolSource = {
 	href: string;

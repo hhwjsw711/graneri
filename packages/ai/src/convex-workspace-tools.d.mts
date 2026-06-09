@@ -1,7 +1,7 @@
 import type { ConvexHttpClient } from "convex/browser";
 import type { ToolSet } from "ai";
 import type { Id } from "../../../convex/_generated/dataModel";
-import type { WorkspaceToolConnection } from "./workspace-tool-registry.mjs";
+import type { WorkspaceToolConnection } from "./capability-registry.mjs";
 
 export declare function buildConvexWorkspaceToolSet(args: {
 	connections: WorkspaceToolConnection[];

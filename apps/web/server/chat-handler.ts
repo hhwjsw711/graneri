@@ -15,12 +15,12 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
+import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
 import {
 	buildSelectedAppSourceInstructions,
 	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
-} from "../../../packages/ai/src/app-source-providers.mjs";
-import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
+} from "../../../packages/ai/src/capability-metadata.mjs";
 import {
 	createChatLatencyLogger,
 	createChatStreamLatencyTracker,

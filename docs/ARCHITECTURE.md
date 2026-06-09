@@ -26,6 +26,13 @@ Renderer code must access desktop capabilities through this package.
 `convex/*.ts`; server-only behavior must enter through adapters or Convex
 client/action boundaries.
 
+Connected app AI capabilities are declared in
+`packages/ai/src/capability-registry.mjs`. The registry is the source of truth
+for provider identity, source instructions, tool-discovery prefixes, and tool
+builders. Desktop-local capabilities such as shared local folders and native
+transcription remain desktop bridge APIs, not generic connected-app
+capabilities.
+
 `convex/`
 : Server functions, schema, HTTP actions, auth, and server-only integrations.
 Read `convex/_generated/ai/guidelines.md` before changing Convex code.

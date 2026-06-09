@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
-} from "../../../packages/ai/src/app-source-providers.mjs";
+} from "../../../packages/ai/src/capability-metadata.mjs";
 
 describe("chat source selection", () => {
 	it("treats empty selection as no external context", () => {

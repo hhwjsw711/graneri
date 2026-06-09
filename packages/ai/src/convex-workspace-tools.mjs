@@ -1,5 +1,5 @@
 import { api } from "../../../convex/_generated/api.js";
-import { buildWorkspaceToolSet } from "./workspace-tool-registry.mjs";
+import { buildCapabilityToolSet } from "./capability-registry.mjs";
 
 const hasConnection = (connections, provider) =>
 	connections.some((connection) => connection.provider === provider);
@@ -11,7 +11,7 @@ export const buildConvexWorkspaceToolSet = async ({
 }) => {
 	const canUseWorkspaceTools = Boolean(convexClient && workspaceId);
 
-	return await buildWorkspaceToolSet(connections, {
+	return await buildCapabilityToolSet(connections, {
 		...(hasConnection(connections, "google-calendar") &&
 		convexClient &&
 		canUseWorkspaceTools

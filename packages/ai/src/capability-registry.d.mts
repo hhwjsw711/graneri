@@ -5,6 +5,11 @@ import type { JiraMcpToolConnection } from "./jira-mcp-tools.mjs";
 import type { LinearMcpToolConnection } from "./linear-tools.mjs";
 import type { NotionMcpToolConnection } from "./notion-tools.mjs";
 import type { PostHogMcpToolConnection } from "./posthog-tools.mjs";
+import type {
+	AppSourceInstructionConnection,
+	AppSourceProvider,
+	CapabilityMetadata,
+} from "./capability-metadata.mjs";
 import type { YandexTrackerToolConnection } from "./yandex-tracker-tools.mjs";
 import type { ZoomMcpToolConnection } from "./zoom-mcp-tools.mjs";
 
@@ -45,7 +50,7 @@ export type WorkspaceToolConnection =
 	| GoogleDriveToolConnection
 	| ZoomMcpToolConnection;
 
-export type WorkspaceToolAdapters = {
+export type GraneriCapabilityAdapters = {
 	googleCalendar?: {
 		listEvents(args: {
 			limit?: number;
@@ -69,18 +74,23 @@ export type WorkspaceToolAdapters = {
 	};
 };
 
-export declare function normalizeWorkspaceCalendarEvents(
-	events: unknown[],
-	args?: { limit?: number; meetingsOnly?: boolean; query?: string },
-): unknown[];
+export type GraneriCapability = CapabilityMetadata & {
+	buildTools?: (
+		connection: AppSourceInstructionConnection,
+		adapters?: GraneriCapabilityAdapters,
+	) => Promise<ToolSet> | ToolSet;
+};
 
-export declare function buildWorkspaceCalendarSources(
-	events: unknown[],
-): unknown[];
+export declare const graneriCapabilityRegistry: Record<
+	AppSourceProvider,
+	GraneriCapability
+>;
 
-export declare function getWorkspaceCalendarLookaheadMs(): number;
+export declare function getGraneriCapability(
+	provider: string,
+): GraneriCapability | null;
 
-export declare function buildWorkspaceToolSet(
+export declare function buildCapabilityToolSet(
 	connections: WorkspaceToolConnection[],
-	adapters?: WorkspaceToolAdapters,
+	adapters?: GraneriCapabilityAdapters,
 ): Promise<ToolSet>;

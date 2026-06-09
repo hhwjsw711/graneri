@@ -19,7 +19,7 @@ import { z } from "zod";
 import {
 	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
-} from "../packages/ai/src/app-source-providers.mjs";
+} from "../packages/ai/src/capability-metadata.mjs";
 import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
 import { buildChatAutomationContext } from "../packages/ai/src/automation-tools.mjs";
 import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace-tools.mjs";
@@ -58,7 +58,7 @@ import {
 	createDesktopRealtimeTranscriptionSession,
 	normalizeTranscriptionLanguage,
 } from "../packages/ai/src/transcription.mjs";
-import type { WorkspaceToolConnection } from "../packages/ai/src/workspace-tool-registry.mjs";
+import type { WorkspaceToolConnection } from "../packages/ai/src/capability-registry.mjs";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 

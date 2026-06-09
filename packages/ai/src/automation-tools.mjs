@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineAiTool } from "./ai-tool-definition.mjs";
-import { automationAppSourceProviders } from "./app-source-providers.mjs";
+import { automationAppSourceProviders } from "./capability-metadata.mjs";
 import { toolUiMetadata } from "./tool-ui-metadata.mjs";
 
 const automationSchedulePeriodSchema = z.enum([

@@ -13,7 +13,7 @@ import {
 	Video,
 } from "lucide-react";
 import type React from "react";
-import { remoteMcpToolPrefixes } from "../../../../../../packages/ai/src/app-source-providers.mjs";
+import { remoteMcpToolPrefixes } from "../../../../../../packages/ai/src/capability-metadata.mjs";
 import { toolUiMetadata } from "../../../../../../packages/ai/src/tool-ui-metadata.mjs";
 
 export type ToolMeta = {

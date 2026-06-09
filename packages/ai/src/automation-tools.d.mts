@@ -2,7 +2,7 @@ import type { ToolSet } from "ai";
 import type {
 	AppSourceInstructionConnection,
 	AppSourceProvider,
-} from "./app-source-providers.mjs";
+} from "./capability-metadata.mjs";
 
 export type AutomationSchedulePeriod =
 	| "hourly"

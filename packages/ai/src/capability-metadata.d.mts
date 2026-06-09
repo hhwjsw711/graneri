@@ -19,18 +19,34 @@ export type AppSourceInstructionConnection = {
 	provider: AppSourceProvider | string;
 };
 
-export declare const appSourceProviders: readonly AppSourceProvider[];
+export type CapabilityMetadata = {
+	id: AppSourceProvider;
+	displayName: string;
+	toolPrefix?: string;
+	sourceInstruction?: (
+		connection: AppSourceInstructionConnection,
+		capability: CapabilityMetadata,
+	) => string;
+};
 
-export declare const automationAppSourceProviders: readonly AppSourceProvider[];
 export declare const APP_SOURCE_PREFIX: "app:";
-
+export declare const capabilityMetadataDefinitions: readonly CapabilityMetadata[];
+export declare const capabilityMetadataRegistry: Record<
+	AppSourceProvider,
+	CapabilityMetadata
+>;
+export declare const appSourceProviders: readonly AppSourceProvider[];
+export declare const automationAppSourceProviders: readonly AppSourceProvider[];
 export declare const appSourceLabels: Record<AppSourceProvider, string>;
-
 export declare const remoteMcpToolPrefixes: readonly {
 	prefix: string;
 	provider: AppSourceProvider;
 	label: string;
 }[];
+
+export declare function getCapabilityMetadata(
+	provider: string,
+): CapabilityMetadata | null;
 
 export declare function getSelectedAppSourceIds(
 	selectedSourceIds?: string[],

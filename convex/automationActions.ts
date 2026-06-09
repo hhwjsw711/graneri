@@ -4,9 +4,9 @@ import { openai } from "@ai-sdk/openai";
 import { stepCountIs, ToolLoopAgent } from "ai";
 import { v } from "convex/values";
 import {
-	buildWorkspaceToolSet,
+	buildCapabilityToolSet,
 	type WorkspaceToolConnection,
-} from "../packages/ai/src/workspace-tool-registry.mjs";
+} from "../packages/ai/src/capability-registry.mjs";
 import { getChatModelProviderOptions } from "../packages/ai/src/models.mjs";
 import { finalizeOpenAIToolSet } from "../packages/ai/src/openai-tool-search.mjs";
 import { BASE_CHAT_SYSTEM_PROMPT } from "../packages/ai/src/prompts.mjs";
@@ -97,7 +97,7 @@ const getAutomationAppTools = async (
 		},
 	);
 
-	return await buildWorkspaceToolSet(connections as WorkspaceToolConnection[], {
+	return await buildCapabilityToolSet(connections as WorkspaceToolConnection[], {
 		yandexCalendar: buildAutomationYandexCalendarAdapter(),
 	});
 };

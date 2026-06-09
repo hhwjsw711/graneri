@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import { APP_SOURCE_PREFIX } from "../packages/ai/src/app-source-providers.mjs";
+import { APP_SOURCE_PREFIX } from "../packages/ai/src/capability-metadata.mjs";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
