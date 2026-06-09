@@ -15,6 +15,7 @@ import {
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import {
+	buildSelectedAppSourceInstructions,
 	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
 } from "../packages/ai/src/capability-metadata.mjs";
@@ -532,6 +533,9 @@ export const handleChatRequest = async (request: Request) => {
 			: [];
 	const workspaceToolConnections =
 		appConnections as WorkspaceToolConnection[];
+	const selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
+		workspaceToolConnections,
+	);
 	const appTools = appsEnabled
 		? await buildConvexWorkspaceToolSet({
 				connections: workspaceToolConnections,
@@ -583,6 +587,7 @@ export const handleChatRequest = async (request: Request) => {
 		coreToolInstruction: coreToolPolicy.instruction,
 		automationInstruction: automationContext.instruction,
 		localFolderContext,
+		selectedAppSourceInstructions,
 	});
 	const localFolderTools = buildDesktopLocalFolderClientTools(localFolderRoots);
 	const { agent } = createHostedChatAgent({

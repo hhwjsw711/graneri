@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveFallbackChatTitle } from "../../../packages/ai/src/chat-titles.mjs";
+import { buildHostedChatRuntimePrompt } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildApplyTemplatePrompt,
 	buildChatSystemPrompt,
@@ -54,5 +55,16 @@ describe("prompt helpers", () => {
 				userText: "why did OpenAI hire Sam Altman for GPT-5 work?",
 			}),
 		).toBe("OpenAI hire Sam Altman");
+	});
+
+	it("includes selected app source instructions in hosted chat runtime prompts", () => {
+		const prompt = buildHostedChatRuntimePrompt({
+			selectedAppSourceInstructions:
+				"The selected app source for this chat is Linear.",
+		});
+
+		expect(prompt).toContain(
+			"The selected app source for this chat is Linear.",
+		);
 	});
 });
