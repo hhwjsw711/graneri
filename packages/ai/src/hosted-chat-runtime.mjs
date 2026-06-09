@@ -126,6 +126,22 @@ export const getInlineHostedNoteContext = ({ title, text }) => {
 		.join("\n\n");
 };
 
+export const buildHostedNotesContext = (notes) => {
+	if (notes.length === 0) {
+		return "";
+	}
+
+	return [
+		"Attached notes are available below. Use them when they are relevant to the user's request.",
+		...notes.map((note, index) =>
+			[
+				`Note ${index + 1}: ${note.title}`,
+				note.searchableText || "(empty note)",
+			].join("\n"),
+		),
+	].join("\n\n");
+};
+
 export const getHostedChatRecipeContext = (selectedRecipe) => {
 	if (!selectedRecipe) {
 		return "";

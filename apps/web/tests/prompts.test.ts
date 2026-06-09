@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { deriveFallbackChatTitle } from "../../../packages/ai/src/chat-titles.mjs";
-import { buildHostedChatRuntimePrompt } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
+import {
+	buildHostedChatRuntimePrompt,
+	buildHostedNotesContext,
+} from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildApplyTemplatePrompt,
 	buildChatSystemPrompt,
@@ -66,5 +69,22 @@ describe("prompt helpers", () => {
 		expect(prompt).toContain(
 			"The selected app source for this chat is Linear.",
 		);
+	});
+
+	it("formats attached hosted note context consistently", () => {
+		const context = buildHostedNotesContext([
+			{ title: "Decision log", searchableText: "Ship desktop first." },
+			{ title: "Empty note", searchableText: "" },
+		]);
+
+		expect(context).toContain(
+			"Attached notes are available below. Use them when they are relevant to the user's request.",
+		);
+		expect(context).toContain("Note 1: Decision log\nShip desktop first.");
+		expect(context).toContain("Note 2: Empty note\n(empty note)");
+	});
+
+	it("omits attached hosted note context when no notes are selected", () => {
+		expect(buildHostedNotesContext([])).toBe("");
 	});
 });

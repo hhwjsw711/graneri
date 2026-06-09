@@ -27,6 +27,12 @@ export declare const getInlineHostedNoteContext: (args: {
 	title?: string;
 	text?: string;
 }) => string;
+export declare const buildHostedNotesContext: (
+	notes: Array<{
+		title: string;
+		searchableText?: string | null;
+	}>,
+) => string;
 export declare const getHostedChatRecipeContext: (
 	selectedRecipe:
 		| {

@@ -27,6 +27,7 @@ import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-wor
 import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatRuntimePrompt,
+	buildHostedNotesContext,
 	clampHostedNoteContext,
 	fromHostedStoredMessages,
 	generateHostedChatMessageId,
@@ -211,19 +212,7 @@ const getNotesContext = async ({
 				})
 			: [];
 
-	if (notes.length === 0) {
-		return "";
-	}
-
-	return [
-		"Attached notes are available below. Use them when they are relevant to the user's request.",
-		...notes.map((note, index) =>
-			[
-				`Note ${index + 1}: ${note.title}`,
-				note.searchableText || "(empty note)",
-			].join("\n"),
-		),
-	].join("\n\n");
+	return buildHostedNotesContext(notes);
 };
 
 const getSelectedAppConnections = async ({
