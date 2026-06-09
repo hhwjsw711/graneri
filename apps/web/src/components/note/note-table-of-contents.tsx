@@ -83,10 +83,7 @@ export function NoteTableOfContents({
 			</div>
 
 			<div className="pointer-events-none absolute -top-3 right-0 z-20 opacity-0 transition-all duration-150 group-hover/toc:pointer-events-auto group-hover/toc:opacity-100">
-				<Card
-					size="sm"
-					className="w-[243px] max-w-[calc(100vw-6rem)] rounded-2xl border-0 bg-popover/95 py-0 text-popover-foreground ring-0 shadow-xl backdrop-blur supports-[backdrop-filter]:bg-popover/90"
-				>
+				<Card size="sm" className="w-[243px] max-w-[calc(100vw-6rem)]">
 					<CardContent className="min-h-0 p-3">
 						<ScrollArea
 							className="w-full max-h-[218px]"
