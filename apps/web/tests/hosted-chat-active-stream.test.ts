@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	createHostedActiveStreamKey,
+	createHostedActiveStreamSession,
 	HostedActiveChatStreamPersister,
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
@@ -52,6 +53,39 @@ describe("hosted active chat stream", () => {
 			messageId: "stream-1",
 			status: "done",
 		});
+	});
+
+	it("owns active stream controller replacement and cleanup", async () => {
+		const controllers = new Map<string, AbortController>();
+		const existingController = new AbortController();
+		const start = vi.fn().mockResolvedValue(undefined);
+		const append = vi.fn();
+		const finish = vi.fn().mockResolvedValue(undefined);
+		const streamKey = "workspace-1:chat-1";
+		controllers.set(streamKey, existingController);
+		const session = createHostedActiveStreamSession({
+			controllers,
+			streamKey,
+			persister: {
+				start,
+				append,
+				finish,
+			},
+		});
+
+		await session.start();
+		session.append("hello");
+		await session.finish("done");
+
+		expect(existingController.signal.aborted).toBe(true);
+		expect(controllers.get(streamKey)?.signal).toBe(session.abortSignal);
+		expect(start).toHaveBeenCalledOnce();
+		expect(append).toHaveBeenCalledWith("hello");
+		expect(finish).toHaveBeenCalledWith("done");
+
+		session.cleanup();
+
+		expect(controllers.has(streamKey)).toBe(false);
 	});
 
 	it("pipes stream chunks while persisting text deltas only", async () => {

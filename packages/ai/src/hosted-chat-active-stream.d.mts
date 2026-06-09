@@ -46,6 +46,26 @@ export declare class HostedActiveChatStreamPersister<
 	finish(status: HostedActiveStreamStatus): Promise<void>;
 }
 
+export type HostedActiveStreamSession = {
+	abortSignal: AbortSignal;
+	persister: { append(delta: string): void };
+	streamKey: string;
+	start(): Promise<void>;
+	append(delta: string): void;
+	finish(status: HostedActiveStreamStatus): Promise<void>;
+	cleanup(): void;
+};
+
+export declare const createHostedActiveStreamSession: (args: {
+	controllers: Map<string, AbortController>;
+	persister: {
+		start(): Promise<void>;
+		append(delta: string): void;
+		finish(status: HostedActiveStreamStatus): Promise<void>;
+	};
+	streamKey: string;
+}) => HostedActiveStreamSession;
+
 export declare const pipeHostedActiveStreamText: <Chunk extends { type: string }>(
 	args: {
 		persister?: { append(delta: string): void } | null;

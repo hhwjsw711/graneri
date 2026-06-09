@@ -107,6 +107,36 @@ export class HostedActiveChatStreamPersister {
 	}
 }
 
+export const createHostedActiveStreamSession = ({
+	controllers,
+	persister,
+	streamKey,
+}) => {
+	const abortController = new AbortController();
+
+	return {
+		abortSignal: abortController.signal,
+		persister,
+		streamKey,
+		async start() {
+			controllers.get(streamKey)?.abort("superseded");
+			controllers.set(streamKey, abortController);
+			await persister.start();
+		},
+		append(delta) {
+			persister.append(delta);
+		},
+		async finish(status) {
+			await persister.finish(status);
+		},
+		cleanup() {
+			if (controllers.get(streamKey) === abortController) {
+				controllers.delete(streamKey);
+			}
+		},
+	};
+};
+
 export const pipeHostedActiveStreamText = ({ persister, stream }) =>
 	stream.pipeThrough(
 		new TransformStream({

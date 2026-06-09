@@ -26,6 +26,7 @@ import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-poli
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
 import {
 	createHostedActiveStreamKey,
+	createHostedActiveStreamSession,
 	HostedActiveChatStreamPersister,
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
@@ -550,47 +551,37 @@ export const handleChatRequest = async (
 		),
 	});
 
-	const activeStreamPersister =
+	const activeStreamSession =
 		convexClient && id && resolvedWorkspaceId
-			? new HostedActiveChatStreamPersister({
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-					messageId: `stream-${crypto.randomUUID()}`,
-					startActiveStream: (args) =>
-						convexClient.mutation(api.chats.startActiveStream, args),
-					appendActiveStreamText: (args) =>
-						convexClient.mutation(api.chats.appendActiveStreamText, args),
-					finishActiveStream: (args) =>
-						convexClient.mutation(api.chats.finishActiveStream, args),
-				})
-			: null;
-	const activeStreamAbortController = activeStreamPersister
-		? new AbortController()
-		: null;
-	const activeStreamKey =
-		activeStreamPersister && id && resolvedWorkspaceId
-			? createHostedActiveStreamKey({
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
+			? createHostedActiveStreamSession({
+					controllers: activeChatStreamControllers,
+					streamKey: createHostedActiveStreamKey({
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+					}),
+					persister: new HostedActiveChatStreamPersister({
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+						messageId: `stream-${crypto.randomUUID()}`,
+						startActiveStream: (args) =>
+							convexClient.mutation(api.chats.startActiveStream, args),
+						appendActiveStreamText: (args) =>
+							convexClient.mutation(api.chats.appendActiveStreamText, args),
+						finishActiveStream: (args) =>
+							convexClient.mutation(api.chats.finishActiveStream, args),
+					}),
 				})
 			: null;
 
-	if (activeStreamPersister) {
+	if (activeStreamSession) {
 		try {
-			if (activeStreamKey && activeStreamAbortController) {
-				activeChatStreamControllers.get(activeStreamKey)?.abort("superseded");
-				activeChatStreamControllers.set(
-					activeStreamKey,
-					activeStreamAbortController,
-				);
-			}
-			await activeStreamPersister.start();
+			await activeStreamSession.start();
 		} catch (error) {
 			console.error("Failed to start active chat stream", error);
 		}
 	}
 	logLatency("convex.active_stream_started", {
-		enabled: Boolean(activeStreamPersister),
+		enabled: Boolean(activeStreamSession),
 	});
 
 	logLatency("ai.agent_created", {
@@ -603,7 +594,7 @@ export const handleChatRequest = async (
 	const stream = await createAgentUIStream({
 		agent,
 		uiMessages: chatMessages,
-		abortSignal: activeStreamAbortController?.signal,
+		abortSignal: activeStreamSession?.abortSignal,
 		originalMessages: chatMessages,
 		generateMessageId: generateHostedChatMessageId,
 		sendReasoning: true,
@@ -635,26 +626,19 @@ export const handleChatRequest = async (
 						message: responseMessage,
 					}),
 				);
-				await activeStreamPersister?.finish("done");
+				await activeStreamSession?.finish("done");
 			} catch (error) {
 				console.error("Failed to persist assistant chat message", error);
-				await activeStreamPersister?.finish("error");
+				await activeStreamSession?.finish("error");
 			} finally {
-				if (
-					activeStreamKey &&
-					activeStreamAbortController &&
-					activeChatStreamControllers.get(activeStreamKey) ===
-						activeStreamAbortController
-				) {
-					activeChatStreamControllers.delete(activeStreamKey);
-				}
+				activeStreamSession?.cleanup();
 			}
 		},
 		onError: () => "Something went wrong.",
 	});
 	logLatency("ai.stream_created");
 	const persistedStream = pipeHostedActiveStreamText({
-		persister: activeStreamPersister,
+		persister: activeStreamSession,
 		stream: streamLatencyTracker.wrapStream(stream),
 	});
 
