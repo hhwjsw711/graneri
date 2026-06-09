@@ -1,12 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { openai } from "@ai-sdk/openai";
 import {
 	consumeStream,
 	createAgentUIStream,
 	type InferUITools,
 	pipeUIMessageStreamToResponse,
-	stepCountIs,
-	ToolLoopAgent,
 	type ToolSet,
 	type UIMessage,
 	type UIMessageChunk,
@@ -27,6 +24,7 @@ import {
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
+import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatRuntimePrompt,
 	clampHostedNoteContext,
@@ -43,7 +41,6 @@ import {
 	buildLocalFolderTools,
 	resolveLocalFolderRoots,
 } from "../../../packages/ai/src/local-folder-tools.mjs";
-import { finalizeOpenAIToolSet } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
 	findChatModel,
 	getChatModelProviderOptions,
@@ -620,8 +617,13 @@ export const handleChatRequest = async (
 		Object.assign(enabledTools, buildLocalFolderTools(localFolderRoots));
 	}
 
-	const finalizedToolSet = finalizeOpenAIToolSet(enabledTools);
-	const { tools } = finalizedToolSet;
+	const { agent, finalizedToolSet, tools } = createHostedChatAgent({
+		enabledTools,
+		model: resolvedModel.model,
+		prepareStep: coreToolPolicy.prepareStep,
+		providerOptions,
+		systemPrompt,
+	});
 	logLatency("tools.finalized", {
 		deferredToolCount: finalizedToolSet.deferredToolCount,
 		hasEnabledTools: finalizedToolSet.hasTools,
@@ -705,14 +707,6 @@ export const handleChatRequest = async (
 		enabled: Boolean(activeStreamPersister),
 	});
 
-	const agent = new ToolLoopAgent({
-		model: openai(resolvedModel.model),
-		providerOptions,
-		instructions: systemPrompt,
-		tools: finalizedToolSet.hasTools ? tools : undefined,
-		prepareStep: coreToolPolicy.prepareStep,
-		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
-	});
 	logLatency("ai.agent_created", {
 		hasEnabledTools: finalizedToolSet.hasTools,
 		systemPromptLength: systemPrompt.length,

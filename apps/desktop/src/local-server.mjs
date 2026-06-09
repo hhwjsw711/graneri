@@ -1,11 +1,8 @@
 import { createServer } from "node:http";
-import { openai } from "@ai-sdk/openai";
 import {
 	consumeStream,
 	createAgentUIStream,
 	pipeUIMessageStreamToResponse,
-	stepCountIs,
-	ToolLoopAgent,
 	validateUIMessages,
 } from "ai";
 import { ConvexHttpClient } from "convex/browser";
@@ -22,6 +19,7 @@ import {
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
+import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatRuntimePrompt,
 	clampHostedNoteContext,
@@ -41,7 +39,6 @@ import {
 	getChatModelProviderOptions,
 	normalizeReasoningEffort,
 } from "../../../packages/ai/src/models.mjs";
-import { finalizeOpenAIToolSet } from "../../../packages/ai/src/openai-tool-search.mjs";
 import {
 	proxyHostedAiRequest,
 	shouldProxyHostedAiRequest,
@@ -543,21 +540,18 @@ const handleChatRequest = async ({
 			? buildLocalFolderTools(localFolderRoots)
 			: {}),
 	};
-	const finalizedToolSet = finalizeOpenAIToolSet(enabledTools);
-	const { tools } = finalizedToolSet;
+	const { agent, finalizedToolSet } = createHostedChatAgent({
+		enabledTools,
+		model: selectedModel.model,
+		prepareStep: coreToolPolicy.prepareStep,
+		providerOptions,
+		systemPrompt,
+	});
 	logLatency("tools.finalized", {
 		deferredToolCount: finalizedToolSet.deferredToolCount,
 		hasEnabledTools: finalizedToolSet.hasTools,
 		hasToolSearch: finalizedToolSet.hasToolSearch,
 		toolCount: finalizedToolSet.toolCount,
-	});
-	const agent = new ToolLoopAgent({
-		model: openai(selectedModel.model),
-		providerOptions,
-		instructions: systemPrompt,
-		tools: finalizedToolSet.hasTools ? tools : undefined,
-		prepareStep: coreToolPolicy.prepareStep,
-		stopWhen: finalizedToolSet.hasTools ? stepCountIs(5) : undefined,
 	});
 	logLatency("ai.agent_created", {
 		hasEnabledTools: finalizedToolSet.hasTools,

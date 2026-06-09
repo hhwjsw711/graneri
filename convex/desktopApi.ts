@@ -5,9 +5,7 @@ import {
 	generateText,
 	Output,
 	smoothStream,
-	stepCountIs,
 	streamText,
-	ToolLoopAgent,
 	type InferUITools,
 	type ToolSet,
 	tool,
@@ -23,6 +21,7 @@ import {
 import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
 import { buildChatAutomationContext } from "../packages/ai/src/automation-tools.mjs";
 import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace-tools.mjs";
+import { createHostedChatAgent } from "../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatRuntimePrompt,
 	clampHostedNoteContext,
@@ -47,7 +46,6 @@ import {
 	parseTemplateStreamToStructuredNote,
 	validateTemplateStream,
 } from "../packages/ai/src/note-template-stream.mjs";
-import { finalizeOpenAIToolSet } from "../packages/ai/src/openai-tool-search.mjs";
 import {
 	APPLY_TEMPLATE_SYSTEM_PROMPT,
 	buildApplyTemplatePrompt,
@@ -565,12 +563,11 @@ export const handleChatRequest = async (request: Request) => {
 		defaultTimezone: resolvedTimezone,
 		webSearchEnabled,
 	});
-	const finalizedToolSet = finalizeOpenAIToolSet({
+	const enabledTools = {
 		...coreToolPolicy.enabledTools,
 		...automationContext.tools,
 		...appTools,
-	});
-	const { tools } = finalizedToolSet;
+	};
 
 	const userProfileContext =
 		convexClient &&
@@ -588,20 +585,14 @@ export const handleChatRequest = async (request: Request) => {
 		localFolderContext,
 	});
 	const localFolderTools = buildDesktopLocalFolderClientTools(localFolderRoots);
-	const agentTools: ToolSet | undefined =
-		finalizedToolSet.hasTools || localFolderRoots.length > 0
-			? {
-					...(finalizedToolSet.hasTools ? tools : {}),
-					...(localFolderTools ?? {}),
-				}
-			: undefined;
-	const agent = new ToolLoopAgent({
-		model: openai(selectedModel.model),
-		providerOptions,
-		instructions: systemPrompt,
-		tools: agentTools ?? {},
+	const { agent } = createHostedChatAgent({
+		additionalAgentTools: localFolderTools,
+		enabledTools,
+		emptyToolsWhenNone: true,
+		model: selectedModel.model,
 		prepareStep: coreToolPolicy.prepareStep,
-		stopWhen: agentTools ? stepCountIs(5) : undefined,
+		providerOptions,
+		systemPrompt,
 	});
 
 	return await createAgentUIStreamResponse({
