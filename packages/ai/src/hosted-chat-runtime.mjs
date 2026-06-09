@@ -126,6 +126,41 @@ export const fromHostedStoredMessages = (messages) =>
 		];
 	});
 
+export const prepareHostedChatBranch = ({
+	message,
+	messageId,
+	messages = [],
+	storedMessages = [],
+	trigger,
+}) => {
+	const editedMessageId = messageId ?? message?.id;
+	const editedMessageIndex = editedMessageId
+		? storedMessages.findIndex(
+				(storedMessage) => storedMessage.id === editedMessageId,
+			)
+		: -1;
+	const baseStoredMessages =
+		editedMessageIndex >= 0
+			? storedMessages.slice(0, editedMessageIndex)
+			: storedMessages;
+	const incomingMessages = message
+		? [...fromHostedStoredMessages(baseStoredMessages), message]
+		: messages;
+	const truncateMessageId =
+		messageId &&
+		((trigger === "submit-message" && editedMessageIndex >= 0) ||
+			trigger === "regenerate-message")
+			? messageId
+			: undefined;
+
+	return {
+		editedMessageIndex,
+		incomingMessages,
+		shouldTruncateChatBranch: Boolean(truncateMessageId),
+		truncateMessageId,
+	};
+};
+
 export const getInlineHostedNoteContext = ({ title, text }) => {
 	const noteTitle = title?.trim() ?? "";
 	const noteText = clampHostedNoteContext(text ?? "");

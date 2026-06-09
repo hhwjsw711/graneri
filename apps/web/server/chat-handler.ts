@@ -14,8 +14,8 @@ import type { Id } from "../../../convex/_generated/dataModel";
 import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
 import {
 	buildSelectedAppSourceInstructions,
-	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
+	loadSelectedAppSourceConnections,
 } from "../../../packages/ai/src/capability-metadata.mjs";
 import {
 	createChatLatencyLogger,
@@ -33,12 +33,12 @@ import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run
 import {
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
-	fromHostedStoredMessages,
 	generateHostedChatMessageId,
 	generateHostedChatTitle,
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
+	prepareHostedChatBranch,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildLocalFolderSystemContext,
@@ -123,40 +123,23 @@ const getSelectedAppConnections = async ({
 		return [];
 	}
 
-	const allSelectedSourceIds = selectedSourceIds ?? [];
-
-	if (allSelectedSourceIds.length === 0) {
-		return [];
-	}
-
-	const sourceIds = getSelectedAppSourceIds(selectedSourceIds);
 	const client = new ConvexHttpClient(getConvexUrl(), { auth: convexToken });
-	const googleSources = await client
-		.action(api.googleTools.listAvailableSources, {
-			workspaceId: workspaceId as Id<"workspaces">,
-		})
-		.catch(() => []);
 
-	if (sourceIds.length === 0) {
-		return googleSources.filter((source) =>
-			allSelectedSourceIds.includes(source.id),
-		);
-	}
-
-	const connections = await client.action(
-		api.appConnectionActions.getSelectedForChatWithFreshTokens,
-		{
-			workspaceId: workspaceId as Id<"workspaces">,
-			sourceIds,
-		},
-	);
-
-	return [
-		...connections,
-		...googleSources.filter((source) =>
-			allSelectedSourceIds.includes(source.id),
-		),
-	];
+	return await loadSelectedAppSourceConnections({
+		selectedSourceIds,
+		listGoogleSources: async () =>
+			await client.action(api.googleTools.listAvailableSources, {
+				workspaceId: workspaceId as Id<"workspaces">,
+			}),
+		getAppConnections: async (sourceIds) =>
+			await client.action(
+				api.appConnectionActions.getSelectedForChatWithFreshTokens,
+				{
+					workspaceId: workspaceId as Id<"workspaces">,
+					sourceIds,
+				},
+			),
+	});
 };
 
 const getSelectedRecipe = async ({
@@ -342,34 +325,31 @@ export const handleChatRequest = async (
 	logLatency("convex.messages_loaded", {
 		messageCount: storedChatMessages.length,
 	});
-	const editedMessageId = messageId ?? message?.id;
-	const editedMessageIndex = editedMessageId
-		? storedChatMessages.findIndex(
-				(storedMessage) => storedMessage.id === editedMessageId,
-			)
-		: -1;
-	const baseStoredMessages =
-		editedMessageIndex >= 0
-			? storedChatMessages.slice(0, editedMessageIndex)
-			: storedChatMessages;
-	const incomingMessages =
-		convexClient && id
-			? [...fromHostedStoredMessages(baseStoredMessages), message]
-			: [message];
-	const shouldTruncateChatBranch =
+	const preparedBranch = prepareHostedChatBranch({
+		message,
+		messageId,
+		storedMessages: storedChatMessages,
+		trigger,
+	});
+	const shouldTruncateChatBranch = Boolean(
+		convexClient &&
+			id &&
+			resolvedWorkspaceId &&
+			preparedBranch.shouldTruncateChatBranch,
+	);
+
+	if (
+		shouldTruncateChatBranch &&
 		convexClient &&
 		id &&
 		resolvedWorkspaceId &&
-		messageId &&
-		((trigger === "submit-message" && editedMessageIndex >= 0) ||
-			trigger === "regenerate-message");
-
-	if (shouldTruncateChatBranch) {
+		preparedBranch.truncateMessageId
+	) {
 		try {
 			await convexClient.mutation(api.chats.truncateFromMessage, {
 				workspaceId: resolvedWorkspaceId,
 				chatId: id,
-				messageId,
+				messageId: preparedBranch.truncateMessageId,
 			});
 		} catch (error) {
 			console.error(
@@ -379,7 +359,7 @@ export const handleChatRequest = async (
 		}
 	}
 	logLatency("chat.branch_ready", {
-		incomingMessageCount: incomingMessages.length,
+		incomingMessageCount: preparedBranch.incomingMessages.length,
 		shouldTruncateChatBranch,
 	});
 
@@ -504,7 +484,7 @@ export const handleChatRequest = async (
 	const chatMessages = await validateUIMessages<
 		UIMessage<unknown, never, InferUITools<typeof tools>>
 	>({
-		messages: incomingMessages,
+		messages: preparedBranch.incomingMessages,
 		tools,
 	});
 	logLatency("chat.messages_validated", {

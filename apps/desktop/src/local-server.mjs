@@ -10,8 +10,8 @@ import { api } from "../../../convex/_generated/api.js";
 import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
 import {
 	buildSelectedAppSourceInstructions,
-	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
+	loadSelectedAppSourceConnections,
 } from "../../../packages/ai/src/capability-metadata.mjs";
 import {
 	createChatLatencyLogger,
@@ -28,6 +28,7 @@ import {
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
+	prepareHostedChatBranch,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildLocalFolderSystemContext,
@@ -185,38 +186,23 @@ const getSelectedAppConnections = async ({
 		return [];
 	}
 
-	const allSelectedSourceIds = selectedSourceIds ?? [];
-
-	if (allSelectedSourceIds.length === 0) {
-		return [];
-	}
-
-	const sourceIds = getSelectedAppSourceIds(selectedSourceIds);
 	const client = new ConvexHttpClient(getConvexUrl(), { auth: convexToken });
-	const googleSources = await client
-		.action(api.googleTools.listAvailableSources, { workspaceId })
-		.catch(() => []);
 
-	if (sourceIds.length === 0) {
-		return googleSources.filter((source) =>
-			allSelectedSourceIds.includes(source.id),
-		);
-	}
-
-	const connections = await client.action(
-		api.appConnectionActions.getSelectedForChatWithFreshTokens,
-		{
-			workspaceId,
-			sourceIds,
-		},
-	);
-
-	return [
-		...connections,
-		...googleSources.filter((source) =>
-			allSelectedSourceIds.includes(source.id),
-		),
-	];
+	return await loadSelectedAppSourceConnections({
+		selectedSourceIds,
+		listGoogleSources: async () =>
+			await client.action(api.googleTools.listAvailableSources, {
+				workspaceId,
+			}),
+		getAppConnections: async (sourceIds) =>
+			await client.action(
+				api.appConnectionActions.getSelectedForChatWithFreshTokens,
+				{
+					workspaceId,
+					sourceIds,
+				},
+			),
+	});
 };
 
 const getStoredNoteContext = async ({ convexToken, noteId, workspaceId }) => {
@@ -247,17 +233,6 @@ const getSelectedRecipe = async ({ convexToken, recipeSlug, workspaceId }) => {
 	return recipes.find((recipe) => recipe.slug === recipeSlug) ?? null;
 };
 
-const fromStoredMessages = (messages) =>
-	messages.map((message) => ({
-		id: message.id,
-		role: message.role,
-		metadata:
-			message.metadataJson === undefined
-				? undefined
-				: JSON.parse(message.metadataJson),
-		parts: JSON.parse(message.partsJson),
-	}));
-
 const resolveChatModel = (value) =>
 	chatModels.find((model) => model.id === value || model.model === value) ??
 	fallbackChatModel;
@@ -270,6 +245,7 @@ const handleChatRequest = async ({
 	const requestBody = await readJsonBody(request);
 	const {
 		id,
+		messageId,
 		message,
 		messages = [],
 		model,
@@ -284,6 +260,7 @@ const handleChatRequest = async ({
 		convexToken,
 		recipeSlug,
 		noteContext,
+		trigger,
 	} = requestBody;
 	if (shouldProxyHostedAiRequest()) {
 		await proxyHostedAiRequest({
@@ -356,21 +333,49 @@ const handleChatRequest = async ({
 		reasoningEffort: resolvedReasoningEffort,
 	});
 	const resolvedNoteId = noteContext?.noteId ?? storedChat?.noteId ?? null;
+	const storedChatMessages =
+		message && convexClient && id && resolvedWorkspaceId
+			? await convexClient
+					.query(api.chats.getMessagesSnapshot, {
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+					})
+					.catch(() => [])
+			: [];
+	const preparedBranch = prepareHostedChatBranch({
+		message,
+		messageId,
+		messages,
+		storedMessages: message ? storedChatMessages : [],
+		trigger,
+	});
+	const shouldTruncateChatBranch = Boolean(
+		convexClient &&
+			id &&
+			resolvedWorkspaceId &&
+			preparedBranch.shouldTruncateChatBranch,
+	);
+
+	if (shouldTruncateChatBranch && preparedBranch.truncateMessageId) {
+		try {
+			await convexClient.mutation(api.chats.truncateFromMessage, {
+				workspaceId: resolvedWorkspaceId,
+				chatId: id,
+				messageId: preparedBranch.truncateMessageId,
+			});
+		} catch (error) {
+			console.error(
+				"Failed to truncate regenerated chat message branch",
+				error,
+			);
+		}
+	}
+	logLatency("chat.branch_ready", {
+		incomingMessageCount: preparedBranch.incomingMessages.length,
+		shouldTruncateChatBranch,
+	});
 	const chatMessages = await validateUIMessages({
-		messages:
-			message && convexClient && id && resolvedWorkspaceId
-				? [
-						...fromStoredMessages(
-							await convexClient.query(api.chats.getMessages, {
-								workspaceId: resolvedWorkspaceId,
-								chatId: id,
-							}),
-						),
-						message,
-					]
-				: message
-					? [message]
-					: messages,
+		messages: preparedBranch.incomingMessages,
 	});
 	const lastUserMessage =
 		message?.role === "user"

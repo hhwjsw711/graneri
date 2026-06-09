@@ -56,6 +56,15 @@ export declare function getSelectedNoteSourceIds(args: {
 	mentions?: string[];
 }): string[];
 
+export declare function loadSelectedAppSourceConnections<
+	GoogleConnection extends AppSourceInstructionConnection,
+	AppConnection extends AppSourceInstructionConnection,
+>(args: {
+	selectedSourceIds?: string[];
+	listGoogleSources?: () => Promise<GoogleConnection[]>;
+	getAppConnections?: (sourceIds: string[]) => Promise<AppConnection[]>;
+}): Promise<Array<GoogleConnection | AppConnection>>;
+
 export declare function buildSelectedAppSourceInstructions(
 	connections: AppSourceInstructionConnection[],
 ): string;

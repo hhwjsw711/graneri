@@ -4,7 +4,9 @@ import {
 	buildHostedChatRuntimePrompt,
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
+	fromHostedStoredMessages,
 	getStoredHostedNoteContext,
+	prepareHostedChatBranch,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildApplyTemplatePrompt,
@@ -131,5 +133,89 @@ describe("prompt helpers", () => {
 		expect(saved.reasoningEffort).toBe("medium");
 		expect(saved.message.id).toBe("msg-1");
 		expect(saved.message.text).toBe("Hello from Graneri");
+	});
+
+	it("replays stored hosted messages with tolerant parsing", () => {
+		const messages = fromHostedStoredMessages([
+			{
+				id: "invalid-parts",
+				role: "assistant",
+				partsJson: "{",
+				metadataJson: '{"status":"ignored"}',
+			},
+			{
+				id: "empty-parts",
+				role: "assistant",
+				partsJson: JSON.stringify([{ type: "file", url: "file://local" }]),
+			},
+			{
+				id: "valid-text",
+				role: "user",
+				partsJson: JSON.stringify([
+					{ type: "text", text: "Replay this" },
+					{ type: "text", text: "" },
+				]),
+				metadataJson: "{",
+			},
+		]);
+
+		expect(messages).toEqual([
+			{
+				id: "valid-text",
+				role: "user",
+				metadata: undefined,
+				parts: [{ type: "text", text: "Replay this" }],
+			},
+		]);
+	});
+
+	it("prepares edited hosted chat branches from stored snapshots", () => {
+		const branch = prepareHostedChatBranch({
+			message: {
+				id: "edited-message",
+				role: "user",
+				parts: [{ type: "text", text: "Edited question" }],
+			},
+			messageId: "msg-2",
+			storedMessages: [
+				{
+					id: "msg-1",
+					role: "user",
+					partsJson: JSON.stringify([{ type: "text", text: "Original" }]),
+				},
+				{
+					id: "msg-2",
+					role: "assistant",
+					partsJson: JSON.stringify([{ type: "text", text: "Old answer" }]),
+				},
+			],
+			trigger: "submit-message",
+		});
+
+		expect(branch.editedMessageIndex).toBe(1);
+		expect(branch.shouldTruncateChatBranch).toBe(true);
+		expect(branch.truncateMessageId).toBe("msg-2");
+		expect(branch.incomingMessages.map((message) => message.id)).toEqual([
+			"msg-1",
+			"edited-message",
+		]);
+	});
+
+	it("prepares regenerated hosted chat branches even when the snapshot is stale", () => {
+		const branch = prepareHostedChatBranch({
+			message: {
+				id: "retry-message",
+				role: "user",
+				parts: [{ type: "text", text: "Try again" }],
+			},
+			messageId: "missing-message",
+			storedMessages: [],
+			trigger: "regenerate-message",
+		});
+
+		expect(branch.editedMessageIndex).toBe(-1);
+		expect(branch.shouldTruncateChatBranch).toBe(true);
+		expect(branch.truncateMessageId).toBe("missing-message");
+		expect(branch.incomingMessages).toHaveLength(1);
 	});
 });

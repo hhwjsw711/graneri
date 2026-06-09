@@ -16,8 +16,8 @@ import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import {
 	buildSelectedAppSourceInstructions,
-	getSelectedAppSourceIds,
 	getSelectedNoteSourceIds,
+	loadSelectedAppSourceConnections,
 } from "../packages/ai/src/capability-metadata.mjs";
 import { buildCoreChatToolPolicy } from "../packages/ai/src/chat-tool-policy.mjs";
 import { buildChatAutomationContext } from "../packages/ai/src/automation-tools.mjs";
@@ -30,6 +30,7 @@ import {
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
+	prepareHostedChatBranch,
 } from "../packages/ai/src/hosted-chat-runtime.mjs";
 import { buildHostedChatRunPlan } from "../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
@@ -63,6 +64,7 @@ import type { Id } from "./_generated/dataModel";
 type ChatRequestBody = {
 	id?: string;
 	messageId?: string;
+	trigger?: "submit-message" | "regenerate-message";
 	workspaceId?: string | null;
 	message?: UIMessage;
 	messages?: UIMessage[];
@@ -198,23 +200,6 @@ const getConvexClient = (
 				auth: convexToken,
 			})
 		: null;
-
-const fromStoredMessages = (
-	messages: Array<{
-		id: string;
-		role: "system" | "user" | "assistant";
-		partsJson: string;
-		metadataJson?: string;
-	}>,
-): UIMessage[] =>
-	messages.map((message) => ({
-		id: message.id,
-		role: message.role,
-		metadata: message.metadataJson
-			? (JSON.parse(message.metadataJson) as UIMessage["metadata"])
-			: undefined,
-		parts: JSON.parse(message.partsJson) as UIMessage["parts"],
-	}));
 
 const getNotesContext = async ({
 	request,
@@ -355,6 +340,7 @@ export const handleChatRequest = async (request: Request) => {
 		convexToken,
 		recipeSlug,
 		noteContext,
+		trigger,
 	} = (await request.json().catch(() => ({}))) as ChatRequestBody;
 
 	if (!Array.isArray(messages)) {
@@ -398,19 +384,41 @@ export const handleChatRequest = async (request: Request) => {
 		(noteContext?.noteId as Id<"notes"> | null | undefined) ??
 		storedChat?.noteId ??
 		null;
-	const editedMessageId = trim(messageId);
+	const storedChatMessages =
+		message && convexClient && id && resolvedWorkspaceId
+			? await convexClient
+					.query(api.chats.getMessagesSnapshot, {
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+					})
+					.catch(() => [])
+			: [];
+	const preparedBranch = prepareHostedChatBranch({
+		message,
+		messageId: trim(messageId) || undefined,
+		messages,
+		storedMessages: message ? storedChatMessages : [],
+		trigger,
+	});
+	const shouldTruncateChatBranch = Boolean(
+		convexClient &&
+			id &&
+			resolvedWorkspaceId &&
+			preparedBranch.shouldTruncateChatBranch,
+	);
+
 	if (
-		editedMessageId &&
-		message &&
+		shouldTruncateChatBranch &&
 		convexClient &&
 		id &&
-		resolvedWorkspaceId
+		resolvedWorkspaceId &&
+		preparedBranch.truncateMessageId
 	) {
 		try {
 			await convexClient.mutation(api.chats.truncateFromMessage, {
 				workspaceId: resolvedWorkspaceId,
 				chatId: id,
-				messageId: editedMessageId,
+				messageId: preparedBranch.truncateMessageId,
 			});
 		} catch (error) {
 			console.error("Failed to truncate edited chat branch", error);
@@ -420,20 +428,7 @@ export const handleChatRequest = async (request: Request) => {
 		}
 	}
 	const chatMessages = await validateUIMessages({
-		messages:
-			message && convexClient && id && resolvedWorkspaceId
-				? [
-						...fromStoredMessages(
-							await convexClient.query(api.chats.getMessagesSnapshot, {
-								workspaceId: resolvedWorkspaceId,
-								chatId: id,
-							}),
-						),
-						message,
-					]
-				: message
-					? [message]
-					: messages,
+		messages: preparedBranch.incomingMessages,
 	});
 	const agentMessages = chatMessages as HostedChatUIMessage[];
 	const lastUserMessage =
@@ -497,21 +492,25 @@ export const handleChatRequest = async (request: Request) => {
 		workspaceId,
 	});
 	const recipeContext = getHostedChatRecipeContext(selectedRecipe);
-	const appSourceIds = getSelectedAppSourceIds(selectedSourceIds);
-	const appConnections =
-		convexClient &&
-		resolvedWorkspaceId &&
-		appsEnabled &&
-		appSourceIds.length > 0
-			? await convexClient
-					.action(api.appConnectionActions.getSelectedForChatWithFreshTokens, {
-						workspaceId: resolvedWorkspaceId,
-						sourceIds: appSourceIds,
-					})
-					.catch(() => [])
+	const workspaceToolConnections: WorkspaceToolConnection[] =
+		convexClient && resolvedWorkspaceId && appsEnabled
+			? await loadSelectedAppSourceConnections({
+					selectedSourceIds,
+					listGoogleSources: async () =>
+						await convexClient
+							.action(api.googleTools.listAvailableSources, {
+								workspaceId: resolvedWorkspaceId,
+							})
+							.catch(() => []),
+					getAppConnections: async (sourceIds) =>
+						await convexClient
+							.action(api.appConnectionActions.getSelectedForChatWithFreshTokens, {
+								workspaceId: resolvedWorkspaceId,
+								sourceIds,
+							})
+							.catch(() => []),
+				})
 			: [];
-	const workspaceToolConnections =
-		appConnections as WorkspaceToolConnection[];
 	const selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
 		workspaceToolConnections,
 	);

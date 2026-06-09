@@ -45,6 +45,23 @@ export declare const fromHostedStoredMessages: (
 		metadataJson?: string;
 	}>,
 ) => UIMessage[];
+export declare const prepareHostedChatBranch: (args: {
+	message?: UIMessage;
+	messageId?: string;
+	messages?: UIMessage[];
+	storedMessages?: Array<{
+		id: string;
+		role: UIMessage["role"];
+		partsJson: string;
+		metadataJson?: string;
+	}>;
+	trigger?: "submit-message" | "regenerate-message";
+}) => {
+	editedMessageIndex: number;
+	incomingMessages: UIMessage[];
+	shouldTruncateChatBranch: boolean;
+	truncateMessageId: string | undefined;
+};
 export declare const getInlineHostedNoteContext: (args: {
 	title?: string;
 	text?: string;

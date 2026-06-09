@@ -1,4 +1,5 @@
 export const APP_SOURCE_PREFIX = "app:";
+const GOOGLE_APP_SOURCE_IDS = new Set(["app:google-calendar", "app:google-drive"]);
 
 const getConnectionDisplayName = (connection, capability) =>
 	connection.displayName ??
@@ -160,6 +161,37 @@ export const getSelectedAppSourceIds = (selectedSourceIds) =>
 
 export const getSelectedNoteSourceIds = ({ mentions }) =>
 	Array.from(new Set(mentions ?? [])).filter(Boolean);
+
+export const loadSelectedAppSourceConnections = async ({
+	getAppConnections,
+	listGoogleSources,
+	selectedSourceIds,
+}) => {
+	const allSelectedSourceIds = selectedSourceIds ?? [];
+
+	if (allSelectedSourceIds.length === 0) {
+		return [];
+	}
+
+	const sourceIds = getSelectedAppSourceIds(selectedSourceIds);
+	const appConnectionSourceIds = sourceIds.filter(
+		(sourceId) => !GOOGLE_APP_SOURCE_IDS.has(sourceId),
+	);
+	const googleSources = listGoogleSources
+		? await listGoogleSources().catch(() => [])
+		: [];
+	const selectedGoogleSources = googleSources.filter((source) =>
+		allSelectedSourceIds.includes(source.id),
+	);
+
+	if (appConnectionSourceIds.length === 0 || !getAppConnections) {
+		return selectedGoogleSources;
+	}
+
+	const appConnections = await getAppConnections(appConnectionSourceIds);
+
+	return [...appConnections, ...selectedGoogleSources];
+};
 
 export const buildSelectedAppSourceInstructions = (connections) =>
 	connections

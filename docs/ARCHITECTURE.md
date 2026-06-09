@@ -24,11 +24,13 @@ Renderer code must access desktop capabilities through this package.
 `packages/ai`
 : Shared AI runtime code. It must not import Convex server modules or
 `convex/*.ts`; server-only behavior must enter through adapters or Convex
-client/action boundaries. Hosted chat helpers own shared run-plan assembly,
-prompt construction, tool-loop setup, message persistence payloads, and
-active-stream persistence behavior; callers provide runtime-specific reads,
-writes, request transport, and desktop-local capabilities through small adapter
-callbacks.
+client/action boundaries. Imports from `convex/_generated` are allowed only for
+typed client function references and generated data-model types, not server
+implementation coupling. Hosted chat helpers own shared run-plan assembly,
+prompt construction, branch preparation, tool-loop setup, message persistence
+payloads, and active-stream persistence behavior; callers provide
+runtime-specific reads, writes, request transport, and desktop-local
+capabilities through small adapter callbacks.
 
 Connected app AI capabilities are declared in
 `packages/ai/src/capability-registry.mjs`. The registry is the source of truth
@@ -168,8 +170,9 @@ The desktop local server keeps Node HTTP transport and route dispatch in
 `apps/desktop/src/local-server.mjs`. Reusable HTTP/CORS behavior, hosted AI
 proxying, note AI routes, realtime transcription session creation, and local
 folder tool execution live behind dedicated local-server modules. Chat
-streaming may remain in the local server module until its Convex-backed context
-loading and tool assembly seams are explicit.
+streaming transport may remain in the local server module, while shared hosted
+chat helpers own prompt construction, run-plan assembly, tool-loop setup, save
+payloads, and active-stream persistence.
 
 Desktop packages must keep the app runtime in `Contents/Resources/app.asar`.
 Only native helpers and bundled media tools may be unpacked into
