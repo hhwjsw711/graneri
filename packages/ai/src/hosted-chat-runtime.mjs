@@ -126,6 +126,20 @@ export const getInlineHostedNoteContext = ({ title, text }) => {
 		.join("\n\n");
 };
 
+export const getStoredHostedNoteContext = (note) => {
+	if (!note) {
+		return "";
+	}
+
+	return [
+		"The current note is attached below. Use it as the primary context for this chat.",
+		`Current note title: ${note.title}`,
+		note.searchableText
+			? `Current note content:\n${clampHostedNoteContext(note.searchableText)}`
+			: "Current note content: (empty note)",
+	].join("\n\n");
+};
+
 export const buildHostedNotesContext = (notes) => {
 	if (notes.length === 0) {
 		return "";

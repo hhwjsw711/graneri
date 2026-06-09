@@ -23,12 +23,12 @@ import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agen
 import {
 	buildHostedChatRuntimePrompt,
 	buildHostedNotesContext,
-	clampHostedNoteContext,
 	generateHostedChatMessageId,
 	generateHostedChatTitle,
 	getHostedChatPreviewFromMessage,
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
+	getStoredHostedNoteContext,
 	toHostedStoredMessage,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
@@ -233,17 +233,7 @@ const getStoredNoteContext = async ({ convexToken, noteId, workspaceId }) => {
 	});
 	const note = notes[0];
 
-	if (!note) {
-		return "";
-	}
-
-	return [
-		"The current note is attached below. Use it as the primary context for this chat.",
-		`Current note title: ${note.title}`,
-		note.searchableText
-			? `Current note content:\n${clampHostedNoteContext(note.searchableText)}`
-			: "Current note content: (empty note)",
-	].join("\n\n");
+	return getStoredHostedNoteContext(note);
 };
 
 const getSelectedRecipe = async ({ convexToken, recipeSlug, workspaceId }) => {

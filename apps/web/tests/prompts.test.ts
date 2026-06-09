@@ -3,6 +3,7 @@ import { deriveFallbackChatTitle } from "../../../packages/ai/src/chat-titles.mj
 import {
 	buildHostedChatRuntimePrompt,
 	buildHostedNotesContext,
+	getStoredHostedNoteContext,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildApplyTemplatePrompt,
@@ -86,5 +87,22 @@ describe("prompt helpers", () => {
 
 	it("omits attached hosted note context when no notes are selected", () => {
 		expect(buildHostedNotesContext([])).toBe("");
+	});
+
+	it("formats stored hosted note context consistently", () => {
+		const context = getStoredHostedNoteContext({
+			title: "Planning",
+			searchableText: "Line 1\r\nLine 2",
+		});
+
+		expect(context).toContain(
+			"The current note is attached below. Use it as the primary context for this chat.",
+		);
+		expect(context).toContain("Current note title: Planning");
+		expect(context).toContain("Current note content:\nLine 1\nLine 2");
+	});
+
+	it("omits stored hosted note context when the note is unavailable", () => {
+		expect(getStoredHostedNoteContext(null)).toBe("");
 	});
 });

@@ -27,6 +27,15 @@ export declare const getInlineHostedNoteContext: (args: {
 	title?: string;
 	text?: string;
 }) => string;
+export declare const getStoredHostedNoteContext: (
+	note:
+		| {
+				title: string;
+				searchableText?: string | null;
+		  }
+		| null
+		| undefined,
+) => string;
 export declare const buildHostedNotesContext: (
 	notes: Array<{
 		title: string;
