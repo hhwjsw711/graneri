@@ -8,6 +8,7 @@ export class HostedActiveChatStreamPersister {
 	#buffer = "";
 	#chatId;
 	#finishActiveStream;
+	#flushError = null;
 	#flushPromise = null;
 	#flushTimer = null;
 	#messageId;
@@ -55,11 +56,19 @@ export class HostedActiveChatStreamPersister {
 
 		this.#flushTimer = setTimeout(() => {
 			this.#flushTimer = null;
-			void this.flush();
+			void this.flush().catch((error) => {
+				this.#flushError = error;
+			});
 		}, HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS);
 	}
 
 	async flush() {
+		if (this.#flushError) {
+			const error = this.#flushError;
+			this.#flushError = null;
+			throw error;
+		}
+
 		if (this.#flushTimer) {
 			clearTimeout(this.#flushTimer);
 			this.#flushTimer = null;
@@ -78,20 +87,25 @@ export class HostedActiveChatStreamPersister {
 						delta,
 					}),
 				)
-				.then(() => undefined)
-				.catch((error) => {
-					console.error("Failed to persist active chat stream", error);
-				});
+				.then(() => undefined);
 
 			this.#flushPromise = flushPromise;
-			await flushPromise;
-
-			if (this.#flushPromise === flushPromise) {
-				this.#flushPromise = null;
+			try {
+				await flushPromise;
+			} finally {
+				if (this.#flushPromise === flushPromise) {
+					this.#flushPromise = null;
+				}
 			}
 		}
 
 		await this.#flushPromise;
+
+		if (this.#flushError) {
+			const error = this.#flushError;
+			this.#flushError = null;
+			throw error;
+		}
 	}
 
 	async finish(status) {
@@ -101,8 +115,6 @@ export class HostedActiveChatStreamPersister {
 			chatId: this.#chatId,
 			messageId: this.#messageId,
 			status,
-		}).catch((error) => {
-			console.error("Failed to finish active chat stream", error);
 		});
 	}
 }
@@ -127,7 +139,13 @@ export const createHostedActiveStreamSession = ({
 			persister.append(delta);
 		},
 		async finish(status) {
-			await persister.finish(status);
+			try {
+				await persister.finish(status);
+			} finally {
+				if (controllers.get(streamKey) === abortController) {
+					controllers.delete(streamKey);
+				}
+			}
 		},
 		cleanup() {
 			if (controllers.get(streamKey) === abortController) {
@@ -135,6 +153,46 @@ export const createHostedActiveStreamSession = ({
 			}
 		},
 	};
+};
+
+export const createHostedActiveChatStreamSession = ({
+	callbacks,
+	chatId,
+	controllers,
+	workspaceId,
+}) =>
+	createHostedActiveStreamSession({
+		controllers,
+		streamKey: createHostedActiveStreamKey({
+			workspaceId,
+			chatId,
+		}),
+		persister: new HostedActiveChatStreamPersister({
+			workspaceId,
+			chatId,
+			messageId: `stream-${crypto.randomUUID()}`,
+			...callbacks,
+		}),
+	});
+
+export const stopHostedActiveChatStream = async ({
+	chatId,
+	controllers,
+	stopActiveStream,
+	workspaceId,
+}) => {
+	const streamKey = createHostedActiveStreamKey({
+		workspaceId,
+		chatId,
+	});
+
+	await stopActiveStream({
+		workspaceId,
+		chatId,
+	});
+
+	controllers.get(streamKey)?.abort("stopped");
+	controllers.delete(streamKey);
 };
 
 export const pipeHostedActiveStreamText = ({ persister, stream }) =>

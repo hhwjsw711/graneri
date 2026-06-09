@@ -1351,20 +1351,34 @@ const useNoteComposerController = ({
 		setModelPopoverOpen(false);
 		setRecipePopoverOpen(false);
 	}, [recipePopoverOpen]);
-	const handleStop = React.useCallback(() => {
-		stop();
-
-		if (!isPersistedChatStreaming || !activeWorkspaceId) {
+	const stopCurrentStream = React.useCallback(async () => {
+		if (!isPersistedChatStreaming) {
+			stop();
 			return;
 		}
 
-		void stopActiveChatStream({
+		if (!activeWorkspaceId) {
+			throw new Error(
+				"Cannot stop note chat stream without an active workspace.",
+			);
+		}
+
+		await stopActiveChatStream({
 			chatId: currentChatId,
 			workspaceId: activeWorkspaceId,
-		}).catch((error) => {
-			console.error("Failed to stop active note chat stream", error);
 		});
+		stop();
 	}, [activeWorkspaceId, currentChatId, isPersistedChatStreaming, stop]);
+	const handleStop = React.useCallback(() => {
+		void stopCurrentStream().catch((error) => {
+			console.error("Failed to stop note chat stream", error);
+			toast.error(
+				error instanceof Error
+					? error.message
+					: "Failed to stop note chat stream",
+			);
+		});
+	}, [stopCurrentStream]);
 	const toggleTranscriptPanel = React.useCallback(() => {
 		closeComposerPopovers();
 		closeRightSidebar();
@@ -1777,7 +1791,7 @@ const useNoteComposerController = ({
 	const handleRegenerateMessage = React.useCallback(
 		async (assistantMessageId: string) => {
 			if (isChatLoading) {
-				handleStop();
+				await stopCurrentStream();
 			}
 
 			setIsPreparingRequest(true);
@@ -1810,13 +1824,13 @@ const useNoteComposerController = ({
 		[
 			buildRequestBody,
 			clearDraft,
-			handleStop,
 			isChatLoading,
 			openRightSidebar,
 			presentationMode,
 			regenerate,
 			resetTextareaHeight,
 			setPanelMode,
+			stopCurrentStream,
 		],
 	);
 

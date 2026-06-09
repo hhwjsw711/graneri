@@ -19,6 +19,11 @@ import {
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
+import {
+	createHostedActiveChatStreamSession,
+	pipeHostedActiveStreamText,
+	stopHostedActiveChatStream,
+} from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
 import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
 	buildHostedChatSaveMessageArgs,
@@ -57,6 +62,7 @@ import {
 import { handleRealtimeTranscriptionSessionRequest } from "./local-server-realtime-route.mjs";
 
 const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
+const activeChatStreamControllers = new Map();
 
 const chatModels = CHAT_SERVER_MODELS;
 const fallbackChatModel = chatModels[0];
@@ -531,58 +537,118 @@ const handleChatRequest = async ({
 		hasToolSearch: finalizedToolSet.hasToolSearch,
 		toolCount: finalizedToolSet.toolCount,
 	});
+	const activeStreamSession =
+		convexClient && id && resolvedWorkspaceId
+			? createHostedActiveChatStreamSession({
+					controllers: activeChatStreamControllers,
+					workspaceId: resolvedWorkspaceId,
+					chatId: id,
+					callbacks: {
+						startActiveStream: (args) =>
+							convexClient.mutation(api.chats.startActiveStream, args),
+						appendActiveStreamText: (args) =>
+							convexClient.mutation(api.chats.appendActiveStreamText, args),
+						finishActiveStream: (args) =>
+							convexClient.mutation(api.chats.finishActiveStream, args),
+					},
+				})
+			: null;
+
+	await activeStreamSession?.start();
+	logLatency("convex.active_stream_started", {
+		enabled: Boolean(activeStreamSession),
+	});
 	logLatency("ai.agent_created", {
 		hasEnabledTools: finalizedToolSet.hasTools,
 		systemPromptLength: systemPrompt.length,
 	});
 
 	const streamLatencyTracker = createChatStreamLatencyTracker(logLatency);
-	const stream = await createAgentUIStream({
-		agent,
-		uiMessages: chatMessages,
-		originalMessages: chatMessages,
-		generateMessageId: generateHostedChatMessageId,
-		onFinish: async ({ responseMessage }) => {
-			logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
+	const stream = await (async () => {
+		try {
+			return await createAgentUIStream({
+				agent,
+				uiMessages: chatMessages,
+				abortSignal: activeStreamSession?.abortSignal,
+				originalMessages: chatMessages,
+				generateMessageId: generateHostedChatMessageId,
+				onFinish: async ({ responseMessage }) => {
+					logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
 
-			if (!convexClient || !id || !resolvedWorkspaceId) {
-				return;
-			}
+					if (!convexClient || !id || !resolvedWorkspaceId) {
+						return;
+					}
 
-			try {
-				const generatedChatTitle =
-					shouldGenerateChatTitle && lastUserMessage
-						? await generateHostedChatTitle({
-								userMessage: lastUserMessage,
-								assistantMessage: responseMessage,
-							})
-						: undefined;
-				await convexClient.mutation(
-					api.chats.saveMessage,
-					buildHostedChatSaveMessageArgs({
-						workspaceId: resolvedWorkspaceId,
-						chatId: id,
-						noteId: resolvedNoteId,
-						title: generatedChatTitle,
-						model: selectedModel.model,
-						reasoningEffort: resolvedReasoningEffort,
-						message: responseMessage,
-					}),
-				);
-			} catch (error) {
-				console.error("Failed to persist assistant chat message", error);
-			}
-		},
-		onError: () => "Something went wrong.",
-	});
+					try {
+						const generatedChatTitle =
+							shouldGenerateChatTitle && lastUserMessage
+								? await generateHostedChatTitle({
+										userMessage: lastUserMessage,
+										assistantMessage: responseMessage,
+									})
+								: undefined;
+						await convexClient.mutation(
+							api.chats.saveMessage,
+							buildHostedChatSaveMessageArgs({
+								workspaceId: resolvedWorkspaceId,
+								chatId: id,
+								noteId: resolvedNoteId,
+								title: generatedChatTitle,
+								model: selectedModel.model,
+								reasoningEffort: resolvedReasoningEffort,
+								message: responseMessage,
+							}),
+						);
+						await activeStreamSession?.finish("done");
+					} catch (error) {
+						console.error("Failed to persist assistant chat message", error);
+						await activeStreamSession?.finish("error");
+					}
+				},
+				onError: () => "Something went wrong.",
+			});
+		} catch (error) {
+			await activeStreamSession?.finish("error");
+			throw error;
+		}
+	})();
 	logLatency("ai.stream_created");
-	const timedStream = streamLatencyTracker.wrapStream(stream);
+	const persistedStream = pipeHostedActiveStreamText({
+		persister: activeStreamSession,
+		stream: streamLatencyTracker.wrapStream(stream),
+	});
 
 	pipeUIMessageStreamToResponse({
 		response,
-		stream: timedStream,
+		stream: persistedStream,
 		consumeSseStream: consumeStream,
 	});
+};
+
+const handleChatStopRequest = async (request, response) => {
+	const { id, workspaceId, convexToken } = await readJsonBody(request);
+	const resolvedWorkspaceId = workspaceId ?? null;
+
+	if (!id || !resolvedWorkspaceId || !convexToken) {
+		sendJson(response, 400, {
+			error: "id, workspaceId, and convexToken are required.",
+		});
+		return;
+	}
+
+	const convexClient = new ConvexHttpClient(getConvexUrl(), {
+		auth: convexToken,
+	});
+
+	await stopHostedActiveChatStream({
+		controllers: activeChatStreamControllers,
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+		stopActiveStream: (args) =>
+			convexClient.mutation(api.chats.stopActiveStream, args),
+	});
+
+	sendJson(response, 200, { ok: true });
 };
 
 export const startLocalServer = async ({
@@ -607,6 +673,7 @@ export const startLocalServer = async ({
 					response,
 				}),
 		],
+		["/api/chat/stop", handleChatStopRequest],
 		["/api/apply-template", handleApplyTemplateRequest],
 		[
 			"/api/realtime-transcription-session",

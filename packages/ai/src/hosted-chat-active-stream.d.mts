@@ -66,6 +66,27 @@ export declare const createHostedActiveStreamSession: (args: {
 	streamKey: string;
 }) => HostedActiveStreamSession;
 
+export declare const createHostedActiveChatStreamSession: <
+	WorkspaceId extends string,
+>(args: {
+	callbacks: HostedActiveStreamCallbacks<WorkspaceId>;
+	chatId: string;
+	controllers: Map<string, AbortController>;
+	workspaceId: WorkspaceId;
+}) => HostedActiveStreamSession;
+
+export declare const stopHostedActiveChatStream: <
+	WorkspaceId extends string,
+>(args: {
+	chatId: string;
+	controllers: Map<string, AbortController>;
+	stopActiveStream: (args: {
+		workspaceId: WorkspaceId;
+		chatId: string;
+	}) => Promise<unknown>;
+	workspaceId: WorkspaceId;
+}) => Promise<void>;
+
 export declare const pipeHostedActiveStreamText: <Chunk extends { type: string }>(
 	args: {
 		persister?: { append(delta: string): void } | null;

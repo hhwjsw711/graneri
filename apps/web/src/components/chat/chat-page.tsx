@@ -681,20 +681,31 @@ const useChatPageController = ({
 		setWebSearchEnabled(enabled);
 	}, []);
 
-	const handleStop = React.useCallback(() => {
-		stop();
-
-		if (!isPersistedChatStreaming || !activeWorkspaceId) {
+	const stopCurrentStream = React.useCallback(async () => {
+		if (!isPersistedChatStreaming) {
+			stop();
 			return;
 		}
 
-		void stopActiveChatStream({
+		if (!activeWorkspaceId) {
+			throw new Error("Cannot stop chat stream without an active workspace.");
+		}
+
+		await stopActiveChatStream({
 			chatId,
 			workspaceId: activeWorkspaceId,
-		}).catch((error) => {
-			console.error("Failed to stop active chat stream", error);
 		});
+		stop();
 	}, [activeWorkspaceId, chatId, isPersistedChatStreaming, stop]);
+
+	const handleStop = React.useCallback(() => {
+		void stopCurrentStream().catch((error) => {
+			console.error("Failed to stop chat stream", error);
+			toast.error(
+				error instanceof Error ? error.message : "Failed to stop chat stream",
+			);
+		});
+	}, [stopCurrentStream]);
 
 	const handleEditMessage = React.useCallback(
 		(
@@ -784,7 +795,7 @@ const useChatPageController = ({
 	const handleRegenerateMessage = React.useCallback(
 		async (assistantMessageId: string) => {
 			if (isLoading) {
-				handleStop();
+				await stopCurrentStream();
 			}
 
 			setIsPreparingRequest(true);
@@ -807,7 +818,7 @@ const useChatPageController = ({
 				setIsPreparingRequest(false);
 			}
 		},
-		[buildRequestBody, clearDraft, handleStop, isLoading, regenerate],
+		[buildRequestBody, clearDraft, isLoading, regenerate, stopCurrentStream],
 	);
 	const handleOpenMention = React.useCallback((sourceId: string) => {
 		setSummaryOpen(true);
