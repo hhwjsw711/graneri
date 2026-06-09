@@ -54,6 +54,7 @@ const normalizeRestorableNavigation = ({
 export const createDesktopNavigationState = ({
 	lastNavigationPath,
 	resolveRendererUrl,
+	sameRendererUrl,
 	userDataPath,
 }) => {
 	let lastNavigation = { ...defaultLastNavigation };
@@ -100,7 +101,7 @@ export const createDesktopNavigationState = ({
 			const rendererUrl = new URL(await resolveRendererUrl());
 			const nextUrl = new URL(urlString);
 
-			if (nextUrl.origin !== rendererUrl.origin) {
+			if (!sameRendererUrl(nextUrl, rendererUrl)) {
 				return;
 			}
 

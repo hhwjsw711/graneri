@@ -17,6 +17,7 @@
 	},
 	"exports": {
 		"./desktop": "./src/desktop.ts",
-		"./desktop-bridge": "./src/desktop-bridge.ts"
+		"./desktop-bridge": "./src/desktop-bridge.ts",
+		"./renderer-routes": "./src/renderer-routes.mjs"
 	}
 }

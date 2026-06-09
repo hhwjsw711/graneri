@@ -13,10 +13,9 @@ test("resolves runtime bin paths from the desktop runtime directory", () => {
 	assert.equal(
 		resolveDesktopRuntimeBinPath({
 			executableName: "graneri-microphone-helper",
-			runtimeDir:
-				"/Graneri.app/Contents/Resources/app/.bundle-root/apps/desktop/dist",
+			runtimeDir: "/Graneri.app/Contents/Resources/app/dist-electron/main",
 		}),
-		"/Graneri.app/Contents/Resources/app/.bundle-root/apps/desktop/dist/bin/graneri-microphone-helper",
+		"/Graneri.app/Contents/Resources/app/dist-electron/main/bin/graneri-microphone-helper",
 	);
 });
 
@@ -74,10 +73,8 @@ test("uses unpacked runtime executables when running from app.asar", async () =>
 		"Contents",
 		"Resources",
 		"app.asar",
-		".bundle-root",
-		"apps",
-		"desktop",
-		"dist",
+		"dist-electron",
+		"main",
 	);
 	const unpackedHelperPath = join(
 		directory,
@@ -85,10 +82,8 @@ test("uses unpacked runtime executables when running from app.asar", async () =>
 		"Contents",
 		"Resources",
 		"app.asar.unpacked",
-		".bundle-root",
-		"apps",
-		"desktop",
-		"dist",
+		"dist-electron",
+		"main",
 		"bin",
 		"graneri-system-audio-helper",
 	);

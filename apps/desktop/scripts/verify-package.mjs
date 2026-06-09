@@ -8,16 +8,17 @@ import {
 	getForbiddenConvexDeployments,
 	loadSelectedEnvFile,
 } from "../../../scripts/release-contract.mjs";
+import { desktopPackageContract } from "./desktop-package-contract.mjs";
 
 const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = resolve(packageRoot, "../..");
 const packagedAppResourcePath = resolve(
 	packageRoot,
-	"release/mac-arm64/Graneri.app/Contents/Resources/app",
+	desktopPackageContract.packagedResourcesPath,
 );
 const packagedAppAsarPath = resolve(
 	packageRoot,
-	"release/mac-arm64/Graneri.app/Contents/Resources/app.asar",
+	desktopPackageContract.packagedResourcesAsarPath,
 );
 const knownDevDeployments = ["clever-chinchilla-887"];
 
@@ -173,8 +174,9 @@ const packageNameFromSpecifier = (specifier) =>
 const scanRuntimeImports = (packagedResources) => {
 	const runtimeFiles = packagedResources.files.filter(
 		(file) =>
-			file.relativePath.startsWith(".bundle-root/") &&
-			/\.(cjs|js|mjs)$/u.test(file.relativePath),
+			file.relativePath.startsWith(
+				desktopPackageContract.runtimeImportDirectory,
+			) && /\.(cjs|js|mjs)$/u.test(file.relativePath),
 	);
 	const builtins = new Set([
 		...builtinModules,

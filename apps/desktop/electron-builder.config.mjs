@@ -1,3 +1,5 @@
+import { desktopPackageContract } from "./scripts/desktop-package-contract.mjs";
+
 const trimConfigValue = (value) =>
 	typeof value === "string" ? value.trim() : "";
 
@@ -23,13 +25,12 @@ export default {
 	productName:
 		trimConfigValue(process.env.GRANERI_DESKTOP_PRODUCT_NAME) || "Graneri",
 	directories: {
+		app: desktopPackageContract.appDirectory,
+		buildResources: "build",
 		output: "release",
 	},
-	extraMetadata: {
-		main: ".bundle-root/apps/desktop/dist/main.mjs",
-	},
-	files: [".bundle-root/**/*", "package.json"],
-	asarUnpack: [".bundle-root/apps/desktop/dist/bin/**"],
+	files: desktopPackageContract.builderFiles,
+	asarUnpack: desktopPackageContract.asarUnpack,
 	mac: {
 		target: ["dmg", "zip"],
 		category: "public.app-category.productivity",

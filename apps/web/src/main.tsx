@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import { setDesktopNativeTheme } from "@workspace/platform/desktop";
 import type { DesktopThemeSource } from "@workspace/platform/desktop-bridge";
+import { rendererMeetingWidgetPathname } from "@workspace/platform/renderer-routes";
 import { Toaster } from "@workspace/ui/components/sonner";
 import {
 	ThemeProvider,
@@ -25,11 +26,10 @@ if (!rootElement) {
 }
 
 const root = createRoot(rootElement);
-const meetingWidgetPathname = "/desktop/meeting-widget";
 
 const isMeetingWidgetRoute = () =>
 	typeof window !== "undefined" &&
-	window.location.pathname === meetingWidgetPathname;
+	window.location.pathname === rendererMeetingWidgetPathname;
 
 installNavigationHistoryState();
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { appendFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	app,
@@ -12,6 +12,7 @@ import {
 	nativeImage,
 	nativeTheme,
 	powerMonitor,
+	session,
 	shell,
 	systemPreferences,
 } from "electron";
@@ -25,6 +26,13 @@ import {
 import { getDesktopAuthClient } from "./auth-client.mjs";
 import { createDesktopAppMenu } from "./desktop-app-menu.mjs";
 import {
+	appRendererOrigin,
+	isSameRendererUrl,
+	registerDesktopAppProtocolScheme,
+	registerDesktopAppProtocols,
+} from "./desktop-app-protocol.mjs";
+import { createDesktopBootOrchestrator } from "./desktop-boot-orchestrator.mjs";
+import {
 	createDesktopNavigationState,
 	getDefaultDesktopNavigation,
 } from "./desktop-navigation-state.mjs";
@@ -36,7 +44,10 @@ import {
 	createDesktopUpdater,
 	isDesktopUpdaterAvailable,
 } from "./desktop-updater.mjs";
-import { createDesktopWindow } from "./desktop-window.mjs";
+import {
+	createDesktopWindow,
+	rendererSessionPartition,
+} from "./desktop-window.mjs";
 import { loadRootEnv } from "./env.mjs";
 import { startLocalServer } from "./local-server.mjs";
 import { createMeetingDetection } from "./meeting-detection.mjs";
@@ -48,6 +59,7 @@ const { autoUpdater } = electronUpdater;
 
 app.setName("Graneri");
 app.commandLine.appendSwitch("use-mock-keychain");
+registerDesktopAppProtocolScheme();
 loadRootEnv({
 	includeWorkingDirectory:
 		app.isPackaged !== true ||
@@ -56,6 +68,10 @@ loadRootEnv({
 await hydrateRuntimeConfig();
 
 const runtimeDir = dirname(fileURLToPath(import.meta.url));
+const rendererDistDir =
+	app.isPackaged === true
+		? resolve(runtimeDir, "..", "..", "dist-app")
+		: resolve(runtimeDir, "../../web/dist");
 const appUpdateConfigPath = join(process.resourcesPath, "app-update.yml");
 const trayIconPath = join(runtimeDir, "assets", "GraneriTemplate.png");
 const dockIconPath = join(runtimeDir, "assets", "GraneriDock.png");
@@ -1029,6 +1045,10 @@ const ensureLocalServer = async () => {
 	if (!localServer) {
 		localServer = await startLocalServer({
 			getAllowedOrigins: () => {
+				if (app.isPackaged === true) {
+					return [appRendererOrigin];
+				}
+
 				const developmentUrl = process.env.GRANERI_RENDERER_URL?.trim();
 				if (!developmentUrl) {
 					return [];
@@ -1049,17 +1069,22 @@ const ensureLocalServer = async () => {
 };
 
 const resolveRendererUrl = async () => {
+	if (app.isPackaged === true) {
+		return appRendererOrigin;
+	}
+
 	const developmentUrl = process.env.GRANERI_RENDERER_URL?.trim();
 	if (developmentUrl) {
 		return developmentUrl;
 	}
 
-	return (await ensureLocalServer()).origin;
+	throw new Error("GRANERI_RENDERER_URL is required outside packaged builds.");
 };
 
 desktopNavigationState = createDesktopNavigationState({
 	lastNavigationPath,
 	resolveRendererUrl,
+	sameRendererUrl: isSameRendererUrl,
 	userDataPath: app.getPath("userData"),
 });
 
@@ -2886,102 +2911,58 @@ const handleTrayQuit = async () => {
 	hideApp({ hideDock: true });
 };
 
-const singleInstanceLock = app.requestSingleInstanceLock();
-
-if (!singleInstanceLock) {
-	quitCompletely();
-} else {
-	app.on("second-instance", (_event, _argv) => {
-		void showMainWindow();
-	});
-
-	app.whenReady().then(async () => {
-		refreshTranscriptionPolicy();
-		refreshApplicationMenu();
-
-		powerMonitor.on("suspend", () => {
-			if (
-				!["starting", "listening", "reconnecting"].includes(
-					latestTranscriptionSessionState.phase,
-				)
-			) {
-				return;
-			}
-
-			void stopDesktopTranscriptionSession({
-				preserveUtterances: true,
-				resetError: true,
-				resetRecovery: true,
-			});
-		});
-
-		applyDockIcon();
-
-		await requireDesktopService(desktopTray, "desktopTray").loadSettings();
-		await requireDesktopService(
+createDesktopBootOrchestrator({
+	app,
+	applyDockIcon,
+	checkForUpdatesQuietly: () =>
+		requireDesktopService(
+			desktopUpdater,
+			"desktopUpdater",
+		).checkForUpdatesQuietly(),
+	closeLocalServer,
+	configureUpdater: () =>
+		requireDesktopService(desktopUpdater, "desktopUpdater").configure(),
+	confirmAndQuitCompletely,
+	createMainWindow,
+	createTray: () => requireDesktopService(desktopTray, "desktopTray").create(),
+	ensureLocalServer,
+	getExistingMainWindow,
+	getProtocolRegistrars: () => [
+		session.defaultSession.protocol,
+		session.fromPartition(rendererSessionPartition).protocol,
+	],
+	getTranscriptionPhase: () => latestTranscriptionSessionState.phase,
+	isBypassingQuitConfirmation: () => isBypassingQuitConfirmation,
+	isKeepOpenInMenuBarEnabled: () =>
+		requireDesktopService(
+			desktopTray,
+			"desktopTray",
+		).isKeepOpenInMenuBarEnabled(),
+	isMeetingWidgetVisible,
+	isUpdaterAvailable,
+	loadDesktopNavigationState: () =>
+		requireDesktopService(
 			desktopNavigationState,
 			"desktopNavigationState",
-		).load();
-		await ensureLocalServer();
-		await createMainWindow();
-		await startMeetingDetectionMonitors().catch((error) => {
-			console.error("Failed to start meeting detection", error);
-		});
-		requireDesktopService(desktopTray, "desktopTray").create();
-		void refreshTrayCalendar();
-		requireDesktopService(desktopUpdater, "desktopUpdater").configure();
-
-		if (isUpdaterAvailable()) {
-			setTrayStatusLabel("Checking for updates...");
-			void requireDesktopService(desktopUpdater, "desktopUpdater")
-				.checkForUpdatesQuietly()
-				.catch((error) => {
-					console.error("Initial update check failed", error);
-				});
-		}
-
-		app.on("activate", async () => {
-			const window = getExistingMainWindow();
-			if (isMeetingWidgetVisible() && !window?.isVisible()) {
-				return;
-			}
-
-			await showMainWindow();
-		});
-	});
-
-	app.on("window-all-closed", async () => {
-		await desktopRealtimeTransport.stop("you");
-		await desktopRealtimeTransport.stop("them");
-		await stopMeetingDetectionMonitors();
-		await stopMicrophoneCapture();
-		await stopSystemAudioCapture();
-		await closeLocalServer();
-
-		if (
-			process.platform !== "darwin" ||
-			!requireDesktopService(
-				desktopTray,
-				"desktopTray",
-			).isKeepOpenInMenuBarEnabled()
-		) {
-			quitCompletely();
-		}
-	});
-
-	app.on("before-quit", (event) => {
-		if (process.platform === "darwin" && !isBypassingQuitConfirmation) {
-			event.preventDefault();
-			void confirmAndQuitCompletely();
-			return;
-		}
-
+		).load(),
+	loadTraySettings: () =>
+		requireDesktopService(desktopTray, "desktopTray").loadSettings(),
+	markQuitting: () => {
 		isQuitting = true;
-		void desktopRealtimeTransport.stop("you");
-		void desktopRealtimeTransport.stop("them");
-		void stopMeetingDetectionMonitors();
-		void stopMicrophoneCapture();
-		void stopSystemAudioCapture();
-		void closeLocalServer();
-	});
-}
+	},
+	powerMonitor,
+	quitCompletely,
+	refreshApplicationMenu,
+	refreshTranscriptionPolicy,
+	refreshTrayCalendar,
+	registerDesktopAppProtocols,
+	rendererDistDir,
+	setTrayStatusLabel,
+	showMainWindow,
+	startMeetingDetectionMonitors,
+	stopDesktopTranscriptionSession,
+	stopMeetingDetectionMonitors,
+	stopMicrophoneCapture,
+	stopRealtimeTransport: (speaker) => desktopRealtimeTransport.stop(speaker),
+	stopSystemAudioCapture,
+}).start();

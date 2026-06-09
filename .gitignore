@@ -20,7 +20,7 @@
 /.turbo
 /.reference
 /apps/*/dist
-/apps/*/.bundle-root
+/apps/*/.package-app
 /apps/*/.generated
 /apps/*/release
 /apps/desktop/build/icon.iconset

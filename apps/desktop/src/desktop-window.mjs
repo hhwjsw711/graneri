@@ -10,7 +10,7 @@ const defaultWindowSize = {
 	height: 840,
 };
 
-const rendererSessionPartition = "graneri-renderer";
+export const rendererSessionPartition = "graneri-renderer";
 
 export const createDesktopWindow = ({
 	desktopNavigationChannel,
@@ -120,8 +120,11 @@ export const createDesktopWindow = ({
 			void rememberNavigation(url);
 		});
 
-		await mainWindow.loadURL(navigationUrl);
 		shell.ensureDockVisible();
+		mainWindow.show();
+		void mainWindow.loadURL(navigationUrl).catch((error) => {
+			console.error("Failed to load desktop renderer", error);
+		});
 		return mainWindow;
 	};
 

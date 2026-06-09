@@ -1,28 +1,40 @@
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
 	buildHostedRuntimeConfig,
 	loadSelectedEnvFile,
 	validateProductionRuntimeConfig,
 } from "../../../scripts/release-contract.mjs";
 import "./build-system-audio-helper.mjs";
+import {
+	createDesktopPackageManifest,
+	desktopPackageContract,
+} from "./desktop-package-contract.mjs";
 
 const require = createRequire(import.meta.url);
+const execFileAsync = promisify(execFile);
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const desktopPackage = require(resolve(packageRoot, "package.json"));
 const repoRoot = resolve(packageRoot, "../..");
 const sourceDir = resolve(packageRoot, "src");
 const distDir = resolve(packageRoot, "dist");
 const webDistDir = resolve(packageRoot, "../web/dist");
-const bundleRootDir = resolve(packageRoot, ".bundle-root");
-const bundleDesktopDistDir = resolve(bundleRootDir, "apps", "desktop", "dist");
-const bundleWebDistDir = resolve(bundleRootDir, "apps", "web", "dist");
-const bundleConvexGeneratedDir = resolve(bundleRootDir, "convex", "_generated");
-const packageAiSrcDir = resolve(packageRoot, "../../packages/ai/src");
-const bundleAiSrcDir = resolve(bundleRootDir, "packages", "ai", "src");
+const packageAppDir = resolve(packageRoot, desktopPackageContract.appDirectory);
+const packageElectronMainDir = resolve(
+	packageAppDir,
+	desktopPackageContract.runtimeDirectory,
+);
+const packageRendererDistDir = resolve(
+	packageAppDir,
+	desktopPackageContract.rendererDirectory,
+);
 const desktopAssetsDir = resolve(sourceDir, "assets");
+const bundledMainDir = resolve(distDir, ".main-bundle");
 
 const writeHostedRuntimeConfig = async () => {
 	const config = buildHostedRuntimeConfig();
@@ -60,41 +72,68 @@ const copyOptionalExecutable = async ({ from, to }) => {
 	return true;
 };
 
-if (!existsSync(resolve(webDistDir, "index.html"))) {
-	throw new Error(
-		"Web build output is missing. Run `bun run build --filter=web` before building the desktop shell.",
+const copyRuntimeSources = async () => {
+	for (const entry of await readdir(sourceDir, { withFileTypes: true })) {
+		if (!entry.isFile()) {
+			continue;
+		}
+
+		if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".cjs")) {
+			continue;
+		}
+
+		await cp(resolve(sourceDir, entry.name), resolve(distDir, entry.name));
+	}
+
+	await writeHostedRuntimeConfig();
+	await cp(desktopAssetsDir, resolve(distDir, "assets"), { recursive: true });
+};
+
+const bundleDesktopMain = async () => {
+	await rm(bundledMainDir, { recursive: true, force: true });
+	await mkdir(bundledMainDir, { recursive: true });
+	await execFileAsync(
+		"bun",
+		[
+			"build",
+			resolve(distDir, "main.mjs"),
+			"--target=node",
+			"--format=esm",
+			`--outdir=${bundledMainDir}`,
+			"--external",
+			"electron",
+			"--sourcemap=none",
+		],
+		{
+			cwd: repoRoot,
+			stdio: "inherit",
+		},
 	);
-}
 
-loadSelectedEnvFile({
-	envFileName:
-		process.env.GRANERI_ENV_MODE?.trim() === "production"
-			? ".env"
-			: ".env.local",
-	repoRoot,
-});
+	await rm(resolve(distDir, "main.mjs"), { force: true });
+	await rename(
+		resolve(bundledMainDir, "main.js"),
+		resolve(distDir, "index.js"),
+	);
+	await cp(bundledMainDir, distDir, { recursive: true, force: true });
+	await rm(bundledMainDir, { recursive: true, force: true });
 
-await rm(distDir, { recursive: true, force: true });
-await rm(bundleRootDir, { recursive: true, force: true });
-await mkdir(distDir, { recursive: true });
+	for (const entry of await readdir(distDir, { withFileTypes: true })) {
+		if (
+			entry.isFile() &&
+			entry.name.endsWith(".mjs") &&
+			entry.name !== "hosted-runtime-config.mjs"
+		) {
+			await rm(resolve(distDir, entry.name), { force: true });
+		}
+	}
+};
 
-for (const entry of await readdir(sourceDir, { withFileTypes: true })) {
-	if (!entry.isFile()) {
-		continue;
+const copyNativeRuntimeTools = async () => {
+	if (process.platform !== "darwin") {
+		return;
 	}
 
-	if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".cjs")) {
-		continue;
-	}
-
-	await cp(resolve(sourceDir, entry.name), resolve(distDir, entry.name));
-}
-
-await writeHostedRuntimeConfig();
-
-await cp(desktopAssetsDir, resolve(distDir, "assets"), { recursive: true });
-
-if (process.platform === "darwin") {
 	await mkdir(resolve(distDir, "bin"), { recursive: true });
 	for (const helperName of [
 		"graneri-system-audio-helper",
@@ -116,17 +155,38 @@ if (process.platform === "darwin") {
 		from: resolveOptionalPackageBinary("@ffprobe-installer/ffprobe"),
 		to: resolve(distDir, "bin", "ffprobe"),
 	});
+};
+
+const stagePackageApp = async () => {
+	await mkdir(packageAppDir, { recursive: true });
+	await mkdir(resolve(packageAppDir, "dist-electron"), { recursive: true });
+	await cp(distDir, packageElectronMainDir, { recursive: true });
+	await cp(webDistDir, packageRendererDistDir, { recursive: true });
+	await writeFile(
+		resolve(packageAppDir, "package.json"),
+		`${JSON.stringify(createDesktopPackageManifest(desktopPackage), null, "\t")}\n`,
+	);
+};
+
+if (!existsSync(resolve(webDistDir, "index.html"))) {
+	throw new Error(
+		"Web build output is missing. Run `bun run build --filter=web` before building the desktop shell.",
+	);
 }
 
-await mkdir(bundleDesktopDistDir, { recursive: true });
-await mkdir(bundleWebDistDir, { recursive: true });
-await mkdir(bundleConvexGeneratedDir, { recursive: true });
-await mkdir(bundleAiSrcDir, { recursive: true });
+loadSelectedEnvFile({
+	envFileName:
+		process.env.GRANERI_ENV_MODE?.trim() === "production"
+			? ".env"
+			: ".env.local",
+	repoRoot,
+});
 
-await cp(distDir, bundleDesktopDistDir, { recursive: true });
-await cp(webDistDir, bundleWebDistDir, { recursive: true });
-await cp(
-	resolve(packageRoot, "../../convex/_generated/api.js"),
-	resolve(bundleConvexGeneratedDir, "api.js"),
-);
-await cp(packageAiSrcDir, bundleAiSrcDir, { recursive: true });
+await rm(distDir, { recursive: true, force: true });
+await rm(packageAppDir, { recursive: true, force: true });
+await mkdir(distDir, { recursive: true });
+
+await copyRuntimeSources();
+await bundleDesktopMain();
+await copyNativeRuntimeTools();
+await stagePackageApp();

@@ -36,8 +36,9 @@ Official packaged desktop builds must embed public hosted URLs in both runtime
 layers:
 
 - Electron main/runtime config:
-  `apps/desktop/dist/hosted-runtime-config.mjs`
-- Vite renderer constants: `apps/web/dist`
+  `apps/desktop/dist/hosted-runtime-config.mjs`, bundled into
+  `dist-electron/main/index.js`
+- Vite renderer constants: `apps/web/dist`, copied into packaged `dist-app`
 
 Electron main and the packaged Vite renderer must point at the same hosted
 Convex deployment.
@@ -126,12 +127,38 @@ Desktop tray state belongs to Electron, but it must mirror the renderer's active
 account, workspace, calendar connection state, and calendar display preferences.
 Renderer changes to calendar state should notify Electron to refresh the tray.
 
+Desktop app lifecycle sequencing is owned by
+`apps/desktop/src/desktop-boot-orchestrator.mjs`. The Electron main module may
+compose concrete adapters, but lifecycle ordering for single-instance handling,
+ready startup, suspend handling, window-all-closed cleanup, and before-quit
+cleanup must stay behind the boot orchestrator interface.
+
 Electron Builder packages dependencies from `apps/desktop/package.json`. Any
 package imported by packaged desktop runtime code through `apps/desktop`,
 `packages/ai`, or copied runtime modules must be declared there.
 
-The desktop build copies runtime source into `.bundle-root`. Packaged runtime
-code must not rely on source-tree imports outside `.bundle-root`.
+The desktop build packages generated runtime artifacts only. Packaged Electron
+main code lives in `dist-electron/main/index.js`, and packaged renderer assets
+live in `dist-app`. Packaged windows load renderer assets through `app://ui`.
+Packaged runtime code must not rely on source-tree imports or a packaged
+`node_modules` tree.
+
+The generated package shape is owned by
+`apps/desktop/scripts/desktop-package-contract.mjs`. Build scripts, Electron
+Builder config, and package verification must read package paths and ASAR
+rules from that module instead of repeating release layout strings.
+
+Renderer route ownership lives in `packages/platform/src/renderer-routes.mjs`.
+The packaged desktop protocol must use that manifest to decide whether an
+`app://ui` pathname is a renderer route. Desktop protocol code must not carry a
+private duplicate list of renderer route prefixes.
+
+The desktop local server keeps Node HTTP transport and route dispatch in
+`apps/desktop/src/local-server.mjs`. Reusable HTTP/CORS behavior, hosted AI
+proxying, note AI routes, realtime transcription session creation, and local
+folder tool execution live behind dedicated local-server modules. Chat
+streaming may remain in the local server module until its Convex-backed context
+loading and tool assembly seams are explicit.
 
 Desktop packages must keep the app runtime in `Contents/Resources/app.asar`.
 Only native helpers and bundled media tools may be unpacked into
@@ -166,7 +193,7 @@ The verifier must fail if:
   Convex deployment.
 - The bundled renderer contains stale dev Vite constants.
 - Packaged runtime code imports Convex server TypeScript.
-- Bare package imports in `.bundle-root` cannot resolve from packaged
+- Bare package imports in `dist-electron` cannot resolve from packaged
   `node_modules`.
 
 ## Enforcement
