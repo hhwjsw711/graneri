@@ -5,6 +5,24 @@ import type {
 	ToolSet,
 } from "ai";
 
+export declare const buildHostedChatAgentToolSet: ({
+	additionalAgentTools,
+	enabledTools,
+}: {
+	additionalAgentTools?: ToolSet | undefined;
+	enabledTools: ToolSet;
+}) => {
+	agentTools: ToolSet | undefined;
+	finalizedToolSet: {
+		tools: ToolSet;
+		hasTools: boolean;
+		toolCount: number;
+		deferredToolCount: number;
+		hasToolSearch: boolean;
+	};
+	tools: ToolSet;
+};
+
 export declare const createHostedChatAgent: ({
 	additionalAgentTools,
 	enabledTools,

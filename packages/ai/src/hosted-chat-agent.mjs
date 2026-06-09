@@ -2,14 +2,9 @@ import { openai } from "@ai-sdk/openai";
 import { stepCountIs, ToolLoopAgent } from "ai";
 import { finalizeOpenAIToolSet } from "./openai-tool-search.mjs";
 
-export const createHostedChatAgent = ({
+export const buildHostedChatAgentToolSet = ({
 	additionalAgentTools,
 	enabledTools,
-	emptyToolsWhenNone = false,
-	model,
-	prepareStep,
-	providerOptions,
-	systemPrompt,
 }) => {
 	const finalizedToolSet = finalizeOpenAIToolSet(enabledTools);
 	const hasAdditionalAgentTools =
@@ -21,6 +16,27 @@ export const createHostedChatAgent = ({
 					...(additionalAgentTools ?? {}),
 				}
 			: undefined;
+
+	return {
+		agentTools,
+		finalizedToolSet,
+		tools: finalizedToolSet.tools,
+	};
+};
+
+export const createHostedChatAgent = ({
+	additionalAgentTools,
+	enabledTools,
+	emptyToolsWhenNone = false,
+	model,
+	prepareStep,
+	providerOptions,
+	systemPrompt,
+}) => {
+	const { agentTools, finalizedToolSet, tools } = buildHostedChatAgentToolSet({
+		additionalAgentTools,
+		enabledTools,
+	});
 	const agent = new ToolLoopAgent({
 		model: openai(model),
 		providerOptions,
@@ -34,6 +50,6 @@ export const createHostedChatAgent = ({
 		agent,
 		agentTools,
 		finalizedToolSet,
-		tools: finalizedToolSet.tools,
+		tools,
 	};
 };
