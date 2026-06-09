@@ -24,6 +24,11 @@ import {
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
+import {
+	createHostedActiveStreamKey,
+	HostedActiveChatStreamPersister,
+	pipeHostedActiveStreamText,
+} from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
 import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatRuntimePrompt,
@@ -70,117 +75,10 @@ type ChatRequestBody = {
 	};
 };
 
-const ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
 const activeChatStreamControllers = new Map<string, AbortController>();
 const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
 
 const canUseLocalFolderTools = () => process.env.GRANERI_ENV_MODE === "local";
-
-class ActiveChatStreamPersister {
-	#buffer = "";
-	#chatId: string;
-	#convexClient: ConvexHttpClient;
-	#flushPromise: Promise<void> | null = null;
-	#flushTimer: ReturnType<typeof setTimeout> | null = null;
-	#messageId: string;
-	#workspaceId: Id<"workspaces">;
-
-	constructor(
-		convexClient: ConvexHttpClient,
-		workspaceId: Id<"workspaces">,
-		chatId: string,
-		messageId: string,
-	) {
-		this.#chatId = chatId;
-		this.#convexClient = convexClient;
-		this.#messageId = messageId;
-		this.#workspaceId = workspaceId;
-	}
-
-	get messageId() {
-		return this.#messageId;
-	}
-
-	async start() {
-		await this.#convexClient.mutation(api.chats.startActiveStream, {
-			workspaceId: this.#workspaceId,
-			chatId: this.#chatId,
-			messageId: this.#messageId,
-		});
-	}
-
-	append(delta: string) {
-		if (!delta) {
-			return;
-		}
-
-		this.#buffer += delta;
-
-		if (this.#flushTimer) {
-			return;
-		}
-
-		this.#flushTimer = setTimeout(() => {
-			this.#flushTimer = null;
-			void this.flush();
-		}, ACTIVE_STREAM_FLUSH_INTERVAL_MS);
-	}
-
-	async flush() {
-		if (this.#flushTimer) {
-			clearTimeout(this.#flushTimer);
-			this.#flushTimer = null;
-		}
-
-		while (this.#buffer) {
-			const delta = this.#buffer;
-			this.#buffer = "";
-			const previousFlush = this.#flushPromise ?? Promise.resolve();
-			const flushPromise = previousFlush
-				.then(() =>
-					this.#convexClient.mutation(api.chats.appendActiveStreamText, {
-						workspaceId: this.#workspaceId,
-						chatId: this.#chatId,
-						messageId: this.#messageId,
-						delta,
-					}),
-				)
-				.then(() => undefined)
-				.catch((error) => {
-					console.error("Failed to persist active chat stream", error);
-				});
-
-			this.#flushPromise = flushPromise;
-			// react-doctor-disable-next-line react-doctor/async-await-in-loop
-			await flushPromise;
-
-			if (this.#flushPromise === flushPromise) {
-				this.#flushPromise = null;
-			}
-		}
-
-		await this.#flushPromise;
-	}
-
-	async finish(status: "done" | "error") {
-		await this.flush();
-		await this.#convexClient
-			.mutation(api.chats.finishActiveStream, {
-				workspaceId: this.#workspaceId,
-				chatId: this.#chatId,
-				messageId: this.#messageId,
-				status,
-			})
-			.catch((error) => {
-				console.error("Failed to finish active chat stream", error);
-			});
-	}
-}
-
-const getActiveChatStreamKey = (
-	workspaceId: Id<"workspaces">,
-	chatId: string,
-) => `${workspaceId}:${chatId}`;
 
 const getConvexUrl = () => {
 	const value = process.env.CONVEX_URL ?? process.env.VITE_CONVEX_URL;
@@ -654,19 +552,27 @@ export const handleChatRequest = async (
 
 	const activeStreamPersister =
 		convexClient && id && resolvedWorkspaceId
-			? new ActiveChatStreamPersister(
-					convexClient,
-					resolvedWorkspaceId,
-					id,
-					`stream-${crypto.randomUUID()}`,
-				)
+			? new HostedActiveChatStreamPersister({
+					workspaceId: resolvedWorkspaceId,
+					chatId: id,
+					messageId: `stream-${crypto.randomUUID()}`,
+					startActiveStream: (args) =>
+						convexClient.mutation(api.chats.startActiveStream, args),
+					appendActiveStreamText: (args) =>
+						convexClient.mutation(api.chats.appendActiveStreamText, args),
+					finishActiveStream: (args) =>
+						convexClient.mutation(api.chats.finishActiveStream, args),
+				})
 			: null;
 	const activeStreamAbortController = activeStreamPersister
 		? new AbortController()
 		: null;
 	const activeStreamKey =
 		activeStreamPersister && id && resolvedWorkspaceId
-			? getActiveChatStreamKey(resolvedWorkspaceId, id)
+			? createHostedActiveStreamKey({
+					workspaceId: resolvedWorkspaceId,
+					chatId: id,
+				})
 			: null;
 
 	if (activeStreamPersister) {
@@ -747,17 +653,10 @@ export const handleChatRequest = async (
 		onError: () => "Something went wrong.",
 	});
 	logLatency("ai.stream_created");
-	const persistedStream = streamLatencyTracker.wrapStream(stream).pipeThrough(
-		new TransformStream({
-			transform(chunk, controller) {
-				if (chunk.type === "text-delta") {
-					activeStreamPersister?.append(chunk.delta);
-				}
-
-				controller.enqueue(chunk);
-			},
-		}),
-	);
+	const persistedStream = pipeHostedActiveStreamText({
+		persister: activeStreamPersister,
+		stream: streamLatencyTracker.wrapStream(stream),
+	});
 
 	pipeUIMessageStreamToResponse({
 		response,
@@ -781,7 +680,10 @@ export const handleChatStopRequest = async (
 		return;
 	}
 
-	const streamKey = getActiveChatStreamKey(resolvedWorkspaceId, id);
+	const streamKey = createHostedActiveStreamKey({
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+	});
 	activeChatStreamControllers.get(streamKey)?.abort("stopped");
 	activeChatStreamControllers.delete(streamKey);
 

@@ -24,7 +24,10 @@ Renderer code must access desktop capabilities through this package.
 `packages/ai`
 : Shared AI runtime code. It must not import Convex server modules or
 `convex/*.ts`; server-only behavior must enter through adapters or Convex
-client/action boundaries.
+client/action boundaries. Hosted chat helpers own shared prompt, tool-loop,
+message persistence payload, and active-stream persistence behavior; callers
+provide runtime-specific reads, writes, and desktop-local capabilities through
+small adapter callbacks.
 
 Connected app AI capabilities are declared in
 `packages/ai/src/capability-registry.mjs`. The registry is the source of truth
