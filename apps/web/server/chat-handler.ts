@@ -27,15 +27,14 @@ import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-wor
 import { createHostedChatAgent } from "../../../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatRuntimePrompt,
+	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
 	fromHostedStoredMessages,
 	generateHostedChatMessageId,
 	generateHostedChatTitle,
-	getHostedChatPreviewFromMessage,
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
-	toHostedStoredMessage,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildLocalFolderSystemContext,
@@ -632,15 +631,17 @@ export const handleChatRequest = async (
 	);
 	if (convexClient && id && resolvedWorkspaceId && lastUserMessage) {
 		try {
-			await convexClient.mutation(api.chats.saveMessage, {
-				workspaceId: resolvedWorkspaceId,
-				chatId: id,
-				noteId: resolvedNoteId ?? undefined,
-				preview: getHostedChatPreviewFromMessage(lastUserMessage),
-				model: resolvedModel.model,
-				reasoningEffort: resolvedReasoningEffort,
-				message: toHostedStoredMessage(lastUserMessage),
-			});
+			await convexClient.mutation(
+				api.chats.saveMessage,
+				buildHostedChatSaveMessageArgs({
+					workspaceId: resolvedWorkspaceId,
+					chatId: id,
+					noteId: resolvedNoteId,
+					model: resolvedModel.model,
+					reasoningEffort: resolvedReasoningEffort,
+					message: lastUserMessage,
+				}),
+			);
 		} catch (error) {
 			console.error("Failed to persist user chat message", error);
 		}
@@ -716,16 +717,18 @@ export const handleChatRequest = async (
 								assistantMessage: responseMessage,
 							})
 						: undefined;
-				await convexClient.mutation(api.chats.saveMessage, {
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-					noteId: resolvedNoteId ?? undefined,
-					title: generatedChatTitle,
-					preview: getHostedChatPreviewFromMessage(responseMessage),
-					model: resolvedModel.model,
-					reasoningEffort: resolvedReasoningEffort,
-					message: toHostedStoredMessage(responseMessage),
-				});
+				await convexClient.mutation(
+					api.chats.saveMessage,
+					buildHostedChatSaveMessageArgs({
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+						title: generatedChatTitle,
+						noteId: resolvedNoteId,
+						model: resolvedModel.model,
+						reasoningEffort: resolvedReasoningEffort,
+						message: responseMessage,
+					}),
+				);
 				await activeStreamPersister?.finish("done");
 			} catch (error) {
 				console.error("Failed to persist assistant chat message", error);

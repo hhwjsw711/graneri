@@ -58,6 +58,25 @@ export const toHostedStoredMessage = (message) => ({
 	createdAt: Date.now(),
 });
 
+export const buildHostedChatSaveMessageArgs = ({
+	chatId,
+	message,
+	model,
+	noteId,
+	reasoningEffort,
+	title,
+	workspaceId,
+}) => ({
+	workspaceId,
+	chatId,
+	noteId: noteId ?? undefined,
+	title,
+	preview: getHostedChatPreviewFromMessage(message),
+	model,
+	reasoningEffort,
+	message: toHostedStoredMessage(message),
+});
+
 const parseStoredMessagePartsForModelInput = (partsJson) => {
 	try {
 		const parts = JSON.parse(partsJson);

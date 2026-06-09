@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deriveFallbackChatTitle } from "../../../packages/ai/src/chat-titles.mjs";
 import {
 	buildHostedChatRuntimePrompt,
+	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
 	getStoredHostedNoteContext,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
@@ -104,5 +105,31 @@ describe("prompt helpers", () => {
 
 	it("omits stored hosted note context when the note is unavailable", () => {
 		expect(getStoredHostedNoteContext(null)).toBe("");
+	});
+
+	it("builds hosted chat save message arguments consistently", () => {
+		const saved = buildHostedChatSaveMessageArgs({
+			workspaceId: "workspace-1",
+			chatId: "chat-1",
+			noteId: null,
+			title: "Generated title",
+			model: "gpt-5",
+			reasoningEffort: "medium",
+			message: {
+				id: "msg-1",
+				role: "user",
+				parts: [{ type: "text", text: "Hello from Graneri" }],
+			},
+		});
+
+		expect(saved.workspaceId).toBe("workspace-1");
+		expect(saved.chatId).toBe("chat-1");
+		expect(saved.noteId).toBeUndefined();
+		expect(saved.title).toBe("Generated title");
+		expect(saved.preview).toBe("Hello from Graneri");
+		expect(saved.model).toBe("gpt-5");
+		expect(saved.reasoningEffort).toBe("medium");
+		expect(saved.message.id).toBe("msg-1");
+		expect(saved.message.text).toBe("Hello from Graneri");
 	});
 });

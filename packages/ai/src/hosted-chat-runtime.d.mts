@@ -15,6 +15,28 @@ export declare const toHostedStoredMessage: (message: UIMessage) => {
 	text: string;
 	createdAt: number;
 };
+export declare const buildHostedChatSaveMessageArgs: <
+	WorkspaceId extends string,
+	NoteId extends string,
+	ReasoningEffort extends string,
+>(args: {
+	chatId: string;
+	message: UIMessage;
+	model: string;
+	noteId?: NoteId | null;
+	reasoningEffort: ReasoningEffort;
+	title?: string;
+	workspaceId: WorkspaceId;
+}) => {
+	workspaceId: WorkspaceId;
+	chatId: string;
+	noteId: NoteId | undefined;
+	title: string | undefined;
+	preview: string;
+	model: string;
+	reasoningEffort: ReasoningEffort;
+	message: ReturnType<typeof toHostedStoredMessage>;
+};
 export declare const fromHostedStoredMessages: (
 	messages: Array<{
 		id: string;
