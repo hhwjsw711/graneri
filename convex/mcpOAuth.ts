@@ -1,3 +1,4 @@
+import { auth as mcpSdkAuth } from "@ai-sdk/mcp";
 import type { OAuthTokens } from "@ai-sdk/mcp";
 import { validateRemoteMcpConnection } from "../packages/ai/src/remote-mcp-tools.mjs";
 import { internal } from "./_generated/api";
@@ -50,10 +51,8 @@ const ensureUrlCanParse = () => {
 	};
 };
 
-const getMcpSdkAuth = async () => {
+const prepareMcpSdkAuth = () => {
 	ensureUrlCanParse();
-	const { auth } = await import("@ai-sdk/mcp");
-	return auth;
 };
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -112,13 +111,13 @@ export const startMcpSdkOAuth = async ({
 	client?: McpSdkOAuthClient;
 	createState: () => string;
 }) => {
-	const auth = await getMcpSdkAuth();
+	prepareMcpSdkAuth();
 	let authorizationUrl: string | undefined;
 	let codeVerifier: string | undefined;
 	let state: string | undefined;
 	let currentClient = client ?? { clientId: "" };
 
-	const result = await auth(
+	const result = await mcpSdkAuth(
 		{
 			tokens: () => undefined,
 			saveTokens: () => undefined,
@@ -195,10 +194,10 @@ const exchangeMcpSdkOAuthCode = async ({
 	state: string;
 	displayName: string;
 }) => {
-	const auth = await getMcpSdkAuth();
+	prepareMcpSdkAuth();
 	let oauthTokens: OAuthTokens | undefined;
 
-	const result = await auth(
+	const result = await mcpSdkAuth(
 		{
 			tokens: () => undefined,
 			saveTokens: (tokens) => {
@@ -245,10 +244,10 @@ export const refreshMcpSdkOAuthToken = async ({
 	refreshToken: string;
 	displayName: string;
 }) => {
-	const auth = await getMcpSdkAuth();
+	prepareMcpSdkAuth();
 	let oauthTokens: OAuthTokens | undefined;
 
-	const result = await auth(
+	const result = await mcpSdkAuth(
 		{
 			tokens: () => ({
 				access_token: "",
