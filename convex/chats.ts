@@ -221,6 +221,28 @@ const getActiveStreamByChatId = async (
 		.withIndex("by_chatId", (q) => q.eq("chatId", chatId))
 		.unique();
 
+const deleteToolCallsForMessageIds = async (
+	ctx: MutationCtx,
+	chatId: Doc<"chats">["_id"],
+	messageIds: Iterable<string>,
+) => {
+	const uniqueMessageIds = [...new Set(messageIds)];
+	const toolCalls = (
+		await Promise.all(
+			uniqueMessageIds.map((messageId) =>
+				ctx.db
+					.query("chatToolCalls")
+					.withIndex("by_chatId_and_messageId", (q) =>
+						q.eq("chatId", chatId).eq("messageId", messageId),
+					)
+					.collect(),
+			),
+		)
+	).flat();
+
+	await Promise.all(toolCalls.map((toolCall) => ctx.db.delete(toolCall._id)));
+};
+
 const toStoredUiMessageSnapshot = (message: Doc<"chatMessages">) => ({
 	id: message.messageId,
 	role: message.role,
@@ -1348,10 +1370,24 @@ export const truncateFromMessage = mutation({
 
 		const messagesToDelete = messages.slice(targetIndex);
 		const previousMessage = targetIndex > 0 ? messages[targetIndex - 1] : null;
+		const activeStream = await getActiveStreamByChatId(ctx, chat._id);
+		const deletedMessageIds = messagesToDelete.map(
+			(message) => message.messageId,
+		);
+
+		if (activeStream) {
+			deletedMessageIds.push(activeStream.messageId);
+		}
 
 		await Promise.all(
 			messagesToDelete.map((message) => ctx.db.delete(message._id)),
 		);
+		await deleteToolCallsForMessageIds(ctx, chat._id, deletedMessageIds);
+
+		if (activeStream) {
+			await ctx.db.delete(activeStream._id);
+		}
+
 		await ctx.db.patch(chat._id, {
 			preview: previousMessage?.text ?? "",
 			updatedAt: Date.now(),

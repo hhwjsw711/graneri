@@ -555,6 +555,7 @@ export default defineSchema({
 		updatedAt: v.number(),
 	})
 		.index("by_chatId_and_createdAt", ["chatId", "createdAt"])
+		.index("by_chatId_and_messageId", ["chatId", "messageId"])
 		.index("by_chatId_and_messageId_and_toolCallId", [
 			"chatId",
 			"messageId",

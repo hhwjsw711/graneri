@@ -29,6 +29,7 @@ const createWorkspace = async () => {
 
 	return {
 		asOwner,
+		t,
 		workspaceId,
 	};
 };
@@ -187,7 +188,7 @@ test("chat star state toggles and persists", async () => {
 });
 
 test("truncating from an edited message removes that branch of the chat", async () => {
-	const { asOwner, workspaceId } = await createWorkspace();
+	const { asOwner, t, workspaceId } = await createWorkspace();
 
 	await asOwner.mutation(api.chats.saveMessage, {
 		workspaceId,
@@ -225,6 +226,19 @@ test("truncating from an edited message removes that branch of the chat", async 
 			createdAt: 2_200,
 		},
 	});
+	await asOwner.mutation(api.chats.startActiveStream, {
+		workspaceId,
+		chatId: "chat-edit",
+		messageId: "stream-1",
+	});
+	await asOwner.mutation(api.chatToolCalls.startActiveStreamToolCall, {
+		workspaceId,
+		chatId: "chat-edit",
+		messageId: "stream-1",
+		toolCallId: "tool-call-1",
+		toolName: "search",
+		inputJson: JSON.stringify({ query: "Second prompt" }),
+	});
 
 	const result = await asOwner.mutation(api.chats.truncateFromMessage, {
 		workspaceId,
@@ -240,6 +254,41 @@ test("truncating from an edited message removes that branch of the chat", async 
 	});
 
 	expect(messages).toHaveLength(0);
+
+	const relatedRows = await t.run(async (ctx) => {
+		const chat = await ctx.db
+			.query("chats")
+			.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_chatId", (q) =>
+				q
+					.eq("ownerTokenIdentifier", ownerIdentity.tokenIdentifier)
+					.eq("workspaceId", workspaceId)
+					.eq("chatId", "chat-edit"),
+			)
+			.unique();
+
+		if (!chat) {
+			throw new Error("Expected chat to exist.");
+		}
+
+		const activeStream = await ctx.db
+			.query("chatActiveStreams")
+			.withIndex("by_chatId", (q) => q.eq("chatId", chat._id))
+			.unique();
+		const toolCalls = await ctx.db
+			.query("chatToolCalls")
+			.withIndex("by_chatId_and_messageId", (q) =>
+				q.eq("chatId", chat._id).eq("messageId", "stream-1"),
+			)
+			.collect();
+
+		return {
+			activeStream,
+			toolCallCount: toolCalls.length,
+		};
+	});
+
+	expect(relatedRows.activeStream).toBeNull();
+	expect(relatedRows.toolCallCount).toBe(0);
 });
 
 test("removing a chat skips malformed legacy attachment storage ids", async () => {
