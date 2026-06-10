@@ -23,6 +23,8 @@ describe("hosted active chat stream", () => {
 		const startActiveStream = vi.fn().mockResolvedValue(undefined);
 		const appendActiveStreamText = vi.fn().mockResolvedValue(undefined);
 		const finishActiveStream = vi.fn().mockResolvedValue(undefined);
+		const startActiveStreamToolCall = vi.fn().mockResolvedValue(undefined);
+		const finishActiveStreamToolCall = vi.fn().mockResolvedValue(undefined);
 		const persister = new HostedActiveChatStreamPersister({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
@@ -30,11 +32,23 @@ describe("hosted active chat stream", () => {
 			startActiveStream,
 			appendActiveStreamText,
 			finishActiveStream,
+			startActiveStreamToolCall,
+			finishActiveStreamToolCall,
 		});
 
 		await persister.start();
 		persister.append("hello");
 		persister.append(" world");
+		await persister.startToolCall({
+			toolCallId: "tool-call-1",
+			toolName: "search",
+			input: { query: "graneri" },
+		});
+		await persister.finishToolCall({
+			toolCallId: "tool-call-1",
+			status: "completed",
+			output: { result: "ok" },
+		});
 		await persister.flush();
 		await persister.finish("done");
 
@@ -55,6 +69,23 @@ describe("hosted active chat stream", () => {
 			chatId: "chat-1",
 			messageId: "stream-1",
 			status: "done",
+		});
+		expect(startActiveStreamToolCall).toHaveBeenCalledWith({
+			workspaceId: "workspace-1",
+			chatId: "chat-1",
+			messageId: "stream-1",
+			toolCallId: "tool-call-1",
+			toolName: "search",
+			inputJson: JSON.stringify({ query: "graneri" }),
+		});
+		expect(finishActiveStreamToolCall).toHaveBeenCalledWith({
+			workspaceId: "workspace-1",
+			chatId: "chat-1",
+			messageId: "stream-1",
+			toolCallId: "tool-call-1",
+			status: "completed",
+			outputJson: JSON.stringify({ result: "ok" }),
+			errorText: undefined,
 		});
 	});
 
@@ -223,11 +254,23 @@ describe("hosted active chat stream", () => {
 		expect(controllers.get("workspace-1:chat-1")).toBe(activeController);
 	});
 
-	it("pipes stream chunks while persisting text deltas only", async () => {
+	it("pipes stream chunks while persisting text deltas and tool lifecycle events", async () => {
 		const append = vi.fn();
+		const startToolCall = vi.fn().mockResolvedValue(undefined);
+		const finishToolCall = vi.fn().mockResolvedValue(undefined);
 		const inputChunks = [
 			{ type: "text-delta", delta: "hello" },
-			{ type: "reasoning-delta", delta: "hidden" },
+			{
+				type: "tool-input-available",
+				toolCallId: "tool-call-1",
+				toolName: "search",
+				input: { query: "graneri" },
+			},
+			{
+				type: "tool-output-error",
+				toolCallId: "tool-call-1",
+				errorText: "search failed",
+			},
 			{ type: "text-delta", delta: " world" },
 		];
 		const stream = new ReadableStream<(typeof inputChunks)[number]>({
@@ -242,7 +285,7 @@ describe("hosted active chat stream", () => {
 		const outputChunks = [];
 		for await (const chunk of pipeHostedActiveStreamText({
 			stream,
-			persister: { append },
+			persister: { append, startToolCall, finishToolCall },
 		})) {
 			outputChunks.push(chunk);
 		}
@@ -251,5 +294,15 @@ describe("hosted active chat stream", () => {
 		expect(append).toHaveBeenCalledTimes(2);
 		expect(append).toHaveBeenNthCalledWith(1, "hello");
 		expect(append).toHaveBeenNthCalledWith(2, " world");
+		expect(startToolCall).toHaveBeenCalledWith({
+			toolCallId: "tool-call-1",
+			toolName: "search",
+			input: { query: "graneri" },
+		});
+		expect(finishToolCall).toHaveBeenCalledWith({
+			toolCallId: "tool-call-1",
+			status: "failed",
+			errorText: "search failed",
+		});
 	});
 });

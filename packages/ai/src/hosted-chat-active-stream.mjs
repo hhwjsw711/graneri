@@ -8,26 +8,32 @@ export class HostedActiveChatStreamPersister {
 	#buffer = "";
 	#chatId;
 	#finishActiveStream;
+	#finishActiveStreamToolCall;
 	#flushError = null;
 	#flushPromise = null;
 	#flushTimer = null;
 	#messageId;
 	#startActiveStream;
+	#startActiveStreamToolCall;
 	#workspaceId;
 
 	constructor({
 		appendActiveStreamText,
 		chatId,
 		finishActiveStream,
+		finishActiveStreamToolCall,
 		messageId,
 		startActiveStream,
+		startActiveStreamToolCall,
 		workspaceId,
 	}) {
 		this.#appendActiveStreamText = appendActiveStreamText;
 		this.#chatId = chatId;
 		this.#finishActiveStream = finishActiveStream;
+		this.#finishActiveStreamToolCall = finishActiveStreamToolCall;
 		this.#messageId = messageId;
 		this.#startActiveStream = startActiveStream;
+		this.#startActiveStreamToolCall = startActiveStreamToolCall;
 		this.#workspaceId = workspaceId;
 	}
 
@@ -60,6 +66,29 @@ export class HostedActiveChatStreamPersister {
 				this.#flushError = error;
 			});
 		}, HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS);
+	}
+
+	async startToolCall({ input, toolCallId, toolName }) {
+		await this.#startActiveStreamToolCall({
+			workspaceId: this.#workspaceId,
+			chatId: this.#chatId,
+			messageId: this.#messageId,
+			toolCallId,
+			toolName,
+			inputJson: stringifyToolPayload(input),
+		});
+	}
+
+	async finishToolCall({ errorText, output, status, toolCallId }) {
+		await this.#finishActiveStreamToolCall({
+			workspaceId: this.#workspaceId,
+			chatId: this.#chatId,
+			messageId: this.#messageId,
+			toolCallId,
+			status,
+			outputJson: stringifyToolPayload(output),
+			errorText,
+		});
 	}
 
 	async flush() {
@@ -138,6 +167,12 @@ export const createHostedActiveStreamSession = ({
 		append(delta) {
 			persister.append(delta);
 		},
+		async startToolCall(args) {
+			await persister.startToolCall?.(args);
+		},
+		async finishToolCall(args) {
+			await persister.finishToolCall?.(args);
+		},
 		async finish(status) {
 			try {
 				await persister.finish(status);
@@ -195,15 +230,87 @@ export const stopHostedActiveChatStream = async ({
 	controllers.delete(streamKey);
 };
 
-export const pipeHostedActiveStreamText = ({ persister, stream }) =>
+const stringifyToolPayload = (payload) => {
+	if (payload === undefined) {
+		return undefined;
+	}
+
+	try {
+		return JSON.stringify(payload);
+	} catch (error) {
+		throw new TypeError("Failed to serialize active stream tool payload.", {
+			cause: error,
+		});
+	}
+};
+
+const persistHostedActiveStreamToolChunk = async ({ chunk, persister }) => {
+	if (!persister) {
+		return;
+	}
+
+	if (chunk.type === "tool-input-available") {
+		await persister.startToolCall?.({
+			toolCallId: chunk.toolCallId,
+			toolName: chunk.toolName,
+			input: chunk.input,
+		});
+		return;
+	}
+
+	if (chunk.type === "tool-input-error") {
+		await persister.startToolCall?.({
+			toolCallId: chunk.toolCallId,
+			toolName: chunk.toolName,
+			input: chunk.input,
+		});
+		await persister.finishToolCall?.({
+			toolCallId: chunk.toolCallId,
+			status: "failed",
+			errorText: chunk.errorText,
+		});
+		return;
+	}
+
+	if (chunk.type === "tool-output-available") {
+		await persister.finishToolCall?.({
+			toolCallId: chunk.toolCallId,
+			status: "completed",
+			output: chunk.output,
+		});
+		return;
+	}
+
+	if (chunk.type === "tool-output-error") {
+		await persister.finishToolCall?.({
+			toolCallId: chunk.toolCallId,
+			status: "failed",
+			errorText: chunk.errorText,
+		});
+		return;
+	}
+
+	if (chunk.type === "tool-output-denied") {
+		await persister.finishToolCall?.({
+			toolCallId: chunk.toolCallId,
+			status: "denied",
+			errorText: chunk.errorText,
+		});
+	}
+};
+
+export const pipeHostedActiveStreamEvents = ({ persister, stream }) =>
 	stream.pipeThrough(
 		new TransformStream({
-			transform(chunk, controller) {
+			async transform(chunk, controller) {
 				if (chunk.type === "text-delta") {
 					persister?.append(chunk.delta);
 				}
 
+				await persistHostedActiveStreamToolChunk({ chunk, persister });
 				controller.enqueue(chunk);
 			},
 		}),
 	);
+
+export const pipeHostedActiveStreamText = pipeHostedActiveStreamEvents;

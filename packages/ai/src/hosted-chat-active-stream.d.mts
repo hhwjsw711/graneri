@@ -1,6 +1,22 @@
 export declare const HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
 
 export type HostedActiveStreamStatus = "done" | "error";
+export type HostedActiveToolCallStatus = "completed" | "failed" | "denied";
+
+export type HostedActiveStreamPersisterLike = {
+	append(delta: string): void;
+	startToolCall?(args: {
+		toolCallId: string;
+		toolName: string;
+		input?: unknown;
+	}): Promise<void>;
+	finishToolCall?(args: {
+		toolCallId: string;
+		status: HostedActiveToolCallStatus;
+		output?: unknown;
+		errorText?: string;
+	}): Promise<void>;
+};
 
 export type HostedActiveStreamCallbacks<WorkspaceId extends string> = {
 	appendActiveStreamText: (args: {
@@ -19,6 +35,23 @@ export type HostedActiveStreamCallbacks<WorkspaceId extends string> = {
 		workspaceId: WorkspaceId;
 		chatId: string;
 		messageId: string;
+	}) => Promise<unknown>;
+	startActiveStreamToolCall: (args: {
+		workspaceId: WorkspaceId;
+		chatId: string;
+		messageId: string;
+		toolCallId: string;
+		toolName: string;
+		inputJson?: string;
+	}) => Promise<unknown>;
+	finishActiveStreamToolCall: (args: {
+		workspaceId: WorkspaceId;
+		chatId: string;
+		messageId: string;
+		toolCallId: string;
+		status: HostedActiveToolCallStatus;
+		outputJson?: string;
+		errorText?: string;
 	}) => Promise<unknown>;
 };
 
@@ -42,16 +75,38 @@ export declare class HostedActiveChatStreamPersister<
 	get messageId(): string;
 	start(): Promise<void>;
 	append(delta: string): void;
+	startToolCall(args: {
+		toolCallId: string;
+		toolName: string;
+		input?: unknown;
+	}): Promise<void>;
+	finishToolCall(args: {
+		toolCallId: string;
+		status: HostedActiveToolCallStatus;
+		output?: unknown;
+		errorText?: string;
+	}): Promise<void>;
 	flush(): Promise<void>;
 	finish(status: HostedActiveStreamStatus): Promise<void>;
 }
 
 export type HostedActiveStreamSession = {
 	abortSignal: AbortSignal;
-	persister: { append(delta: string): void };
+	persister: HostedActiveStreamPersisterLike;
 	streamKey: string;
 	start(): Promise<void>;
 	append(delta: string): void;
+	startToolCall(args: {
+		toolCallId: string;
+		toolName: string;
+		input?: unknown;
+	}): Promise<void>;
+	finishToolCall(args: {
+		toolCallId: string;
+		status: HostedActiveToolCallStatus;
+		output?: unknown;
+		errorText?: string;
+	}): Promise<void>;
 	finish(status: HostedActiveStreamStatus): Promise<void>;
 	cleanup(): void;
 };
@@ -61,6 +116,17 @@ export declare const createHostedActiveStreamSession: (args: {
 	persister: {
 		start(): Promise<void>;
 		append(delta: string): void;
+		startToolCall?(args: {
+			toolCallId: string;
+			toolName: string;
+			input?: unknown;
+		}): Promise<void>;
+		finishToolCall?(args: {
+			toolCallId: string;
+			status: HostedActiveToolCallStatus;
+			output?: unknown;
+			errorText?: string;
+		}): Promise<void>;
 		finish(status: HostedActiveStreamStatus): Promise<void>;
 	};
 	streamKey: string;
@@ -89,7 +155,16 @@ export declare const stopHostedActiveChatStream: <
 
 export declare const pipeHostedActiveStreamText: <Chunk extends { type: string }>(
 	args: {
-		persister?: { append(delta: string): void } | null;
+		persister?: HostedActiveStreamPersisterLike | null;
+		stream: ReadableStream<Chunk>;
+	},
+) => ReadableStream<Chunk>;
+
+export declare const pipeHostedActiveStreamEvents: <
+	Chunk extends { type: string },
+>(
+	args: {
+		persister?: HostedActiveStreamPersisterLike | null;
 		stream: ReadableStream<Chunk>;
 	},
 ) => ReadableStream<Chunk>;

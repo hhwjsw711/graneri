@@ -537,6 +537,16 @@ export const handleChatRequest = async (
 							convexClient.mutation(api.chats.appendActiveStreamText, args),
 						finishActiveStream: (args) =>
 							convexClient.mutation(api.chats.finishActiveStream, args),
+						startActiveStreamToolCall: (args) =>
+							convexClient.mutation(
+								api.chatToolCalls.startActiveStreamToolCall,
+								args,
+							),
+						finishActiveStreamToolCall: (args) =>
+							convexClient.mutation(
+								api.chatToolCalls.finishActiveStreamToolCall,
+								args,
+							),
 					},
 				})
 			: null;

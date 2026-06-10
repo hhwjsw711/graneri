@@ -536,6 +536,35 @@ export default defineSchema({
 			"ownerTokenIdentifier",
 			"chatId",
 		]),
+	chatToolCalls: defineTable({
+		chatId: v.id("chats"),
+		ownerTokenIdentifier: v.string(),
+		messageId: v.string(),
+		toolCallId: v.string(),
+		toolName: v.string(),
+		status: v.union(
+			v.literal("pending"),
+			v.literal("completed"),
+			v.literal("failed"),
+			v.literal("denied"),
+		),
+		inputJson: v.optional(v.string()),
+		outputJson: v.optional(v.string()),
+		errorText: v.optional(v.string()),
+		createdAt: v.number(),
+		updatedAt: v.number(),
+	})
+		.index("by_chatId_and_createdAt", ["chatId", "createdAt"])
+		.index("by_chatId_and_messageId_and_toolCallId", [
+			"chatId",
+			"messageId",
+			"toolCallId",
+		])
+		.index("by_chatId_and_status", ["chatId", "status"])
+		.index("by_ownerTokenIdentifier_and_chatId", [
+			"ownerTokenIdentifier",
+			"chatId",
+		]),
 	automations: defineTable({
 		ownerTokenIdentifier: v.string(),
 		workspaceId: v.id("workspaces"),

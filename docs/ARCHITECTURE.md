@@ -31,6 +31,10 @@ prompt construction, branch preparation, tool-loop setup, message persistence
 payloads, and active-stream persistence behavior; callers provide
 runtime-specific reads, writes, request transport, and desktop-local
 capabilities through small adapter callbacks.
+Hosted chat active streams persist both incremental assistant text and tool-call
+lifecycle records through those callbacks. The persisted tool-call records are
+operational state for observing and recovering agent runs; they do not move
+desktop-local tool execution out of the renderer/local-server bridge.
 
 Connected app AI capabilities are declared in
 `packages/ai/src/capability-registry.mjs`. The registry is the source of truth
