@@ -73,25 +73,11 @@ const removeExpiredArchivedNotesBatch = async (
 	);
 
 	for (const note of notes) {
-		await ctx.runMutation(internal.chats.removeForNote, {
+		await ctx.runMutation(internal.notes.removeCascadeForOwner, {
 			ownerTokenIdentifier: note.ownerTokenIdentifier,
 			workspaceId: note.workspaceId,
 			noteId: note._id,
 		});
-		await ctx.scheduler.runAfter(0, internal.transcriptSessions.removeForNote, {
-			noteId: note._id,
-			ownerTokenIdentifier: note.ownerTokenIdentifier,
-		});
-		await ctx.runMutation(internal.noteComments.removeForNote, {
-			ownerTokenIdentifier: note.ownerTokenIdentifier,
-			workspaceId: note.workspaceId,
-			noteId: note._id,
-		});
-		await ctx.runMutation(internal.notes.removeNoteRevisionsForNote, {
-			ownerTokenIdentifier: note.ownerTokenIdentifier,
-			noteId: note._id,
-		});
-		await ctx.db.delete(note._id);
 	}
 
 	return {
