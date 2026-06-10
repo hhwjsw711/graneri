@@ -291,6 +291,48 @@ test("truncating from an edited message removes that branch of the chat", async 
 	expect(relatedRows.toolCallCount).toBe(0);
 });
 
+test("removing a chat deletes active stream and tool call runtime records", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+
+	await asOwner.mutation(api.chats.saveMessage, {
+		workspaceId,
+		chatId: "chat-remove-runtime",
+		preview: "Search",
+		message: {
+			id: "msg-user-1",
+			role: "user",
+			partsJson: JSON.stringify([{ type: "text", text: "Search" }]),
+			text: "Search",
+			createdAt: 2_000,
+		},
+	});
+	await asOwner.mutation(api.chats.startActiveStream, {
+		workspaceId,
+		chatId: "chat-remove-runtime",
+		messageId: "stream-1",
+	});
+	await asOwner.mutation(api.chatToolCalls.startActiveStreamToolCall, {
+		workspaceId,
+		chatId: "chat-remove-runtime",
+		messageId: "stream-1",
+		toolCallId: "tool-call-1",
+		toolName: "search",
+	});
+
+	await asOwner.mutation(api.chats.remove, {
+		workspaceId,
+		chatId: "chat-remove-runtime",
+	});
+
+	const rows = await t.run(async (ctx) => ({
+		activeStreams: await ctx.db.query("chatActiveStreams").collect(),
+		toolCalls: await ctx.db.query("chatToolCalls").collect(),
+	}));
+
+	expect(rows.activeStreams).toHaveLength(0);
+	expect(rows.toolCalls).toHaveLength(0);
+});
+
 test("removing a chat skips malformed legacy attachment storage ids", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 

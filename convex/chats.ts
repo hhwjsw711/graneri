@@ -243,6 +243,24 @@ const deleteToolCallsForMessageIds = async (
 	await Promise.all(toolCalls.map((toolCall) => ctx.db.delete(toolCall._id)));
 };
 
+const deleteChatRuntimeRecords = async (
+	ctx: MutationCtx,
+	chatId: Doc<"chats">["_id"],
+) => {
+	const [activeStream, toolCalls] = await Promise.all([
+		getActiveStreamByChatId(ctx, chatId),
+		ctx.db
+			.query("chatToolCalls")
+			.withIndex("by_chatId_and_createdAt", (q) => q.eq("chatId", chatId))
+			.collect(),
+	]);
+
+	await Promise.all([
+		...(activeStream ? [ctx.db.delete(activeStream._id)] : []),
+		...toolCalls.map((toolCall) => ctx.db.delete(toolCall._id)),
+	]);
+};
+
 const toStoredUiMessageSnapshot = (message: Doc<"chatMessages">) => ({
 	id: message.messageId,
 	role: message.role,
@@ -972,6 +990,7 @@ export const removeMessagesAndDeleteChat = internalMutation({
 
 		if (chat) {
 			await moveAutomationToFreshChat(ctx, chat);
+			await deleteChatRuntimeRecords(ctx, args.chatId);
 			await ctx.db.delete(args.chatId);
 		}
 
@@ -1066,6 +1085,7 @@ export const removeForNote = internalMutation({
 
 		await Promise.all(
 			chats.map(async (chat) => {
+				await deleteChatRuntimeRecords(ctx, chat._id);
 				await ctx.db.delete(chat._id);
 
 				const result = await deleteChatMessageBatch(ctx, chat._id);
@@ -1587,6 +1607,7 @@ export const remove = mutation({
 		}
 
 		await moveAutomationToFreshChat(ctx, chat);
+		await deleteChatRuntimeRecords(ctx, chat._id);
 		await ctx.db.delete(chat._id);
 
 		return null;
