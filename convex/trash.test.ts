@@ -88,6 +88,42 @@ test("trash cleanup removes expired archived items without touching recent trash
 			text: "Expired linked message",
 			createdAt: 5_000,
 		});
+		await ctx.db.insert("noteRevisions", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId: cleanupWorkspaceId,
+			noteId: expiredNoteId,
+			authorName: "Owner",
+			title: "Expired note revision",
+			content: "Old body",
+			searchableText: "Old body",
+			createdAt: 4_000,
+		});
+		const expiredThreadId = await ctx.db.insert("noteCommentThreads", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId: cleanupWorkspaceId,
+			noteId: expiredNoteId,
+			createdByName: "Owner",
+			excerpt: "Body",
+			isResolved: false,
+			isRead: false,
+			isMutedReplies: false,
+			commentCount: 1,
+			latestCommentPreview: "Expired comment",
+			latestCommentIsReply: false,
+			createdAt: 4_500,
+			updatedAt: 4_500,
+			lastCommentAt: 4_500,
+		});
+		await ctx.db.insert("noteComments", {
+			threadId: expiredThreadId,
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId: cleanupWorkspaceId,
+			noteId: expiredNoteId,
+			authorName: "Owner",
+			body: "Expired comment",
+			createdAt: 4_500,
+			updatedAt: 4_500,
+		});
 		const expiredSessionId = await ctx.db.insert("transcriptSessions", {
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			noteId: expiredNoteId,
@@ -310,6 +346,10 @@ test("trash cleanup removes expired archived items without touching recent trash
 			transcriptUtterances: (
 				await ctx.db.query("transcriptUtterances").take(10)
 			).length,
+			noteRevisions: (await ctx.db.query("noteRevisions").take(10)).length,
+			noteCommentThreads: (await ctx.db.query("noteCommentThreads").take(10))
+				.length,
+			noteComments: (await ctx.db.query("noteComments").take(10)).length,
 			expiredLinkedMessages: (
 				await ctx.db
 					.query("chatMessages")
@@ -343,6 +383,9 @@ test("trash cleanup removes expired archived items without touching recent trash
 	expect(remaining.transcriptSessions).toBe(0);
 	expect(remaining.transcriptSessionStates).toBe(0);
 	expect(remaining.transcriptUtterances).toBe(0);
+	expect(remaining.noteRevisions).toBe(0);
+	expect(remaining.noteCommentThreads).toBe(0);
+	expect(remaining.noteComments).toBe(0);
 	expect(remaining.expiredLinkedMessages).toBe(0);
 	expect(remaining.expiredStandaloneMessages).toBe(0);
 	expect(remaining.recentStandaloneMessages).toBe(1);

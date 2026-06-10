@@ -333,6 +333,23 @@ const removeNoteRevisions = async ({
 	await Promise.all(revisions.map((revision) => ctx.db.delete(revision._id)));
 };
 
+export const removeNoteRevisionsForNote = internalMutation({
+	args: {
+		ownerTokenIdentifier: v.string(),
+		noteId: v.id("notes"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		await removeNoteRevisions({
+			ctx,
+			ownerTokenIdentifier: args.ownerTokenIdentifier,
+			noteId: args.noteId,
+		});
+
+		return null;
+	},
+});
+
 export const getLatest = query({
 	args: {
 		workspaceId: v.id("workspaces"),
@@ -1121,6 +1138,11 @@ export const remove = mutation({
 			noteId: args.id,
 			ownerTokenIdentifier: note.ownerTokenIdentifier,
 		});
+		await ctx.runMutation(internal.noteComments.removeForNote, {
+			ownerTokenIdentifier: note.ownerTokenIdentifier,
+			workspaceId: args.workspaceId,
+			noteId: args.id,
+		});
 		await removeNoteRevisions({
 			ctx,
 			ownerTokenIdentifier: note.ownerTokenIdentifier,
@@ -1190,6 +1212,11 @@ export const removeAll = mutation({
 						ownerTokenIdentifier: note.ownerTokenIdentifier,
 					},
 				);
+				await ctx.runMutation(internal.noteComments.removeForNote, {
+					ownerTokenIdentifier: note.ownerTokenIdentifier,
+					workspaceId: args.workspaceId,
+					noteId: note._id,
+				});
 				await removeNoteRevisions({
 					ctx,
 					ownerTokenIdentifier: note.ownerTokenIdentifier,
@@ -1244,6 +1271,11 @@ export const removeAllForWorkspace = internalMutation({
 						ownerTokenIdentifier: note.ownerTokenIdentifier,
 					},
 				);
+				await ctx.runMutation(internal.noteComments.removeForNote, {
+					ownerTokenIdentifier: note.ownerTokenIdentifier,
+					workspaceId: args.workspaceId,
+					noteId: note._id,
+				});
 				await removeNoteRevisions({
 					ctx,
 					ownerTokenIdentifier: note.ownerTokenIdentifier,

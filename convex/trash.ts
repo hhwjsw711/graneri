@@ -82,6 +82,15 @@ const removeExpiredArchivedNotesBatch = async (
 			noteId: note._id,
 			ownerTokenIdentifier: note.ownerTokenIdentifier,
 		});
+		await ctx.runMutation(internal.noteComments.removeForNote, {
+			ownerTokenIdentifier: note.ownerTokenIdentifier,
+			workspaceId: note.workspaceId,
+			noteId: note._id,
+		});
+		await ctx.runMutation(internal.notes.removeNoteRevisionsForNote, {
+			ownerTokenIdentifier: note.ownerTokenIdentifier,
+			noteId: note._id,
+		});
 		await ctx.db.delete(note._id);
 	}
 

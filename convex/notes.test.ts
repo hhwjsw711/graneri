@@ -423,3 +423,29 @@ test("notes.setProject assigns and clears a project without dropping note metada
 	expect(clearedNote?.projectId).toBeUndefined();
 	expect(clearedNote?.title).toBe("Old title");
 });
+
+test("notes.remove deletes note comments and threads", async () => {
+	const { asOwner, noteId, t, workspaceId } = await createWorkspaceAndNote();
+
+	await asOwner.mutation(api.noteComments.createThread, {
+		workspaceId,
+		noteId,
+		excerpt: "old-content",
+		body: "This needs follow-up.",
+	});
+
+	await asOwner.mutation(api.notes.remove, {
+		workspaceId,
+		id: noteId,
+	});
+
+	const relatedRows = await t.run(async (ctx) => ({
+		comments: await ctx.db.query("noteComments").collect(),
+		note: await ctx.db.get(noteId),
+		threads: await ctx.db.query("noteCommentThreads").collect(),
+	}));
+
+	expect(relatedRows.note).toBeNull();
+	expect(relatedRows.comments).toHaveLength(0);
+	expect(relatedRows.threads).toHaveLength(0);
+});

@@ -1008,6 +1008,40 @@ export const syncAnchorsForNote = internalMutation({
 	},
 });
 
+export const removeForNote = internalMutation({
+	args: {
+		ownerTokenIdentifier: v.string(),
+		workspaceId: v.id("workspaces"),
+		noteId: v.id("notes"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const threads = await ctx.db
+			.query("noteCommentThreads")
+			.withIndex("by_owner_ws_note_updatedAt", (q) =>
+				q
+					.eq("ownerTokenIdentifier", args.ownerTokenIdentifier)
+					.eq("workspaceId", args.workspaceId)
+					.eq("noteId", args.noteId),
+			)
+			.take(REMOVE_BATCH_SIZE);
+
+		for (const thread of threads) {
+			await deleteThreadRecords(ctx, {
+				ownerTokenIdentifier: args.ownerTokenIdentifier,
+				workspaceId: args.workspaceId,
+				thread,
+			});
+		}
+
+		if (threads.length === REMOVE_BATCH_SIZE) {
+			await ctx.scheduler.runAfter(0, internal.noteComments.removeForNote, args);
+		}
+
+		return null;
+	},
+});
+
 export const removeAllForWorkspace = internalMutation({
 	args: {
 		ownerTokenIdentifier: v.string(),
