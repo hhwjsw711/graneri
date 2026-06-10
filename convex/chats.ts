@@ -1399,6 +1399,7 @@ export const truncateFromMessage = mutation({
 			deletedMessageIds.push(activeStream.messageId);
 		}
 
+		await deleteChatMessageAttachments(ctx, messagesToDelete);
 		await Promise.all(
 			messagesToDelete.map((message) => ctx.db.delete(message._id)),
 		);
