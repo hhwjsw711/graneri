@@ -12,7 +12,7 @@ import { FileText, MessageCircle } from "lucide-react";
 import * as React from "react";
 import type { AutomationListItem } from "@/components/automations/automation-types";
 import { InboxSheet } from "@/components/inbox/inbox-sheet";
-import { NavMain } from "@/components/nav/nav-main";
+import { NavMain, NavPlatform } from "@/components/nav/nav-main";
 import { NavNotes } from "@/components/nav/nav-notes";
 import { NavProjects } from "@/components/nav/nav-projects";
 import { NavStarred } from "@/components/nav/nav-starred";
@@ -618,12 +618,9 @@ export function AppSidebar({
 					activeWorkspaceId={activeWorkspaceId}
 					currentView={currentView}
 					desktopSafeTop={desktopSafeTop}
-					inboxOpen={inboxOpen}
 					navItems={model.navItems}
 					onCreateNote={model.handleCreateNote}
-					onInboxOpenChange={model.handleInboxOpenChange}
 					onSearchOpen={model.handleSearchOpen}
-					onViewChange={model.handleViewChange}
 					onWorkspaceCreate={onWorkspaceCreate}
 					onWorkspaceSelect={model.handleWorkspaceSelect}
 					workspaces={workspaces}
@@ -640,14 +637,18 @@ export function AppSidebar({
 					currentView={currentView}
 					onChatSelect={model.handleChatSelect}
 					onAddAutomation={onAddAutomation}
+					inboxOpen={inboxOpen}
+					navItems={model.navItems}
 					notes={notes}
 					onCreateNote={model.handleCreateNote}
 					onCreateNoteInsideProject={onCreateNoteInsideProject}
+					onInboxOpenChange={model.handleInboxOpenChange}
 					onNotePrefetch={onNotePrefetch}
 					onNoteSelect={model.handleNoteSelect}
 					onProjectSelect={model.handleProjectSelect}
 					onNoteTitleChange={onNoteTitleChange}
 					onNoteTrashed={onNoteTrashed}
+					onViewChange={model.handleViewChange}
 					projects={projects}
 					recordingNoteId={model.recordingNoteId}
 					sharedNotes={sharedNotes}
@@ -732,12 +733,9 @@ const AppSidebarHeaderSection = React.memo(function AppSidebarHeaderSection({
 	activeWorkspaceId,
 	currentView,
 	desktopSafeTop,
-	inboxOpen,
 	navItems,
 	onCreateNote,
-	onInboxOpenChange,
 	onSearchOpen,
-	onViewChange,
 	onWorkspaceCreate,
 	onWorkspaceSelect,
 	workspaces,
@@ -745,14 +743,9 @@ const AppSidebarHeaderSection = React.memo(function AppSidebarHeaderSection({
 	activeWorkspaceId: Id<"workspaces"> | null;
 	currentView: AppSidebarView;
 	desktopSafeTop: boolean;
-	inboxOpen: boolean;
 	navItems: AppSidebarNavItem[];
 	onCreateNote: () => void;
-	onInboxOpenChange: (open: boolean) => void;
 	onSearchOpen: () => void;
-	onViewChange: (
-		view: "home" | "chat" | "automation" | "inbox" | "shared" | "note",
-	) => void;
 	onWorkspaceCreate: (input: { name: string }) => Promise<WorkspaceRecord>;
 	onWorkspaceSelect: (workspaceId: Id<"workspaces">) => void;
 	workspaces: Array<WorkspaceRecord>;
@@ -782,9 +775,7 @@ const AppSidebarHeaderSection = React.memo(function AppSidebarHeaderSection({
 					className="px-0"
 					items={navItems}
 					onCreateNote={onCreateNote}
-					onViewChange={onViewChange}
 					onSearchOpen={onSearchOpen}
-					onInboxToggle={() => onInboxOpenChange(!inboxOpen)}
 				/>
 			</div>
 		</SidebarHeader>
@@ -855,14 +846,18 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	currentView,
 	onChatSelect,
 	onAddAutomation,
+	inboxOpen,
+	navItems,
 	notes,
 	onCreateNote,
 	onCreateNoteInsideProject,
+	onInboxOpenChange,
 	onNotePrefetch,
 	onNoteSelect,
 	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
+	onViewChange,
 	projects,
 	recordingNoteId,
 	sharedNotes,
@@ -878,14 +873,27 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	currentView: AppSidebarView;
 	onChatSelect: (chatId: string) => void;
 	onAddAutomation?: (chatId: string) => void;
+	inboxOpen: boolean;
+	navItems: AppSidebarNavItem[];
 	notes: Array<Doc<"notes">> | undefined;
 	onCreateNote: () => void;
 	onCreateNoteInsideProject: (projectId: Id<"projects">) => void;
+	onInboxOpenChange: (open: boolean) => void;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
 	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
+	onViewChange: (
+		view:
+			| "home"
+			| "chat"
+			| "automation"
+			| "inbox"
+			| "shared"
+			| "project"
+			| "note",
+	) => void;
 	projects: Array<Doc<"projects">> | undefined;
 	recordingNoteId: Id<"notes"> | null;
 	sharedNotes: Array<Doc<"notes">> | undefined;
@@ -909,6 +917,11 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 
 	return (
 		<SidebarContent>
+			<NavPlatform
+				items={navItems}
+				onViewChange={onViewChange}
+				onInboxToggle={() => onInboxOpenChange(!inboxOpen)}
+			/>
 			<NavStarred
 				chats={chats}
 				activeStreamingChatIds={activeStreamingChatIds}
