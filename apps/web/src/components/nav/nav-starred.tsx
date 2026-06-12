@@ -297,6 +297,7 @@ export function NavStarred({
 		<SidebarCollapsibleGroup
 			title="Starred"
 			className="group-data-[collapsible=icon]:hidden"
+			storageKey="starred"
 		>
 			{canReorderStarred ? (
 				<SidebarSortableList

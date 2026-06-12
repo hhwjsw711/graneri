@@ -58,7 +58,11 @@ export function NavPlatform({
 	const viewItems = items.filter((item) => item.action !== "search");
 
 	return (
-		<SidebarCollapsibleGroup title="Platform" className={className}>
+		<SidebarCollapsibleGroup
+			title="Platform"
+			className={className}
+			storageKey="platform"
+		>
 			<SidebarMenu>
 				{viewItems.map((item) => (
 					<SidebarMenuItem key={item.title}>

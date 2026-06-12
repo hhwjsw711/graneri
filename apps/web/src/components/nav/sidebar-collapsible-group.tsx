@@ -23,28 +23,91 @@ export const SIDEBAR_COLLAPSIBLE_GROUP_ACTION_CLASS_NAME =
 export const SIDEBAR_COLLAPSIBLE_GROUP_ACTION_OPEN_CLASS_NAME =
 	"!pointer-events-auto !opacity-100";
 
+const SIDEBAR_SECTION_STORAGE_KEY_PREFIX = "graneri.sidebar.section";
+
+const readStoredSectionOpen = (storageKey: string, defaultOpen: boolean) => {
+	if (typeof window === "undefined") {
+		return defaultOpen;
+	}
+
+	let storedValue: string | null = null;
+	try {
+		storedValue = window.localStorage.getItem(
+			`${SIDEBAR_SECTION_STORAGE_KEY_PREFIX}.${storageKey}.open`,
+		);
+	} catch {
+		return defaultOpen;
+	}
+
+	if (storedValue === "true") {
+		return true;
+	}
+
+	if (storedValue === "false") {
+		return false;
+	}
+
+	return defaultOpen;
+};
+
+const writeStoredSectionOpen = (storageKey: string, open: boolean) => {
+	if (typeof window === "undefined") {
+		return;
+	}
+
+	try {
+		window.localStorage.setItem(
+			`${SIDEBAR_SECTION_STORAGE_KEY_PREFIX}.${storageKey}.open`,
+			String(open),
+		);
+	} catch {
+		return;
+	}
+};
+
 export function SidebarCollapsibleGroup({
 	children,
 	className,
 	contentClassName,
 	defaultOpen = true,
+	open,
+	onOpenChange,
 	labelClassName,
 	title,
 	actions,
 	actionClassName,
 	actionTooltip,
+	storageKey,
 }: {
 	children: React.ReactNode;
 	className?: string;
 	contentClassName?: string;
 	defaultOpen?: boolean;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 	labelClassName?: string;
 	title: string;
 	actions?: React.ReactNode;
 	actionClassName?: string;
 	actionTooltip?: string;
+	storageKey?: string;
 }) {
 	const contentId = React.useId();
+	const [storedOpen, setStoredOpen] = React.useState(() =>
+		storageKey ? readStoredSectionOpen(storageKey, defaultOpen) : defaultOpen,
+	);
+	const resolvedOpen = open ?? (storageKey ? storedOpen : undefined);
+	const handleOpenChange = React.useCallback(
+		(nextOpen: boolean) => {
+			if (storageKey) {
+				setStoredOpen(nextOpen);
+				writeStoredSectionOpen(storageKey, nextOpen);
+			}
+
+			onOpenChange?.(nextOpen);
+		},
+		[onOpenChange, storageKey],
+	);
 	const action = actions ? (
 		<SidebarGroupAction asChild className={actionClassName}>
 			{actions}
@@ -52,7 +115,12 @@ export function SidebarCollapsibleGroup({
 	) : null;
 
 	return (
-		<Collapsible defaultOpen={defaultOpen} className="group/collapsible">
+		<Collapsible
+			defaultOpen={storageKey || open !== undefined ? undefined : defaultOpen}
+			open={resolvedOpen}
+			onOpenChange={handleOpenChange}
+			className="group/collapsible"
+		>
 			<SidebarGroup className={className}>
 				<div className="group/header">
 					<SidebarGroupLabel asChild>

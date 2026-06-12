@@ -95,6 +95,7 @@ export function NavNotes({
 				<SidebarCollapsibleGroup
 					title="Starred"
 					className="group-data-[collapsible=icon]:hidden"
+					storageKey="starred-notes"
 				>
 					<SidebarNotesList
 						notes={starredNotes}
@@ -111,6 +112,7 @@ export function NavNotes({
 			<SidebarCollapsibleGroup
 				title={title}
 				className="group-data-[collapsible=icon]:hidden"
+				storageKey={title === "Notes" ? "notes" : "shared"}
 				actionClassName={
 					canSortNotes
 						? `${SIDEBAR_COLLAPSIBLE_GROUP_ACTION_CLASS_NAME} ${SIDEBAR_HEADER_ACTION_ROW_CLASS_NAME} ${filtersOpen ? SIDEBAR_COLLAPSIBLE_GROUP_ACTION_OPEN_CLASS_NAME : ""}`

@@ -526,6 +526,7 @@ export function NavProjects({
 			<SidebarCollapsibleGroup
 				title="Projects"
 				className="group-data-[collapsible=icon]:hidden"
+				storageKey="projects"
 				actionClassName={`${SIDEBAR_COLLAPSIBLE_GROUP_ACTION_CLASS_NAME} ${SIDEBAR_HEADER_ACTION_ROW_CLASS_NAME} ${filtersOpen ? SIDEBAR_COLLAPSIBLE_GROUP_ACTION_OPEN_CLASS_NAME : ""}`}
 				actions={
 					<div className="flex items-center gap-0.5">
