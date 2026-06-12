@@ -40,6 +40,7 @@ type AppSidebarView =
 	| "automation"
 	| "inbox"
 	| "shared"
+	| "project"
 	| "note"
 	| "notFound";
 
@@ -74,7 +75,14 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
 	onWorkspaceSelect: (workspaceId: Id<"workspaces">) => void;
 	onWorkspaceCreate: (input: { name: string }) => Promise<WorkspaceRecord>;
 	onViewChange: (
-		view: "home" | "chat" | "automation" | "inbox" | "shared" | "note",
+		view:
+			| "home"
+			| "chat"
+			| "automation"
+			| "inbox"
+			| "shared"
+			| "project"
+			| "note",
 	) => void;
 	onInboxOpenChange: (open: boolean) => void;
 	settingsOpen: boolean;
@@ -91,6 +99,7 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
 	onAddAutomation?: (chatId: string) => void;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	onCreateNote: () => void;
@@ -165,6 +174,7 @@ function useMobileSidebarNavigation({
 	onCreateNote,
 	onInboxOpenChange,
 	onNoteSelect,
+	onProjectSelect,
 	onViewChange,
 	onWorkspaceSelect,
 	setOpenMobile,
@@ -175,8 +185,16 @@ function useMobileSidebarNavigation({
 	onCreateNote: () => void;
 	onInboxOpenChange: (open: boolean) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onViewChange: (
-		view: "home" | "chat" | "automation" | "inbox" | "shared" | "note",
+		view:
+			| "home"
+			| "chat"
+			| "automation"
+			| "inbox"
+			| "shared"
+			| "project"
+			| "note",
 	) => void;
 	onWorkspaceSelect: (workspaceId: Id<"workspaces">) => void;
 	setOpenMobile: (open: boolean) => void;
@@ -229,7 +247,16 @@ function useMobileSidebarNavigation({
 	);
 
 	const handleViewChange = React.useCallback(
-		(view: "home" | "chat" | "automation" | "inbox" | "shared" | "note") => {
+		(
+			view:
+				| "home"
+				| "chat"
+				| "automation"
+				| "inbox"
+				| "shared"
+				| "project"
+				| "note",
+		) => {
 			closeMobileSidebar();
 			onViewChange(view);
 		},
@@ -260,6 +287,14 @@ function useMobileSidebarNavigation({
 		[closeMobileSidebar, onNoteSelect],
 	);
 
+	const handleProjectSelect = React.useCallback(
+		(projectId: Id<"projects">) => {
+			closeMobileSidebar();
+			onProjectSelect(projectId);
+		},
+		[closeMobileSidebar, onProjectSelect],
+	);
+
 	const handleCreateNote = React.useCallback(() => {
 		closeMobileSidebar();
 		onCreateNote();
@@ -271,6 +306,7 @@ function useMobileSidebarNavigation({
 		handleCreateNote,
 		handleInboxOpenChange,
 		handleNoteSelect,
+		handleProjectSelect,
 		handleSearchOpen,
 		handleViewChange,
 		handleWorkspaceSelect,
@@ -292,6 +328,7 @@ function useAppSidebarModel({
 	onCreateNote,
 	onInboxOpenChange,
 	onNoteSelect,
+	onProjectSelect,
 	onSettingsOpenChange,
 	onViewChange,
 	onWorkspaceSelect,
@@ -311,9 +348,17 @@ function useAppSidebarModel({
 	onCreateNote: () => void;
 	onInboxOpenChange: (open: boolean) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onSettingsOpenChange: (open: boolean, page?: SettingsPage) => void;
 	onViewChange: (
-		view: "home" | "chat" | "automation" | "inbox" | "shared" | "note",
+		view:
+			| "home"
+			| "chat"
+			| "automation"
+			| "inbox"
+			| "shared"
+			| "project"
+			| "note",
 	) => void;
 	onWorkspaceSelect: (workspaceId: Id<"workspaces">) => void;
 	setOpenMobile: (open: boolean) => void;
@@ -330,6 +375,7 @@ function useAppSidebarModel({
 		onCreateNote,
 		onInboxOpenChange,
 		onNoteSelect,
+		onProjectSelect,
 		onViewChange,
 		onWorkspaceSelect,
 		setOpenMobile,
@@ -531,6 +577,7 @@ export function AppSidebar({
 	onAddAutomation,
 	onNotePrefetch,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	onCreateNote,
@@ -557,6 +604,7 @@ export function AppSidebar({
 		onCreateNote,
 		onInboxOpenChange,
 		onNoteSelect,
+		onProjectSelect,
 		onSettingsOpenChange,
 		onViewChange,
 		onWorkspaceSelect,
@@ -597,6 +645,7 @@ export function AppSidebar({
 					onCreateNoteInsideProject={onCreateNoteInsideProject}
 					onNotePrefetch={onNotePrefetch}
 					onNoteSelect={model.handleNoteSelect}
+					onProjectSelect={model.handleProjectSelect}
 					onNoteTitleChange={onNoteTitleChange}
 					onNoteTrashed={onNoteTrashed}
 					projects={projects}
@@ -811,6 +860,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	onCreateNoteInsideProject,
 	onNotePrefetch,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	projects,
@@ -833,6 +883,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 	onCreateNoteInsideProject: (projectId: Id<"projects">) => void;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	projects: Array<Doc<"projects">> | undefined;
@@ -874,6 +925,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 				onAddAutomation={onAddAutomation}
 				onNotePrefetch={onNotePrefetch}
 				onNoteSelect={handleStarredNoteSelect}
+				onProjectSelect={onProjectSelect}
 				onNoteTitleChange={onNoteTitleChange}
 				onNoteTrashed={onNoteTrashed}
 			/>
@@ -915,6 +967,7 @@ const AppSidebarContentSection = React.memo(function AppSidebarContentSection({
 				autoRevealActiveNoteProject={autoRevealActiveNoteProject}
 				onPrefetchNote={onNotePrefetch}
 				onNoteSelect={handleProjectNoteSelect}
+				onProjectSelect={onProjectSelect}
 				onNoteTitleChange={onNoteTitleChange}
 				onNoteTrashed={onNoteTrashed}
 				onCreateNoteInsideProject={onCreateNoteInsideProject}

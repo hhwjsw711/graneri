@@ -10,6 +10,7 @@ export type AppView =
 	| "automation"
 	| "inbox"
 	| "shared"
+	| "project"
 	| "note"
 	| "notFound";
 
@@ -30,6 +31,7 @@ export type UpcomingCalendarEvent = {
 export type AppLocationState = {
 	view: AppView;
 	chatId: string | null;
+	projectIdString: string | null;
 	noteIdString: string | null;
 	noteCaptureRequestId: string | null;
 	shouldAutoStartNoteCapture: boolean;
@@ -41,6 +43,7 @@ export type AppLocationState = {
 		| "/chat"
 		| "/automations"
 		| "/inbox"
+		| "/project"
 		| "/shared"
 		| "/note"
 		| null;

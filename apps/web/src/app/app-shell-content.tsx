@@ -11,6 +11,7 @@ import type { UIMessage } from "ai";
 import * as React from "react";
 import type { AppUser, UpcomingCalendarEvent } from "@/app/app-types";
 import { HomeView, SharedView } from "@/app/home-shared-views";
+import { ProjectView } from "@/app/project-view";
 import type { AutomationListItem } from "@/components/automations/automation-types";
 import { AutomationsPageEntry } from "@/components/automations/automations-page-entry";
 import { ChatPageEntry } from "@/components/chat/chat-page-entry";
@@ -51,6 +52,12 @@ export type AppShellContentView =
 	| ({
 			kind: "shared";
 			sharedNotes: Array<Doc<"notes">> | undefined;
+	  } & NoteListViewProps)
+	| ({
+			kind: "project";
+			notes: Array<Doc<"notes">> | undefined;
+			project: Doc<"projects">;
+			onCreateNote: () => void;
 	  } & NoteListViewProps)
 	| {
 			kind: "automation";
@@ -164,6 +171,24 @@ export const AppShellContent = React.memo(function AppShellContent({
 					isDesktopMac={view.isDesktopMac}
 					onOpenNote={view.onOpenNote}
 					onNoteTrashed={view.onNoteTrashed}
+				/>
+			</ContentScrollArea>
+		);
+	}
+
+	if (view.kind === "project") {
+		return (
+			<ContentScrollArea variant="list">
+				<ProjectView
+					project={view.project}
+					notes={view.notes}
+					currentNoteId={view.currentNoteId}
+					currentNoteTitle={view.currentNoteTitle}
+					currentUser={view.user}
+					isDesktopMac={view.isDesktopMac}
+					onOpenNote={view.onOpenNote}
+					onNoteTrashed={view.onNoteTrashed}
+					onCreateNote={view.onCreateNote}
 				/>
 			</ContentScrollArea>
 		);

@@ -145,6 +145,7 @@ export function NavStarred({
 	onAddAutomation,
 	onNotePrefetch,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 }: {
@@ -163,6 +164,7 @@ export function NavStarred({
 	onAddAutomation?: (chatId: string) => void;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 }) {
@@ -276,6 +278,7 @@ export function NavStarred({
 					onChatSelect={onChatSelect}
 					onNotePrefetch={onNotePrefetch}
 					onNoteSelect={onNoteSelect}
+					onProjectSelect={onProjectSelect}
 					onNoteTitleChange={onNoteTitleChange}
 					onNoteTrashed={onNoteTrashed}
 					recordingNoteId={recordingNoteId}
@@ -322,6 +325,7 @@ function StarredItemRow({
 	onChatSelect,
 	onNotePrefetch,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	recordingNoteId,
@@ -339,6 +343,7 @@ function StarredItemRow({
 	onChatSelect: (chatId: string) => void;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	recordingNoteId: Id<"notes"> | null;
@@ -358,6 +363,7 @@ function StarredItemRow({
 				onChatSelect={onChatSelect}
 				onNotePrefetch={onNotePrefetch}
 				onNoteSelect={onNoteSelect}
+				onProjectSelect={onProjectSelect}
 				onNoteTitleChange={onNoteTitleChange}
 				onNoteTrashed={onNoteTrashed}
 				recordingNoteId={recordingNoteId}
@@ -380,6 +386,7 @@ function StarredItemRow({
 			onChatSelect={onChatSelect}
 			onNotePrefetch={onNotePrefetch}
 			onNoteSelect={onNoteSelect}
+			onProjectSelect={onProjectSelect}
 			onNoteTitleChange={onNoteTitleChange}
 			onNoteTrashed={onNoteTrashed}
 			recordingNoteId={recordingNoteId}
@@ -410,6 +417,7 @@ function StarredItemContent({
 	onChatSelect,
 	onNotePrefetch,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	recordingNoteId,
@@ -459,6 +467,7 @@ function StarredItemContent({
 			sortable={sortable}
 			onNotePrefetch={onNotePrefetch}
 			onNoteSelect={onNoteSelect}
+			onProjectSelect={onProjectSelect}
 			onNoteTitleChange={onNoteTitleChange}
 			onNoteTrashed={onNoteTrashed}
 		/>
@@ -547,6 +556,7 @@ function StarredProjectItem({
 	recordingNoteId,
 	onNotePrefetch,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	sortable,
@@ -559,6 +569,7 @@ function StarredProjectItem({
 	recordingNoteId: Id<"notes"> | null;
 	onNotePrefetch: (noteId: Id<"notes">) => void;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	sortable?: SidebarSortableBindings;
@@ -576,6 +587,7 @@ function StarredProjectItem({
 			recordingNoteId={recordingNoteId}
 			onPrefetchNote={onNotePrefetch}
 			onNoteSelect={onNoteSelect}
+			onProjectSelect={onProjectSelect}
 			onNoteTitleChange={onNoteTitleChange}
 			onNoteTrashed={onNoteTrashed}
 			onOpenChange={setOpen}

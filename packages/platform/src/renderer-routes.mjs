@@ -7,6 +7,7 @@ export const rendererRoutePrefixes = [
 	"/home",
 	"/inbox",
 	"/note",
+	"/project",
 	"/settings",
 	"/shared",
 ];

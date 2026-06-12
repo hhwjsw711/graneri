@@ -98,6 +98,7 @@ test("projects.reorder rejects oversized project lists instead of partially reor
 					ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 					workspaceId,
 					name: `Project ${index}`,
+					description: "",
 					normalizedName: `project ${index}`,
 					isStarred: false,
 					sortOrder: index,
@@ -189,6 +190,54 @@ test("projects.rename updates the project and preserves workspace uniqueness", a
 				expect(error).toBeInstanceOf(Error);
 				expect(String((error as { data?: string }).data)).toContain(
 					"PROJECT_ALREADY_EXISTS",
+				);
+				throw error;
+			}),
+	).rejects.toBeInstanceOf(Error);
+});
+
+test("projects.updateDescription stores descriptions up to 255 characters", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+
+	const project = await asOwner.mutation(api.projects.create, {
+		workspaceId,
+		name: "Product",
+	});
+	const description = "x".repeat(255);
+
+	const updated = await asOwner.mutation(api.projects.updateDescription, {
+		workspaceId,
+		id: project._id,
+		description,
+	});
+
+	expect(updated.description).toBe(description);
+
+	const projects = await asOwner.query(api.projects.list, {
+		workspaceId,
+	});
+	expect(projects[0]?.description).toBe(description);
+});
+
+test("projects.updateDescription rejects descriptions over 255 characters", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+
+	const project = await asOwner.mutation(api.projects.create, {
+		workspaceId,
+		name: "Product",
+	});
+
+	await expect(
+		asOwner
+			.mutation(api.projects.updateDescription, {
+				workspaceId,
+				id: project._id,
+				description: "x".repeat(256),
+			})
+			.catch((error) => {
+				expect(error).toBeInstanceOf(Error);
+				expect(String((error as { data?: string }).data)).toContain(
+					"INVALID_PROJECT_DESCRIPTION",
 				);
 				throw error;
 			}),

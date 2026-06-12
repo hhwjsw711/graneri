@@ -6,6 +6,7 @@ export const rendererRoutePrefixes: readonly [
 	"/home",
 	"/inbox",
 	"/note",
+	"/project",
 	"/settings",
 	"/shared",
 ];

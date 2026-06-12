@@ -15,6 +15,7 @@ const projectFields = {
 	ownerTokenIdentifier: v.string(),
 	workspaceId: v.id("workspaces"),
 	name: v.string(),
+	description: v.string(),
 	normalizedName: v.string(),
 	isStarred: v.boolean(),
 	sortOrder: v.number(),
@@ -28,6 +29,7 @@ const projectValidator = v.object(projectFields);
 const REMOVE_ALL_PROJECTS_BATCH_SIZE = 100;
 const REMOVE_PROJECT_NOTES_BATCH_SIZE = 100;
 const MAX_PROJECT_NAME_LENGTH = 48;
+const MAX_PROJECT_DESCRIPTION_LENGTH = 255;
 
 const requireIdentity = async (ctx: QueryCtx | MutationCtx) => {
 	const identity = await ctx.auth.getUserIdentity();
@@ -145,6 +147,15 @@ const validateProjectName = (name: string) => {
 		throw new ConvexError({
 			code: "INVALID_PROJECT_NAME",
 			message: `Project name must be ${MAX_PROJECT_NAME_LENGTH} characters or fewer.`,
+		});
+	}
+};
+
+const validateProjectDescription = (description: string) => {
+	if (description.length > MAX_PROJECT_DESCRIPTION_LENGTH) {
+		throw new ConvexError({
+			code: "INVALID_PROJECT_DESCRIPTION",
+			message: `Description cannot be longer than ${MAX_PROJECT_DESCRIPTION_LENGTH} characters.`,
 		});
 	}
 };
@@ -302,6 +313,7 @@ export const create = mutation({
 			ownerTokenIdentifier,
 			workspaceId: args.workspaceId,
 			name,
+			description: "",
 			normalizedName,
 			isStarred: false,
 			sortOrder: now,
@@ -412,10 +424,7 @@ export const rename = mutation({
 		validateProjectName(name);
 
 		const normalizedName = toNormalizedProjectKey(name);
-		if (
-			project.name === name &&
-			project.normalizedName === normalizedName
-		) {
+		if (project.name === name && project.normalizedName === normalizedName) {
 			return withProjectDefaults(project);
 		}
 
@@ -439,6 +448,38 @@ export const rename = mutation({
 		await ctx.db.patch(project._id, {
 			name,
 			normalizedName,
+			updatedAt: Date.now(),
+		});
+
+		const updatedProject = await ctx.db.get(project._id);
+		if (!updatedProject) {
+			throw new ConvexError({
+				code: "PROJECT_NOT_FOUND",
+				message: "Project not found.",
+			});
+		}
+
+		return withProjectDefaults(updatedProject);
+	},
+});
+
+export const updateDescription = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		id: v.id("projects"),
+		description: v.string(),
+	},
+	returns: projectValidator,
+	handler: async (ctx, args) => {
+		const project = await requireOwnedProject(ctx, args.id, args.workspaceId);
+		validateProjectDescription(args.description);
+
+		if (project.description === args.description) {
+			return withProjectDefaults(project);
+		}
+
+		await ctx.db.patch(project._id, {
+			description: args.description,
 			updatedAt: Date.now(),
 		});
 

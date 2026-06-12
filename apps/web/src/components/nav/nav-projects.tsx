@@ -52,16 +52,20 @@ import type { OptimisticLocalStore } from "convex/browser";
 import { useMutation } from "convex/react";
 import {
 	Archive,
+	ArrowUpAZ,
 	ChevronRight,
 	ChevronsDown,
 	ChevronsUp,
+	Clock3,
 	FileText,
 	Folder,
 	FolderOpen,
+	HandGrab,
 	LoaderCircle,
 	MoreHorizontal,
 	Pencil,
 	Plus,
+	PlusCircle,
 	Star,
 	StarOff,
 	Trash2,
@@ -73,6 +77,7 @@ import { NoteTitleEditInput } from "@/components/note/note-title-edit-input";
 import { ProjectComposer } from "@/components/projects/project-composer";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import { archiveNoteChats } from "@/lib/optimistic-note-chats";
+import { optimisticUpdateProjectList } from "@/lib/optimistic-projects";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import {
@@ -82,8 +87,8 @@ import {
 } from "./sidebar-collapsible-group";
 import { SidebarSortMenu } from "./sidebar-sort-menu";
 import {
-	getSidebarSortOptions,
 	SIDEBAR_HEADER_ACTION_ROW_CLASS_NAME,
+	type SidebarSortOption,
 } from "./sidebar-sort-options";
 import {
 	type SidebarSortableBindings,
@@ -141,8 +146,37 @@ const initialNavProjectsState: NavProjectsState = {
 	expandedProjectIds: [],
 	filtersOpen: false,
 	name: "",
-	sortBy: "name",
+	sortBy: "custom",
 };
+
+const getProjectSortOptions = (
+	selectedValue: ProjectListSort,
+): Array<SidebarSortOption<ProjectListSort>> => [
+	{
+		icon: HandGrab,
+		label: "Custom",
+		selected: selectedValue === "custom",
+		value: "custom",
+	},
+	{
+		icon: ArrowUpAZ,
+		label: "Name",
+		selected: selectedValue === "name",
+		value: "name",
+	},
+	{
+		icon: PlusCircle,
+		label: "Created",
+		selected: selectedValue === "created",
+		value: "created",
+	},
+	{
+		icon: Clock3,
+		label: "Updated",
+		selected: selectedValue === "updated",
+		value: "updated",
+	},
+];
 
 type NavProjectsProps = {
 	autoRevealActiveNoteProject?: boolean;
@@ -150,6 +184,7 @@ type NavProjectsProps = {
 	currentNoteTitle?: string;
 	notes: Array<Doc<"notes">> | undefined;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	onPrefetchNote: (noteId: Id<"notes">) => void;
@@ -164,6 +199,7 @@ type ProjectSidebarItemProps = {
 	currentNoteTitle?: string;
 	notes: Array<Doc<"notes">>;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	onOpenChange: (open: boolean) => void;
@@ -350,6 +386,7 @@ export function NavProjects({
 	workspaceId,
 	onPrefetchNote,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	onCreateNoteInsideProject,
@@ -584,6 +621,7 @@ export function NavProjects({
 						recordingNoteId={recordingNoteId}
 						visibleProjectIds={visibleProjectIds}
 						workspaceId={workspaceId}
+						onProjectSelect={onProjectSelect}
 					/>
 				)}
 			</SidebarCollapsibleGroup>
@@ -644,13 +682,11 @@ function ProjectsFilterMenu({
 	onOpenChange: (open: boolean) => void;
 	onSortChange: (value: ProjectListSort) => void;
 }) {
-	const selectedSortBy = sortBy === "custom" ? "updated" : sortBy;
-
 	return (
 		<SidebarSortMenu
 			label="Sort projects"
 			open={open}
-			options={getSidebarSortOptions(selectedSortBy)}
+			options={getProjectSortOptions(sortBy)}
 			onOpenChange={onOpenChange}
 			onSortChange={onSortChange}
 		/>
@@ -664,6 +700,7 @@ function ProjectSidebarList({
 	entries,
 	expandedProjectIdSet,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	onCreateNoteInsideProject,
@@ -680,6 +717,7 @@ function ProjectSidebarList({
 	entries: Array<ProjectWithNotes>;
 	expandedProjectIdSet: Set<Id<"projects">>;
 	onNoteSelect: (noteId: Id<"notes">) => void;
+	onProjectSelect: (projectId: Id<"projects">) => void;
 	onNoteTitleChange?: (title: string) => void;
 	onNoteTrashed?: (noteId: Id<"notes">) => void;
 	onCreateNoteInsideProject: (projectId: Id<"projects">) => void;
@@ -732,6 +770,7 @@ function ProjectSidebarList({
 						recordingNoteId={recordingNoteId}
 						onPrefetchNote={onPrefetchNote}
 						onNoteSelect={onNoteSelect}
+						onProjectSelect={onProjectSelect}
 						onNoteTitleChange={onNoteTitleChange}
 						onNoteTrashed={onNoteTrashed}
 						onOpenChange={(open) => onOpenChange(project._id, open)}
@@ -769,6 +808,7 @@ export function ProjectSidebarItem({
 	recordingNoteId,
 	onPrefetchNote,
 	onNoteSelect,
+	onProjectSelect,
 	onNoteTitleChange,
 	onNoteTrashed,
 	onOpenChange,
@@ -1006,6 +1046,7 @@ export function ProjectSidebarItem({
 							dispatch({ type: "setMenuOpen", value: nextOpen })
 						}
 						onToggleOpen={() => onOpenChange(!open)}
+						onSelectProject={() => onProjectSelect(project._id)}
 						onRenameOpenChange={handleRenameOpenChange}
 						onStartRename={handleStartRename}
 						onToggleStar={handleToggleStar}
@@ -1121,6 +1162,7 @@ function ProjectSidebarRow({
 	sortableButtonProps,
 	onMenuOpenChange,
 	onToggleOpen,
+	onSelectProject,
 	onRenameOpenChange,
 	onStartRename,
 	onToggleStar,
@@ -1145,6 +1187,7 @@ function ProjectSidebarRow({
 	sortableButtonProps?: React.HTMLAttributes<HTMLButtonElement>;
 	onMenuOpenChange: (open: boolean) => void;
 	onToggleOpen: () => void;
+	onSelectProject: () => void;
 	onRenameOpenChange: (open: boolean) => void;
 	onStartRename: () => void;
 	onToggleStar: () => void;
@@ -1162,11 +1205,25 @@ function ProjectSidebarRow({
 					<SidebarMenuButton
 						className="pr-14"
 						aria-expanded={isOpen}
-						onClick={onToggleOpen}
+						onClick={(event) => {
+							if (event.defaultPrevented) {
+								return;
+							}
+
+							onSelectProject();
+						}}
 						{...sortableButtonProps}
 					>
-						<span className="relative size-4 shrink-0">
-							<span className="absolute inset-0 flex items-center justify-center transition-opacity opacity-100 group-hover/menu-button:opacity-0">
+						<span
+							className="relative size-4 shrink-0"
+							aria-hidden="true"
+							onClick={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								onToggleOpen();
+							}}
+						>
+							<span className="absolute inset-0 flex items-center justify-center opacity-100 transition-opacity group-hover/menu-button:opacity-0">
 								{isOpen ? <FolderOpen /> : <Folder />}
 							</span>
 							<ChevronRight
@@ -1628,23 +1685,6 @@ const normalizeProjectName = (value: string) =>
 const toNormalizedProjectKey = (value: string) =>
 	normalizeProjectName(value).toLowerCase();
 
-function sortProjectsBySortOrder(
-	projects: Array<Doc<"projects"> & { isStarred?: boolean }>,
-) {
-	return projects
-		.map((project) => ({
-			...project,
-			isStarred: project.isStarred ?? false,
-		}))
-		.sort((left, right) => {
-			if (left.sortOrder !== right.sortOrder) {
-				return left.sortOrder - right.sortOrder;
-			}
-
-			return left._creationTime - right._creationTime;
-		});
-}
-
 function sortProjectEntries(
 	entries: Array<ProjectWithNotes>,
 	sortBy: ProjectListSort,
@@ -1705,23 +1745,6 @@ function compareProjectsByName(
 	}
 
 	return leftProject._creationTime - rightProject._creationTime;
-}
-
-function optimisticUpdateProjectList(
-	localStore: OptimisticLocalStore,
-	workspaceId: Id<"workspaces">,
-	updateProjects: (projects: Array<Doc<"projects">>) => Array<Doc<"projects">>,
-) {
-	const projects = localStore.getQuery(api.projects.list, { workspaceId });
-	if (projects === undefined) {
-		return;
-	}
-
-	localStore.setQuery(
-		api.projects.list,
-		{ workspaceId },
-		sortProjectsBySortOrder(updateProjects(projects)),
-	);
 }
 
 function optimisticClearProjectFromNotes(

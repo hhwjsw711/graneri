@@ -379,6 +379,7 @@ test("notes.setProject assigns and clears a project without dropping note metada
 			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
 			workspaceId,
 			name: "Product",
+			description: "",
 			normalizedName: "product",
 			isStarred: false,
 			sortOrder: 3_000,

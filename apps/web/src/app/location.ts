@@ -103,6 +103,12 @@ const getChatIdFromUrl = (url: URL) => {
 	return nextValue ? nextValue : null;
 };
 
+const getProjectIdStringFromUrl = (url: URL) => {
+	const nextValue = url.searchParams.get("projectId")?.trim();
+
+	return nextValue ? nextValue : null;
+};
+
 export function getThemeFireworkColors() {
 	if (typeof window === "undefined") {
 		return ["#afabff", "#8f88ff", "#7166ff", "#564dff", "#4138d9"];
@@ -368,6 +374,7 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 	const pathname = normalizePathname(url.pathname);
 	const noteIdString = getNoteIdStringFromUrl(url);
 	const chatId = getChatIdFromUrl(url);
+	const projectIdString = getProjectIdStringFromUrl(url);
 	const hashView =
 		pathname === "/" || pathname === "/home"
 			? url.hash === "#note"
@@ -380,7 +387,9 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 							? "inbox"
 							: url.hash === "#shared"
 								? "shared"
-								: null
+								: url.hash === "#project"
+									? "project"
+									: null
 			: null;
 	const pathView =
 		pathname === "/"
@@ -397,13 +406,16 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 								? "inbox"
 								: pathname === "/shared"
 									? "shared"
-									: null;
+									: pathname === "/project"
+										? "project"
+										: null;
 	const view = hashView ?? pathView;
 
 	if (view === null) {
 		return {
 			view: "notFound",
 			chatId: null,
+			projectIdString: null,
 			noteIdString: null,
 			noteCaptureRequestId: null,
 			shouldAutoStartNoteCapture: false,
@@ -435,6 +447,7 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 	return {
 		view,
 		chatId: view === "chat" ? chatId : null,
+		projectIdString: view === "project" ? projectIdString : null,
 		noteIdString: view === "note" ? noteIdString : null,
 		noteCaptureRequestId,
 		shouldAutoStartNoteCapture,
@@ -452,7 +465,9 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 							? "/inbox"
 							: view === "shared"
 								? "/shared"
-								: "/note",
+								: view === "project"
+									? "/project"
+									: "/note",
 		canonicalSearch:
 			view === "note"
 				? createNoteSearch({
@@ -465,7 +480,9 @@ export const getAppLocationState = (url: URL): AppLocationState => {
 					})
 				: view === "chat" && chatId
 					? `?chatId=${encodeURIComponent(chatId)}`
-					: "",
+					: view === "project" && projectIdString
+						? `?projectId=${encodeURIComponent(projectIdString)}`
+						: "",
 	};
 };
 

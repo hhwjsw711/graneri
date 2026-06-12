@@ -200,6 +200,7 @@ export default defineSchema({
 		ownerTokenIdentifier: v.string(),
 		workspaceId: v.id("workspaces"),
 		name: v.string(),
+		description: v.string(),
 		normalizedName: v.string(),
 		isStarred: v.optional(v.boolean()),
 		sortOrder: v.number(),

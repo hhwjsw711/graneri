@@ -15,6 +15,7 @@ test("renderer route manifest includes desktop and web app routes", () => {
 		"/home",
 		"/inbox",
 		"/note",
+		"/project",
 		"/settings",
 		"/shared",
 	]);
@@ -27,6 +28,7 @@ test("renderer route predicate accepts app routes and rejects assets", () => {
 		"/chat",
 		"/chat/thread",
 		"/desktop/meeting-widget",
+		"/project",
 		"/settings/profile",
 		"/shared/note",
 	]) {

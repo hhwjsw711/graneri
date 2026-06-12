@@ -259,6 +259,15 @@ const useAppShellState = ({
 			return getAppLocationState(new URL(window.location.href)).chatId;
 		},
 	);
+	const [currentProjectIdString, setCurrentProjectIdString] = React.useState<
+		string | null
+	>(() => {
+		if (typeof window === "undefined") {
+			return null;
+		}
+
+		return getAppLocationState(new URL(window.location.href)).projectIdString;
+	});
 	const [draftChatComposerId, setDraftChatComposerId] = React.useState(() =>
 		crypto.randomUUID(),
 	);
@@ -368,6 +377,7 @@ const useAppShellState = ({
 			inboxOpen: boolean;
 			noteCaptureRequestId: string | null;
 			noteIdString: string | null;
+			projectIdString: string | null;
 			pendingCalendarEvent: UpcomingCalendarEvent | null;
 			scheduledAutoStartNoteCaptureAt: string | null;
 			settingsOpen: boolean;
@@ -379,6 +389,9 @@ const useAppShellState = ({
 			setInboxOpen(input.inboxOpen);
 			setCurrentView(input.view);
 			setCurrentChatId(input.chatId);
+			setCurrentProjectIdString(
+				input.view === "project" ? input.projectIdString : null,
+			);
 			setCurrentNoteId(null);
 			setCurrentRouteNoteId(input.view === "note" ? input.noteIdString : null);
 			setNoteCaptureRequestId(input.noteCaptureRequestId);
@@ -477,6 +490,12 @@ const useAppShellState = ({
 			? { workspaceId: resolvedActiveWorkspaceId }
 			: "skip",
 	);
+	const projects = useQuery(
+		api.projects.list,
+		resolvedActiveWorkspaceId
+			? { workspaceId: resolvedActiveWorkspaceId }
+			: "skip",
+	);
 	const notes = useQuery(
 		api.notes.list,
 		resolvedActiveWorkspaceId
@@ -543,8 +562,20 @@ const useAppShellState = ({
 		currentView === "note" &&
 		resolvedCurrentNoteId !== null &&
 		resolvedSelectedNote === null;
+	const selectedProject =
+		currentView === "project" && currentProjectIdString
+			? (projects?.find((project) => project._id === currentProjectIdString) ??
+				(projects === undefined ? undefined : null))
+			: undefined;
+	const hasMissingCurrentProject =
+		currentView === "project" &&
+		(currentProjectIdString === null ||
+			selectedProject === undefined ||
+			selectedProject === null);
 	const resolvedCurrentView =
-		hasInvalidCurrentNoteRoute || hasMissingCurrentNote
+		hasInvalidCurrentNoteRoute ||
+		hasMissingCurrentNote ||
+		hasMissingCurrentProject
 			? "notFound"
 			: currentView;
 
@@ -741,6 +772,7 @@ const useAppShellState = ({
 				inboxOpen: nextInboxOpen,
 				noteCaptureRequestId: nextNoteCaptureRequestId,
 				noteIdString: nextNoteIdString,
+				projectIdString: nextLocationState.projectIdString,
 				pendingCalendarEvent: nextLocationState.pendingCalendarEvent,
 				scheduledAutoStartNoteCaptureAt: nextScheduledAutoStartNoteCaptureAt,
 				settingsOpen: nextSettingsOpen,
@@ -878,6 +910,27 @@ const useAppShellState = ({
 					null,
 					"",
 					`/chat?chatId=${encodeURIComponent(chatId)}`,
+				);
+			});
+		},
+		[shouldKeepPinnedInboxOpen],
+	);
+
+	const openProject = React.useCallback(
+		(projectId: Id<"projects">) => {
+			React.startTransition(() => {
+				setInboxOpen(shouldKeepPinnedInboxOpen());
+				setCurrentView("project");
+				setSettingsOpen(false);
+				setCurrentProjectIdString(projectId);
+				setAutomationDialogOpen(false);
+				setEditingAutomationId(null);
+				setCurrentNoteEditorActions(null);
+				setCurrentNoteCommentsOpener(null);
+				window.history.pushState(
+					null,
+					"",
+					`/project?projectId=${encodeURIComponent(projectId)}`,
 				);
 			});
 		},
@@ -1113,10 +1166,17 @@ const useAppShellState = ({
 						? "/automations"
 						: view === "shared"
 							? "/shared"
-							: "/home",
+							: view === "project" && currentProjectIdString
+								? `/project?projectId=${encodeURIComponent(currentProjectIdString)}`
+								: "/home",
 			);
 		},
-		[openDraftChat, resolvedCurrentNoteId, shouldKeepPinnedInboxOpen],
+		[
+			currentProjectIdString,
+			openDraftChat,
+			resolvedCurrentNoteId,
+			shouldKeepPinnedInboxOpen,
+		],
 	);
 
 	const handleInboxOpenChange = React.useCallback((open: boolean) => {
@@ -1602,7 +1662,9 @@ const useAppShellState = ({
 					? getNoteDisplayTitle(currentNoteTitle)
 					: resolvedCurrentView === "chat" && currentChatId
 						? currentChatTitle
-						: null,
+						: resolvedCurrentView === "project"
+							? (selectedProject?.name ?? null)
+							: null,
 		breadcrumbSectionLabel:
 			resolvedCurrentView === "notFound"
 				? "Page Not Found"
@@ -1610,9 +1672,11 @@ const useAppShellState = ({
 					? getSidebarViewTitle("chat")
 					: resolvedCurrentView === "automation"
 						? getSidebarViewTitle("automation")
-						: resolvedCurrentView === "shared" || isSharedNote
-							? getSidebarViewTitle("shared")
-							: getSidebarViewTitle("home"),
+						: resolvedCurrentView === "project"
+							? "Projects"
+							: resolvedCurrentView === "shared" || isSharedNote
+								? getSidebarViewTitle("shared")
+								: getSidebarViewTitle("home"),
 		chats,
 		activeStreamingChatIds,
 		chatComposerId,
@@ -1648,6 +1712,11 @@ const useAppShellState = ({
 				return;
 			}
 
+			if (resolvedCurrentView === "project") {
+				handleViewChange("home");
+				return;
+			}
+
 			handleViewChange(
 				resolvedCurrentView === "shared" || isSharedNote ? "shared" : "home",
 			);
@@ -1669,6 +1738,7 @@ const useAppShellState = ({
 		handleOpenCalendarEventNote,
 		handleOpenCalendarSettings,
 		handleOpenChat,
+		openProject,
 		handlePrefetchChat,
 		handlePrefetchNote,
 		handleQuickNote,
@@ -1691,6 +1761,8 @@ const useAppShellState = ({
 		isSharedNote,
 		isSigningOut,
 		notes,
+		projects,
+		selectedProject,
 		openNote,
 		selectedNote: resolvedSelectedNote,
 		settingsOpen,
@@ -2661,6 +2733,31 @@ function createAppShellContentView({
 		};
 	}
 
+	if (controller.currentView === "project") {
+		const project = controller.selectedProject;
+		if (!project) {
+			return {
+				kind: "notFound",
+				onGoHome: handleGoHome,
+			};
+		}
+
+		return {
+			kind: "project",
+			isDesktopMac: controller.isDesktopMac,
+			project,
+			notes: controller.notes,
+			currentNoteId: controller.currentNoteId,
+			currentNoteTitle: controller.currentNoteTitle,
+			user: controller.user,
+			onOpenNote: controller.openNote,
+			onNoteTrashed: controller.handleNoteTrashed,
+			onCreateNote: () => {
+				controller.handleCreateNoteInsideProject(project._id);
+			},
+		};
+	}
+
 	if (controller.currentView === "automation") {
 		return {
 			kind: "automation",
@@ -2781,6 +2878,7 @@ export function AuthenticatedAppShell({
 					onAddAutomation={controller.handleCreateChatAutomationOpen}
 					onNotePrefetch={controller.handlePrefetchNote}
 					onNoteSelect={controller.openNote}
+					onProjectSelect={controller.openProject}
 					onNoteTitleChange={controller.setCurrentNoteTitle}
 					onNoteTrashed={controller.handleNoteTrashed}
 					onCreateNote={controller.handleQuickNote}
