@@ -1,13 +1,10 @@
-import { execFile, spawn } from "node:child_process";
-import { createInterface } from "node:readline";
-import { promisify } from "node:util";
-import { BrowserWindow, clipboard, screen } from "electron";
+import { BrowserWindow, screen } from "electron";
 import { transcribeDictationAudio } from "../../../packages/ai/src/dictation-transcription.mjs";
 import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
+import { createDictationAudioBuffer } from "./dictation-audio-buffer.mjs";
+import { pasteTextToFocusedInput } from "./dictation-paste.mjs";
+import { createGlobalDictationHotkeyMonitor } from "./global-dictation-hotkey-monitor.mjs";
 
-const execFileAsync = promisify(execFile);
-const maxDictationPcmBytes = 25_000_000;
-const pasteRestoreDelayMs = 400;
 const idleOverlayStatus = {
 	status: "idle",
 };
@@ -28,44 +25,6 @@ export const resolveGlobalDictationHotkeyHelperPath = ({ runtimeDir }) =>
 		executableName: "graneri-global-dictation-hotkey-helper",
 		runtimeDir,
 	});
-
-const createWavBuffer = ({ pcm16, sampleRate }) => {
-	const header = Buffer.alloc(44);
-	const byteRate = sampleRate * 2;
-	const blockAlign = 2;
-
-	header.write("RIFF", 0);
-	header.writeUInt32LE(36 + pcm16.byteLength, 4);
-	header.write("WAVE", 8);
-	header.write("fmt ", 12);
-	header.writeUInt32LE(16, 16);
-	header.writeUInt16LE(1, 20);
-	header.writeUInt16LE(1, 22);
-	header.writeUInt32LE(sampleRate, 24);
-	header.writeUInt32LE(byteRate, 28);
-	header.writeUInt16LE(blockAlign, 32);
-	header.writeUInt16LE(16, 34);
-	header.write("data", 36);
-	header.writeUInt32LE(pcm16.byteLength, 40);
-
-	return Buffer.concat([header, pcm16]);
-};
-
-const pasteTextToFocusedInput = async (text) => {
-	const previousText = clipboard.readText();
-
-	clipboard.writeText(text);
-	await execFileAsync("osascript", [
-		"-e",
-		'tell application "System Events" to keystroke "v" using command down',
-	]);
-
-	setTimeout(() => {
-		if (clipboard.readText() === text) {
-			clipboard.writeText(previousText);
-		}
-	}, pasteRestoreDelayMs);
-};
 
 const createOverlayHtml = () => `<!doctype html>
 <html>
@@ -145,6 +104,7 @@ const createOverlayHtml = () => `<!doctype html>
 				display: inline-flex;
 				align-items: center;
 				justify-content: center;
+				gap: 4px;
 				height: 18px;
 				min-width: 28px;
 				padding: 0 6px;
@@ -384,7 +344,7 @@ const createOverlayHtml = () => `<!doctype html>
 	<body data-status="idle">
 		<div class="hint">
 			<span>Hold</span>
-			<span class="kbd">⌘M</span>
+			<span class="kbd"><span>⌘</span><span>M</span></span>
 			<span>to dictate</span>
 		</div>
 		<div class="dictation-target">
@@ -605,7 +565,7 @@ export const createGlobalDictation = ({
 	stopMicrophoneCapture,
 	subscribeToCaptureEvents,
 }) => {
-	let helperSession = null;
+	let hotkeyMonitor = null;
 	let dictationSession = null;
 	let operationId = 0;
 	let retryLastDictation = null;
@@ -666,16 +626,12 @@ export const createGlobalDictation = ({
 			console.error("[dictation] failed to stop microphone capture", error);
 		});
 
-		const pcm16 = Buffer.concat(session.chunks);
-		if (pcm16.byteLength === 0) {
+		if (session.audio.getByteLength() === 0) {
 			void overlay.show(idleOverlayStatus);
 			return;
 		}
 
-		const wav = createWavBuffer({
-			pcm16,
-			sampleRate: session.sampleRate,
-		});
+		const wav = session.audio.createWav();
 		retryLastDictation = async () => {
 			try {
 				await transcribeAndPasteWav(wav);
@@ -700,10 +656,9 @@ export const createGlobalDictation = ({
 
 		const currentOperationId = ++operationId;
 		const session = {
-			chunks: [],
+			audio: createDictationAudioBuffer(),
 			disposeCaptureEvents: null,
 			isStopping: false,
-			sampleRate: 48_000,
 		};
 		dictationSession = session;
 		void overlay.show({
@@ -718,16 +673,7 @@ export const createGlobalDictation = ({
 				}
 
 				if (event.type === "chunk" && typeof event.pcm16 === "string") {
-					const chunk = Buffer.from(event.pcm16, "base64");
-					const nextByteLength =
-						session.chunks.reduce(
-							(total, current) => total + current.byteLength,
-							0,
-						) + chunk.byteLength;
-
-					if (nextByteLength <= maxDictationPcmBytes) {
-						session.chunks.push(chunk);
-					}
+					session.audio.appendBase64Pcm16(event.pcm16);
 					return;
 				}
 
@@ -745,7 +691,7 @@ export const createGlobalDictation = ({
 				return;
 			}
 
-			session.sampleRate = Number(capture?.sampleRate) || 48_000;
+			session.audio.setSampleRate(capture?.sampleRate);
 		} catch (error) {
 			session.disposeCaptureEvents?.();
 			if (dictationSession === session) {
@@ -779,7 +725,7 @@ export const createGlobalDictation = ({
 			return;
 		}
 
-		if (helperSession) {
+		if (hotkeyMonitor) {
 			return;
 		}
 
@@ -789,55 +735,26 @@ export const createGlobalDictation = ({
 			return;
 		}
 
-		const child = spawn(helperPath, [], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const lineReader = createInterface({
-			input: child.stdout,
-			crlfDelay: Infinity,
-		});
-
-		helperSession = {
-			lineReader,
-			process: child,
-		};
-		void overlay.show(idleOverlayStatus);
-
-		child.stderr.setEncoding("utf8");
-		child.stderr.on("data", (chunk) => {
-			const message = String(chunk).trim();
-			if (message) {
+		hotkeyMonitor = createGlobalDictationHotkeyMonitor({
+			helperPath,
+			onEvent: handleHotkeyEvent,
+			onExit: ({ code, signal }) => {
+				console.info("[dictation] hotkey helper exited", { code, signal });
+				hotkeyMonitor = null;
+				void stopCurrentRecording();
+			},
+			onLog: (message) => {
 				console.error("[dictation-hotkey-helper]", message);
-			}
+			},
 		});
-		lineReader.on("line", (line) => {
-			try {
-				handleHotkeyEvent(JSON.parse(line));
-			} catch (error) {
-				console.error("[dictation] failed to parse hotkey event", error);
-			}
-		});
-		child.on("exit", (code, signal) => {
-			console.info("[dictation] hotkey helper exited", { code, signal });
-			lineReader.close();
-			helperSession = null;
-			void stopCurrentRecording();
-		});
-		child.on("error", (error) => {
-			console.error("[dictation] hotkey helper process error", error);
-			lineReader.close();
-			helperSession = null;
-		});
+		void overlay.show(idleOverlayStatus);
 	};
 
 	const stop = async () => {
-		const session = helperSession;
-		helperSession = null;
+		const monitor = hotkeyMonitor;
+		hotkeyMonitor = null;
 
-		if (session) {
-			session.lineReader.close();
-			session.process.kill("SIGTERM");
-		}
+		monitor?.close();
 
 		await stopCurrentRecording();
 		overlay.destroy();
