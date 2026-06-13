@@ -36,6 +36,7 @@ import {
 	createDesktopNavigationState,
 	getDefaultDesktopNavigation,
 } from "./desktop-navigation-state.mjs";
+import { createDesktopPreferencesStore } from "./desktop-preferences.mjs";
 import { createDesktopRealtimeTransport } from "./desktop-realtime-transport.mjs";
 import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
@@ -49,6 +50,7 @@ import {
 	rendererSessionPartition,
 } from "./desktop-window.mjs";
 import { loadRootEnv } from "./env.mjs";
+import { createGlobalDictation } from "./global-dictation.mjs";
 import { startLocalServer } from "./local-server.mjs";
 import { createMeetingDetection } from "./meeting-detection.mjs";
 import { createNativeAudioCapture } from "./native-audio-capture.mjs";
@@ -76,6 +78,10 @@ const appUpdateConfigPath = join(process.resourcesPath, "app-update.yml");
 const trayIconPath = join(runtimeDir, "assets", "GraneriTemplate.png");
 const dockIconPath = join(runtimeDir, "assets", "GraneriDock.png");
 const traySettingsPath = join(app.getPath("userData"), "tray-settings.json");
+const desktopPreferencesPath = join(
+	app.getPath("userData"),
+	"desktop-preferences.json",
+);
 const lastNavigationPath = join(
 	app.getPath("userData"),
 	"last-navigation.json",
@@ -211,6 +217,9 @@ let isPromptingForQuitConfirmation = false;
 let activeWorkspaceId = null;
 let activeWorkspaceNotificationPreferences =
 	createInitialNotificationPreferences();
+const desktopPreferencesStore = createDesktopPreferencesStore({
+	filePath: desktopPreferencesPath,
+});
 const desktopStorage = createDesktopStorage({
 	noteDraftsDirPath,
 	transcriptDraftsDirPath,
@@ -427,6 +436,14 @@ const startMicrophoneCapture = nativeAudioCapture.startMicrophoneCapture;
 const startSystemAudioCapture = nativeAudioCapture.startSystemAudioCapture;
 const stopMicrophoneCapture = nativeAudioCapture.stopMicrophoneCapture;
 const stopSystemAudioCapture = nativeAudioCapture.stopSystemAudioCapture;
+const globalDictation = createGlobalDictation({
+	isKeepBarVisibleEnabled: () =>
+		desktopPreferencesStore.get().keepDictationBarVisible === true,
+	runtimeDir,
+	startMicrophoneCapture,
+	stopMicrophoneCapture,
+	subscribeToCaptureEvents,
+});
 let meetingDetection = null;
 const getMeetingDetectionState = () =>
 	requireDesktopService(
@@ -2192,6 +2209,7 @@ const getPermissionsStatus = () => ({
 });
 
 const getDesktopPreferences = () => {
+	const desktopAppPreferences = desktopPreferencesStore.get();
 	const canLaunchAtLogin =
 		app.isPackaged === true &&
 		(process.platform === "darwin" || process.platform === "win32");
@@ -2200,12 +2218,14 @@ const getDesktopPreferences = () => {
 		return {
 			launchAtLogin: false,
 			canLaunchAtLogin: false,
+			keepDictationBarVisible: desktopAppPreferences.keepDictationBarVisible,
 		};
 	}
 
 	return {
 		launchAtLogin: app.getLoginItemSettings().openAtLogin === true,
 		canLaunchAtLogin: true,
+		keepDictationBarVisible: desktopAppPreferences.keepDictationBarVisible,
 	};
 };
 
@@ -2224,6 +2244,18 @@ const setLaunchAtLogin = async (enabled) => {
 		openAtLogin: enabled,
 	});
 
+	return getDesktopPreferences();
+};
+
+const setKeepDictationBarVisible = async (enabled) => {
+	if (typeof enabled !== "boolean") {
+		throw new Error("Keep dictation bar visible must be a boolean.");
+	}
+
+	await desktopPreferencesStore.set({
+		keepDictationBarVisible: enabled,
+	});
+	globalDictation.refreshVisibility();
 	return getDesktopPreferences();
 };
 
@@ -2514,6 +2546,13 @@ ipcMain.handle("app:open-sound-settings", async () => {
 ipcMain.handle("app:set-launch-at-login", async (_event, enabled) => {
 	return await setLaunchAtLogin(enabled);
 });
+
+ipcMain.handle(
+	"app:set-keep-dictation-bar-visible",
+	async (_event, enabled) => {
+		return await setKeepDictationBarVisible(enabled);
+	},
+);
 
 ipcMain.handle("app:start-system-audio-capture", async () => {
 	return await startSystemAudioCapture();
@@ -2945,6 +2984,7 @@ createDesktopBootOrchestrator({
 			desktopNavigationState,
 			"desktopNavigationState",
 		).load(),
+	loadDesktopPreferences: desktopPreferencesStore.load,
 	loadTraySettings: () =>
 		requireDesktopService(desktopTray, "desktopTray").loadSettings(),
 	markQuitting: () => {
@@ -2959,8 +2999,10 @@ createDesktopBootOrchestrator({
 	rendererDistDir,
 	setTrayStatusLabel,
 	showMainWindow,
+	startGlobalDictation: () => globalDictation.start(),
 	startMeetingDetectionMonitors,
 	stopDesktopTranscriptionSession,
+	stopGlobalDictation: () => globalDictation.stop(),
 	stopMeetingDetectionMonitors,
 	stopMicrophoneCapture,
 	stopRealtimeTransport: (speaker) => desktopRealtimeTransport.stop(speaker),

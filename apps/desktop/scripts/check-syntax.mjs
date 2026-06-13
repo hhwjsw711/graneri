@@ -18,6 +18,7 @@ const files = [
 	"src/network.mjs",
 	"src/runtime-config.mjs",
 	"src/env.mjs",
+	"src/global-dictation.mjs",
 	"src/preload-api.cjs",
 	"src/preload.cjs",
 	"tests/desktop-storage.test.mjs",

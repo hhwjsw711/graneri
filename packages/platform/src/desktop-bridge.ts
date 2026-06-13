@@ -36,6 +36,7 @@ export interface DesktopPermissionsStatus {
 export interface DesktopPreferences {
 	launchAtLogin: boolean;
 	canLaunchAtLogin: boolean;
+	keepDictationBarVisible: boolean;
 }
 
 export type DesktopThemeSource = "dark" | "light" | "system";
@@ -237,6 +238,7 @@ export interface GraneriDesktopBridge {
 	) => Promise<{ ok: boolean }>;
 	openSoundSettings: () => Promise<{ ok: boolean }>;
 	setLaunchAtLogin: (enabled: boolean) => Promise<DesktopPreferences>;
+	setKeepDictationBarVisible: (enabled: boolean) => Promise<DesktopPreferences>;
 	getTranscriptionSessionState: () => Promise<DesktopTranscriptionControllerState>;
 	getMeetingDetectionState: () => Promise<DesktopMeetingDetectionState>;
 	configureTranscriptionSession: (options: {

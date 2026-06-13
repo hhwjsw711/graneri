@@ -151,6 +151,16 @@ export const setDesktopLaunchAtLogin = async (enabled: boolean) => {
 	return await bridge.setLaunchAtLogin(enabled);
 };
 
+export const setDesktopKeepDictationBarVisible = async (enabled: boolean) => {
+	const bridge = getDesktopBridge();
+
+	if (!bridge?.setKeepDictationBarVisible) {
+		return null;
+	}
+
+	return await bridge.setKeepDictationBarVisible(enabled);
+};
+
 export const setDesktopActiveWorkspaceId = async (
 	workspaceId: string | null,
 ) => {

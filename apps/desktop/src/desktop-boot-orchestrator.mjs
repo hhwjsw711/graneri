@@ -22,6 +22,7 @@ export const createDesktopBootOrchestrator = ({
 	isMeetingWidgetVisible,
 	isUpdaterAvailable,
 	loadDesktopNavigationState,
+	loadDesktopPreferences = async () => {},
 	loadTraySettings,
 	markQuitting,
 	powerMonitor,
@@ -34,8 +35,10 @@ export const createDesktopBootOrchestrator = ({
 	rendererDistDir,
 	setTrayStatusLabel,
 	showMainWindow,
+	startGlobalDictation = () => {},
 	startMeetingDetectionMonitors,
 	stopDesktopTranscriptionSession,
+	stopGlobalDictation = async () => {},
 	stopMeetingDetectionMonitors,
 	stopMicrophoneCapture,
 	stopRealtimeTransport,
@@ -44,6 +47,7 @@ export const createDesktopBootOrchestrator = ({
 	const stopDesktopRuntime = async () => {
 		await stopRealtimeTransport("you");
 		await stopRealtimeTransport("them");
+		await stopGlobalDictation();
 		await stopMeetingDetectionMonitors();
 		await stopMicrophoneCapture();
 		await stopSystemAudioCapture();
@@ -73,6 +77,7 @@ export const createDesktopBootOrchestrator = ({
 
 			applyDockIcon();
 
+			await loadDesktopPreferences();
 			await loadTraySettings();
 			await loadDesktopNavigationState();
 			await ensureLocalServer();
@@ -80,6 +85,7 @@ export const createDesktopBootOrchestrator = ({
 			createTray();
 			void refreshTrayCalendar();
 			configureUpdater();
+			startGlobalDictation();
 			void startMeetingDetectionMonitors().catch((error) => {
 				console.error("Failed to start meeting detection", error);
 			});

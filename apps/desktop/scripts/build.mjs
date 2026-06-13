@@ -140,6 +140,7 @@ const copyNativeRuntimeTools = async () => {
 		"graneri-microphone-helper",
 		"graneri-microphone-activity-helper",
 		"graneri-meeting-window-helper",
+		"graneri-global-dictation-hotkey-helper",
 	]) {
 		await cp(
 			resolve(packageRoot, ".generated", "system-audio", helperName),

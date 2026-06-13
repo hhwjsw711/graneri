@@ -1,4 +1,5 @@
 export const TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
+export const DICTATION_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 export const AUDIO_TRANSCRIPTION_SAMPLE_RATE = 24_000;
 
 export const REALTIME_TRANSCRIPTION_INCLUDE_FIELDS = [

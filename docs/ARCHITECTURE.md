@@ -113,6 +113,12 @@ On macOS, live transcription must use the desktop transcription controller. It
 must not silently fall back to the browser transcription controller when the
 packaged desktop bridge is missing or stale.
 
+Global dictation is a desktop-native capability, not a renderer textarea
+feature. The desktop runtime owns the global hotkey monitor, microphone capture,
+buffered AI SDK transcription, and system paste into the focused app. Renderer
+code must not duplicate dictation capture or expose route-level fallbacks for
+this path.
+
 Desktop realtime transcription is a long-lived native capture session. Starting
 the microphone transport must schedule the realtime session rollover, and
 stopping a transport must only commit the OpenAI input audio buffer when there

@@ -4,6 +4,7 @@ import {
 	isDesktopRuntime,
 	openDesktopExternalUrl,
 	refreshDesktopTrayCalendar,
+	setDesktopKeepDictationBarVisible,
 	setDesktopLaunchAtLogin,
 } from "@workspace/platform/desktop";
 import type { DesktopPreferences } from "@workspace/platform/desktop-bridge";
@@ -361,7 +362,7 @@ type YandexCalendarConnectionFormState = {
 type PreferencesSettingsState = {
 	preferences: DesktopPreferences | null;
 	isLoadingPreferences: boolean;
-	isSavingLaunchAtLogin: boolean;
+	savingPreference: keyof DesktopPreferences | null;
 };
 
 type PreferencesSettingsAction =
@@ -373,15 +374,16 @@ type PreferencesSettingsAction =
 			type: "finishLoading";
 	  }
 	| {
-			type: "setIsSavingLaunchAtLogin";
-			value: boolean;
+			type: "setSavingPreference";
+			value: keyof DesktopPreferences | null;
 	  }
 	| {
 			type: "setPreferences";
 			value: DesktopPreferences | null;
 	  }
 	| {
-			type: "setLaunchAtLoginOptimistic";
+			key: keyof DesktopPreferences;
+			type: "setPreferenceOptimistic";
 			value: boolean;
 	  };
 
@@ -827,7 +829,7 @@ const initialZoomConnectionFormState: ZoomConnectionFormState = {
 const getInitialPreferencesSettingsState = (): PreferencesSettingsState => ({
 	preferences: null,
 	isLoadingPreferences: isDesktopRuntime(),
-	isSavingLaunchAtLogin: false,
+	savingPreference: null,
 });
 
 const initialCalendarSettingsState: CalendarSettingsState = {
@@ -878,17 +880,17 @@ const preferencesSettingsReducer = (
 			};
 		case "finishLoading":
 			return { ...state, isLoadingPreferences: false };
-		case "setIsSavingLaunchAtLogin":
-			return { ...state, isSavingLaunchAtLogin: action.value };
+		case "setSavingPreference":
+			return { ...state, savingPreference: action.value };
 		case "setPreferences":
 			return { ...state, preferences: action.value };
-		case "setLaunchAtLoginOptimistic":
+		case "setPreferenceOptimistic":
 			return state.preferences
 				? {
 						...state,
 						preferences: {
 							...state.preferences,
-							launchAtLogin: action.value,
+							[action.key]: action.value,
 						},
 					}
 				: state;
@@ -1321,7 +1323,7 @@ function PreferencesSettings() {
 		preferencesSettingsReducer,
 		getInitialPreferencesSettingsState(),
 	);
-	const { preferences, isLoadingPreferences, isSavingLaunchAtLogin } = state;
+	const { preferences, isLoadingPreferences, savingPreference } = state;
 
 	useEffect(() => {
 		if (!isDesktopRuntime()) {
@@ -1356,27 +1358,32 @@ function PreferencesSettings() {
 		};
 	}, []);
 
-	const handleLaunchAtLoginChange = async (checked: boolean) => {
+	const savePreference = async (
+		key: "keepDictationBarVisible" | "launchAtLogin",
+		value: boolean,
+		save: (value: boolean) => Promise<DesktopPreferences | null>,
+		errorMessage: string,
+	) => {
 		if (!isDesktopRuntime()) {
 			return;
 		}
 
 		const previousPreferences = preferences;
-		dispatch({ type: "setIsSavingLaunchAtLogin", value: true });
-		dispatch({ type: "setLaunchAtLoginOptimistic", value: checked });
+		dispatch({ type: "setSavingPreference", value: key });
+		dispatch({ key, type: "setPreferenceOptimistic", value });
 
 		try {
-			const nextPreferences = await setDesktopLaunchAtLogin(checked);
+			const nextPreferences = await save(value);
 			if (!nextPreferences) {
 				throw new Error("Desktop preferences are unavailable.");
 			}
 			dispatch({ type: "setPreferences", value: nextPreferences });
 		} catch (error) {
-			console.error("Failed to update launch at login preference", error);
+			console.error(errorMessage, error);
 			dispatch({ type: "setPreferences", value: previousPreferences });
-			toast.error("Failed to update launch at login preference");
+			toast.error(errorMessage);
 		} finally {
-			dispatch({ type: "setIsSavingLaunchAtLogin", value: false });
+			dispatch({ type: "setSavingPreference", value: null });
 		}
 	};
 
@@ -1405,11 +1412,33 @@ function PreferencesSettings() {
 					checked={preferences?.launchAtLogin ?? false}
 					disabled={
 						isLoadingPreferences ||
-						isSavingLaunchAtLogin ||
+						savingPreference === "launchAtLogin" ||
 						!(preferences?.canLaunchAtLogin ?? false)
 					}
 					onCheckedChange={(checked) => {
-						void handleLaunchAtLoginChange(checked);
+						void savePreference(
+							"launchAtLogin",
+							checked,
+							setDesktopLaunchAtLogin,
+							"Failed to update launch at login preference",
+						);
+					}}
+				/>
+				<SettingsSwitchRow
+					id="settings-keep-dictation-bar-visible"
+					label="Keep dictation bar visible"
+					checked={preferences?.keepDictationBarVisible ?? true}
+					disabled={
+						isLoadingPreferences ||
+						savingPreference === "keepDictationBarVisible"
+					}
+					onCheckedChange={(checked) => {
+						void savePreference(
+							"keepDictationBarVisible",
+							checked,
+							setDesktopKeepDictationBarVisible,
+							"Failed to update dictation bar preference",
+						);
 					}}
 				/>
 			</FieldGroup>

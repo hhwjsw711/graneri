@@ -49,6 +49,8 @@ const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 	openSoundSettings: () => ipcRenderer.invoke("app:open-sound-settings"),
 	setLaunchAtLogin: (enabled) =>
 		ipcRenderer.invoke("app:set-launch-at-login", enabled),
+	setKeepDictationBarVisible: (enabled) =>
+		ipcRenderer.invoke("app:set-keep-dictation-bar-visible", enabled),
 	getTranscriptionSessionState: () =>
 		ipcRenderer.invoke("app:get-transcription-session-state"),
 	getMeetingDetectionState: () =>
