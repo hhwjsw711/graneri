@@ -81,3 +81,35 @@ export const logError = ({ error, ...event }) => {
 		error: error === undefined ? undefined : serializeError(error),
 	});
 };
+
+export const createWideEvent = ({ event, request }) => ({
+	event,
+	method: request?.method,
+	path: request?.url,
+	timestamp: new Date().toISOString(),
+});
+
+export const recordWideEventError = ({
+	details = {},
+	error,
+	event,
+	operation,
+}) => {
+	event.errors ??= [];
+	event.errors.push({
+		operation,
+		...details,
+		error: serializeError(error),
+	});
+};
+
+export const emitWideEvent = ({ event, level = "info", startedAt }) => {
+	event.duration_ms = Date.now() - startedAt;
+
+	if (level === "error") {
+		logger.error(event);
+		return;
+	}
+
+	logger.info(event);
+};

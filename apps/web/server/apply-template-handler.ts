@@ -10,6 +10,11 @@ import {
 	parseTemplateStreamToStructuredNote,
 	validateTemplateStream,
 } from "../src/lib/note-template-stream";
+import {
+	createServerWideEvent,
+	emitServerWideEvent,
+	recordServerError,
+} from "./server-logger";
 
 type ApplyTemplateRequestBody = {
 	title?: string;
@@ -98,7 +103,26 @@ export const handleApplyTemplateRequest = async (
 	request: IncomingMessage,
 	response: ServerResponse,
 ) => {
+	const startedAt = Date.now();
+	const wideEvent = createServerWideEvent({
+		event: "apply_template.request",
+		request,
+	});
+	let wideEventEmitted = false;
+	const emitWideEvent = (level: "error" | "info") => {
+		if (wideEventEmitted) {
+			return;
+		}
+
+		wideEventEmitted = true;
+		emitServerWideEvent({ event: wideEvent, level, startedAt });
+	};
+
 	if (!process.env.OPENAI_API_KEY) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "openai_api_key_missing";
+		emitWideEvent("error");
 		sendJson(response, 500, {
 			error: "OPENAI_API_KEY is not configured.",
 		});
@@ -110,16 +134,34 @@ export const handleApplyTemplateRequest = async (
 		payload = await getApplyTemplatePayload(request);
 	} catch (error) {
 		if (error instanceof ApplyTemplateRequestError) {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = error.statusCode;
+			wideEvent.error_code = "invalid_request";
+			emitWideEvent("error");
 			sendJson(response, error.statusCode, {
 				error: error.message,
 			});
 			return;
 		}
 
+		recordServerError({
+			error,
+			event: wideEvent,
+			operation: "request_parse",
+		});
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 400;
+		wideEvent.error_code = "request_parse_failed";
+		emitWideEvent("error");
 		throw error;
 	}
 
 	const { title, noteText, template, templateSections } = payload;
+	wideEvent.template_slug = template.slug ?? null;
+	wideEvent.template_name = template.name ?? null;
+	wideEvent.template_section_count = templateSections.length;
+	wideEvent.note_text_length = noteText.length;
+	wideEvent.has_title = Boolean(title.trim());
 
 	response.statusCode = 200;
 	response.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
@@ -171,6 +213,10 @@ export const handleApplyTemplateRequest = async (
 		});
 
 		if (validationError) {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 422;
+			wideEvent.error_code = "template_stream_validation_failed";
+			emitWideEvent("error");
 			writeEvent({
 				type: "error",
 				error: validationError,
@@ -183,8 +229,20 @@ export const handleApplyTemplateRequest = async (
 			type: "final-note",
 			note: parsed.note,
 		});
+		wideEvent.outcome = "success";
+		wideEvent.status_code = 200;
+		emitWideEvent("info");
 		response.end();
 	} catch (error) {
+		recordServerError({
+			error,
+			event: wideEvent,
+			operation: "template_stream",
+		});
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "template_stream_failed";
+		emitWideEvent("error");
 		const message =
 			error instanceof Error
 				? error.message

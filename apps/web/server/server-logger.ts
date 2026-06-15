@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import os from "node:os";
 import pino from "pino";
 
 export type ServerWideEvent = Record<string, unknown> & {
@@ -28,6 +29,7 @@ const serverLogger = pino({
 		commit_hash: process.env.VERCEL_GIT_COMMIT_SHA ?? "local",
 		environment:
 			process.env.GRANERI_ENV_MODE ?? process.env.NODE_ENV ?? "local",
+		instance_id: process.env.VERCEL_DEPLOYMENT_ID ?? os.hostname(),
 		region: process.env.VERCEL_REGION ?? "local",
 		service: "web-server",
 		version: process.env.npm_package_version ?? "0.0.1",
@@ -45,6 +47,10 @@ export const createServerWideEvent = ({
 	event,
 	method: request?.method,
 	path: request?.url,
+	request_id:
+		typeof request?.headers["x-request-id"] === "string"
+			? request.headers["x-request-id"]
+			: undefined,
 	timestamp: new Date().toISOString(),
 });
 

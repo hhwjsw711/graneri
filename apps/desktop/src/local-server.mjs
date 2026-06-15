@@ -61,7 +61,12 @@ import {
 	handleEnhanceNoteRequest,
 } from "./local-server-note-routes.mjs";
 import { handleRealtimeTranscriptionSessionRequest } from "./local-server-realtime-route.mjs";
-import { logError } from "./logger.mjs";
+import {
+	createWideEvent,
+	emitWideEvent,
+	logError,
+	recordWideEventError,
+} from "./logger.mjs";
 
 const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
 const activeChatStreamControllers = new Map();
@@ -82,6 +87,43 @@ const GRANERI_MARK_SVG = `
 		stroke-linejoin="round"
 	/>
 </svg>`;
+
+const emitLocalRequestWideEventOnCompletion = ({
+	event,
+	response,
+	startedAt,
+}) => {
+	let emitted = false;
+
+	const emit = (level) => {
+		if (emitted) {
+			return;
+		}
+
+		emitted = true;
+		event.status_code ??= response.statusCode;
+		event.outcome ??=
+			typeof event.status_code === "number" && event.status_code >= 400
+				? "error"
+				: "success";
+		emitWideEvent({ event, level, startedAt });
+	};
+
+	response.once("finish", () => {
+		emit(event.outcome === "error" || event.errors?.length ? "error" : "info");
+	});
+	response.once("close", () => {
+		if (response.writableEnded) {
+			return;
+		}
+
+		event.outcome = "error";
+		event.error_code = "client_connection_closed";
+		emit("error");
+	});
+
+	return emit;
+};
 
 const createAuthCallbackSuccessHtml = () => `<!doctype html>
 <html lang="en">
@@ -820,6 +862,7 @@ export const startLocalServer = async ({
 		["/api/enhance-note", handleEnhanceNoteRequest],
 	]);
 	const server = createServer((request, response) => {
+		const startedAt = Date.now();
 		const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
 		const requestPath = requestUrl.pathname;
 		const localAppRouteHandler =
@@ -835,13 +878,33 @@ export const startLocalServer = async ({
 		];
 
 		if (requestPath === "/auth/callback") {
+			const wideEvent = createWideEvent({
+				event: "desktop.auth_callback.request",
+				request,
+			});
+			wideEvent.route = "auth_callback";
+			emitLocalRequestWideEventOnCompletion({
+				event: wideEvent,
+				response,
+				startedAt,
+			});
 			void Promise.resolve(onAuthCallback?.(requestUrl.toString()))
 				.then(() => {
+					wideEvent.outcome = "success";
+					wideEvent.status_code = 200;
 					response.statusCode = 200;
 					response.setHeader("Content-Type", "text/html; charset=utf-8");
 					response.end(createAuthCallbackSuccessHtml());
 				})
 				.catch((error) => {
+					wideEvent.outcome = "error";
+					wideEvent.status_code = 500;
+					wideEvent.error_code = "auth_callback_failed";
+					recordWideEventError({
+						error,
+						event: wideEvent,
+						operation: "auth_callback",
+					});
 					const message =
 						error instanceof Error ? error.message : "Authentication failed.";
 					response.statusCode = 500;
@@ -852,10 +915,26 @@ export const startLocalServer = async ({
 		}
 
 		if (localAppRouteHandler) {
+			const wideEvent = createWideEvent({
+				event: "desktop.local_api.request",
+				request,
+			});
+			wideEvent.route = requestPath;
+			wideEvent.is_reconnect_route = isReconnectRoute;
+			wideEvent.request_origin = request.headers.origin ?? null;
+			emitLocalRequestWideEventOnCompletion({
+				event: wideEvent,
+				response,
+				startedAt,
+			});
+
 			if (request.method === "OPTIONS") {
 				if (
 					setCorsHeadersForLocalAppRequest(request, response, allowedOrigins)
 				) {
+					wideEvent.outcome = "success";
+					wideEvent.status_code = 204;
+					wideEvent.cors_preflight = true;
 					response.statusCode = 204;
 					response.end();
 					return;
@@ -863,6 +942,9 @@ export const startLocalServer = async ({
 			}
 
 			if (!isAuthorizedLocalAppRequest(request, allowedOrigins)) {
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 403;
+				wideEvent.error_code = "forbidden_origin";
 				sendJson(response, 403, {
 					error: "Forbidden",
 				});
@@ -872,16 +954,30 @@ export const startLocalServer = async ({
 			setCorsHeadersForLocalAppRequest(request, response, allowedOrigins);
 
 			if (isReconnectRoute && request.method !== "GET") {
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 405;
+				wideEvent.error_code = "method_not_allowed";
 				sendJson(response, 405, { error: "Method not allowed." });
 				return;
 			}
 
 			if (!isReconnectRoute && request.method !== "POST") {
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 405;
+				wideEvent.error_code = "method_not_allowed";
 				sendJson(response, 405, { error: "Method not allowed." });
 				return;
 			}
 
 			void localAppRouteHandler(request, response).catch((error) => {
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 500;
+				wideEvent.error_code = "route_handler_failed";
+				recordWideEventError({
+					error,
+					event: wideEvent,
+					operation: "route_handler",
+				});
 				const message =
 					error instanceof Error ? error.message : "Unexpected server error.";
 				sendJson(response, 500, { error: message });
@@ -889,6 +985,19 @@ export const startLocalServer = async ({
 			return;
 		}
 
+		const wideEvent = createWideEvent({
+			event: "desktop.local_api.request",
+			request,
+		});
+		wideEvent.route = requestPath;
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 404;
+		wideEvent.error_code = "route_not_found";
+		emitLocalRequestWideEventOnCompletion({
+			event: wideEvent,
+			response,
+			startedAt,
+		});
 		response.statusCode = 404;
 		response.setHeader("Content-Type", "application/json");
 		response.end(JSON.stringify({ error: "Not found." }));
