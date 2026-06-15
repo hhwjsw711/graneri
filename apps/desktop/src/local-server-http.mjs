@@ -71,7 +71,7 @@ export const setCorsHeadersForLocalAppRequest = (
 	response.setHeader("Access-Control-Allow-Origin", requestOrigin);
 	response.setHeader("Vary", "Origin");
 	response.setHeader("Access-Control-Allow-Credentials", "true");
-	response.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+	response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 	response.setHeader(
 		"Access-Control-Allow-Headers",
 		request.headers["access-control-request-headers"] ?? "content-type",

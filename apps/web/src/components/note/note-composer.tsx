@@ -48,10 +48,7 @@ import {
 } from "@workspace/ui/lib/panel-dimensions";
 import { cn } from "@workspace/ui/lib/utils";
 import type { ChatAddToolOutputFunction, FileUIPart, UIMessage } from "ai";
-import {
-	DefaultChatTransport,
-	lastAssistantMessageIsCompleteWithToolCalls,
-} from "ai";
+import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import {
 	ArrowDown,
@@ -114,8 +111,11 @@ import {
 } from "@/hooks/use-chat-messages-snapshot";
 import { useComposerDraft } from "@/hooks/use-composer-draft";
 import { useNoteTranscriptSession } from "@/hooks/use-note-transcript-session";
+import { useQueuedChatDrain } from "@/hooks/use-queued-chat-drain";
+import { useResumeActiveChatRun } from "@/hooks/use-resume-active-chat-run";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import { useTranscriptionSession } from "@/hooks/use-transcription-session";
+import { useWorkspaceChatTransport } from "@/hooks/use-workspace-chat-transport";
 import {
 	getStoredChatModel as getStoredLocalChatModel,
 	storeChatModel,
@@ -126,6 +126,7 @@ import {
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
+import { toQueuedUserMessageInput } from "@/lib/chat-queue";
 import {
 	buildNoteChatRequestBody,
 	buildNoteChatRequestBodyFromLocalFolders,
@@ -147,7 +148,6 @@ import {
 	type RecipePrompt,
 	type RecipeSlug,
 } from "@/lib/recipes";
-import { getChatApiUrl } from "@/lib/runtime-config";
 import {
 	getMentionAnchorRect,
 	getMentionPickerPosition,
@@ -683,8 +683,8 @@ const useNoteComposerController = ({
 		chatId: hasStoredCurrentChat ? currentChatId : null,
 		workspaceId: activeWorkspaceId,
 	});
-	const activeStreamStatus = useQuery(
-		api.chats.getActiveStreamStatus,
+	const activeRun = useQuery(
+		api.assistantRuns.getAttachableRun,
 		activeWorkspaceId && hasStoredCurrentChat
 			? { workspaceId: activeWorkspaceId, chatId: currentChatId }
 			: "skip",
@@ -713,6 +713,9 @@ const useNoteComposerController = ({
 	const updateUserPreferences = useMutation(api.userPreferences.update);
 	const truncateFromMessage = useMutation(api.chats.truncateFromMessage);
 	const persistChatSettings = useMutation(api.chats.setChatSettings);
+	const enqueueQueuedMessage = useMutation(
+		api.assistantQueuedMessages.enqueueForActiveRun,
+	);
 	const handleSelectedModelChange = React.useCallback(
 		(model: ChatModel) => {
 			setSelectedModelOverride({ chatId: currentChatId, model });
@@ -857,34 +860,7 @@ const useNoteComposerController = ({
 		transcriptionSessionState.scopeKey,
 	]);
 
-	const transport = React.useMemo(() => {
-		const chatApiUrl = getChatApiUrl();
-
-		return new DefaultChatTransport({
-			api: chatApiUrl,
-			prepareSendMessagesRequest: ({
-				id,
-				messages,
-				body,
-				headers,
-				credentials,
-				trigger,
-				messageId,
-			}) => ({
-				api: chatApiUrl,
-				headers,
-				credentials,
-				body: {
-					...body,
-					id,
-					message: messages[messages.length - 1],
-					trigger,
-					messageId,
-					workspaceId: activeWorkspaceId,
-				},
-			}),
-		});
-	}, [activeWorkspaceId]);
+	const transport = useWorkspaceChatTransport(activeWorkspaceId);
 
 	const initialMessages = React.useMemo(
 		() => toStoredChatMessages(storedMessages ?? []),
@@ -911,6 +887,7 @@ const useNoteComposerController = ({
 		error: chatError,
 		status: chatStatus,
 		stop,
+		resumeStream,
 		addToolOutput,
 	} = useChat({
 		// react-doctor-disable-next-line react-doctor/no-event-handler
@@ -930,6 +907,22 @@ const useNoteComposerController = ({
 
 		void prefetchConvexToken();
 	}, [activeWorkspaceId]);
+
+	const isLocalChatLoading =
+		chatStatus === "submitted" ||
+		chatStatus === "streaming" ||
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		isPreparingRequest;
+
+	useResumeActiveChatRun({
+		activeRun,
+		chatId: currentChatId,
+		enabled: hasStoredCurrentChat && !isLocalChatLoading,
+		resumeStream,
+		setMessages,
+		workspaceId: activeWorkspaceId,
+	});
+
 	const initialMessagesSeedKey = React.useMemo(
 		() => getUIMessageSeedKey(initialMessages),
 		[initialMessages],
@@ -937,6 +930,10 @@ const useNoteComposerController = ({
 	const appliedInitialMessagesSeedKeyRef = React.useRef(initialMessagesSeedKey);
 
 	React.useEffect(() => {
+		if (hasStoredCurrentChat && activeRun !== null) {
+			return;
+		}
+
 		const isLocalRequestRunning =
 			chatStatus === "submitted" ||
 			chatStatus === "streaming" ||
@@ -969,8 +966,10 @@ const useNoteComposerController = ({
 			return currentMessages;
 		});
 	}, [
+		activeRun,
 		chatStatus,
 		currentChatId,
+		hasStoredCurrentChat,
 		initialMessages,
 		initialMessagesSeedKey,
 		isPreparingRequest,
@@ -1242,13 +1241,19 @@ const useNoteComposerController = ({
 		},
 		[setRightSidebarWidthMobileOverride],
 	);
-	const isPersistedChatStreaming = activeStreamStatus === "streaming";
+	const isPersistedChatStreaming = Boolean(activeRun);
 	const isChatLoading =
-		chatStatus === "submitted" ||
-		chatStatus === "streaming" ||
 		// react-doctor-disable-next-line react-doctor/no-event-handler
-		isPreparingRequest ||
-		isPersistedChatStreaming;
+		isLocalChatLoading || isPersistedChatStreaming;
+	useQueuedChatDrain({
+		activeRun,
+		chatId: currentChatId,
+		contextLabel: "note chat",
+		isBlocked: isLocalChatLoading,
+		latestRequestBodyRef,
+		sendMessage,
+		workspaceId: activeWorkspaceId,
+	});
 	const hasMessage = message.trim().length > 0;
 	const canGenerateNotes =
 		transcriptSession.isTranscriptSessionReady &&
@@ -1585,7 +1590,10 @@ const useNoteComposerController = ({
 		if (
 			(!nextMessage && !selectedRecipe && attachedFiles.length === 0) ||
 			hasUploadingAttachments(attachedFiles) ||
-			isChatLoading
+			chatStatus === "submitted" ||
+			chatStatus === "streaming" ||
+			isPreparingRequest ||
+			(activeRun && attachedFiles.length > 0)
 		) {
 			return;
 		}
@@ -1635,6 +1643,27 @@ const useNoteComposerController = ({
 					}
 				: { text: outgoingText, metadata: recipeMetadata, ...filePayload };
 
+			if (activeRun && activeWorkspaceId) {
+				await enqueueQueuedMessage({
+					workspaceId: activeWorkspaceId,
+					chatId: currentChatId,
+					runId: activeRun._id,
+					message: toQueuedUserMessageInput({
+						messageId: editingMessageId ?? undefined,
+						metadata: recipeMetadata,
+						requestBody,
+						text: outgoingText,
+					}),
+				});
+				setIsPreparingRequest(false);
+				setEditingMessageId(null);
+				clearDraft();
+				setAttachedFiles([]);
+				resetTextareaHeight();
+				toast.success("Follow-up queued");
+				return;
+			}
+
 			void Promise.resolve(
 				sendMessage(nextOutgoingMessage, {
 					body: requestBody,
@@ -1656,9 +1685,14 @@ const useNoteComposerController = ({
 			setIsPreparingRequest(false);
 		}
 	}, [
-		isChatLoading,
+		activeRun,
+		activeWorkspaceId,
 		attachedFiles,
+		chatStatus,
 		clearDraft,
+		currentChatId,
+		enqueueQueuedMessage,
+		isPreparingRequest,
 		getDraftSnapshot,
 		localFolderStorageScope,
 		openRightSidebar,

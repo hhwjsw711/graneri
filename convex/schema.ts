@@ -519,28 +519,110 @@ export default defineSchema({
 	})
 		.index("by_chatId_and_createdAt", ["chatId", "createdAt"])
 		.index("by_chatId_and_messageId", ["chatId", "messageId"]),
-	chatActiveStreams: defineTable({
-		chatId: v.id("chats"),
+	assistantRuns: defineTable({
 		ownerTokenIdentifier: v.string(),
-		messageId: v.string(),
-		text: v.string(),
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		assistantMessageId: v.string(),
 		status: v.union(
-			v.literal("streaming"),
-			v.literal("done"),
-			v.literal("error"),
+			v.literal("queued"),
+			v.literal("running"),
+			v.literal("waiting_for_user"),
+			v.literal("stopping"),
+			v.literal("stopped"),
+			v.literal("failed"),
+			v.literal("completed"),
+		),
+		model: v.string(),
+		reasoningEffort: v.optional(
+			v.union(
+				v.literal("low"),
+				v.literal("medium"),
+				v.literal("high"),
+				v.literal("xhigh"),
+			),
+		),
+		phase: v.optional(v.string()),
+		pendingDecision: v.optional(
+			v.union(
+				v.object({
+					type: v.literal("choose_workspace"),
+					question: v.string(),
+				}),
+				v.object({
+					type: v.literal("choose_note"),
+					question: v.string(),
+				}),
+				v.object({
+					type: v.literal("authorize_source"),
+					source: v.string(),
+					reason: v.string(),
+				}),
+				v.object({
+					type: v.literal("clarify_scope"),
+					question: v.string(),
+				}),
+			),
+		),
+		stopReason: v.optional(
+			v.union(
+				v.literal("user_requested"),
+				v.literal("superseded"),
+				v.literal("cleanup_failed"),
+			),
+		),
+		errorText: v.optional(v.string()),
+		startedAt: v.number(),
+		updatedAt: v.number(),
+		finishedAt: v.optional(v.number()),
+	})
+		.index("by_chatId_and_status", ["chatId", "status"])
+		.index("by_workspaceId_and_chatId", ["workspaceId", "chatId"])
+		.index("by_assistantMessageId", ["assistantMessageId"]),
+	assistantQueuedMessages: defineTable({
+		ownerTokenIdentifier: v.string(),
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		runId: v.id("assistantRuns"),
+		messageId: v.string(),
+		partsJson: v.string(),
+		metadataJson: v.optional(v.string()),
+		text: v.string(),
+		requestBodyJson: v.string(),
+		status: v.union(
+			v.literal("queued"),
+			v.literal("claimed"),
+			v.literal("discarded"),
 		),
 		createdAt: v.number(),
 		updatedAt: v.number(),
+		claimedAt: v.optional(v.number()),
 	})
-		.index("by_chatId", ["chatId"])
-		.index("by_ownerTokenIdentifier_and_chatId", [
-			"ownerTokenIdentifier",
+		.index("by_runId_and_status", ["runId", "status"])
+		.index("by_runId_and_status_and_createdAt", [
+			"runId",
+			"status",
+			"createdAt",
+		])
+		.index("by_chatId_and_status", ["chatId", "status"])
+		.index("by_chatId_and_status_and_createdAt", [
 			"chatId",
-		]),
-	chatToolCalls: defineTable({
+			"status",
+			"createdAt",
+		])
+		.index("by_chatId_and_createdAt", ["chatId", "createdAt"]),
+	chatActiveStreams: defineTable({
+		runId: v.id("assistantRuns"),
 		chatId: v.id("chats"),
-		ownerTokenIdentifier: v.string(),
-		messageId: v.string(),
+		assistantMessageId: v.string(),
+		text: v.string(),
+		updatedAt: v.number(),
+	})
+		.index("by_runId", ["runId"])
+		.index("by_chatId", ["chatId"]),
+	chatToolCalls: defineTable({
+		runId: v.id("assistantRuns"),
+		chatId: v.id("chats"),
 		toolCallId: v.string(),
 		toolName: v.string(),
 		status: v.union(
@@ -555,18 +637,9 @@ export default defineSchema({
 		createdAt: v.number(),
 		updatedAt: v.number(),
 	})
-		.index("by_chatId_and_createdAt", ["chatId", "createdAt"])
-		.index("by_chatId_and_messageId", ["chatId", "messageId"])
-		.index("by_chatId_and_messageId_and_toolCallId", [
-			"chatId",
-			"messageId",
-			"toolCallId",
-		])
-		.index("by_chatId_and_status", ["chatId", "status"])
-		.index("by_ownerTokenIdentifier_and_chatId", [
-			"ownerTokenIdentifier",
-			"chatId",
-		]),
+		.index("by_runId_and_toolCallId", ["runId", "toolCallId"])
+		.index("by_runId", ["runId"])
+		.index("by_chatId", ["chatId"]),
 	automations: defineTable({
 		ownerTokenIdentifier: v.string(),
 		workspaceId: v.id("workspaces"),

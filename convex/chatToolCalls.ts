@@ -1,5 +1,5 @@
 import { ConvexError, v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { requireTokenIdentifier } from "./domain";
@@ -14,9 +14,8 @@ const chatToolCallStatusValidator = v.union(
 const chatToolCallValidator = v.object({
 	_id: v.id("chatToolCalls"),
 	_creationTime: v.number(),
+	runId: v.id("assistantRuns"),
 	chatId: v.id("chats"),
-	ownerTokenIdentifier: v.string(),
-	messageId: v.string(),
 	toolCallId: v.string(),
 	toolName: v.string(),
 	status: chatToolCallStatusValidator,
@@ -43,28 +42,24 @@ const getOwnedActiveChatById = async (
 		)
 		.unique();
 
-const getActiveStreamByChatId = async (
+const getActiveStreamByRunId = async (
 	ctx: QueryCtx | MutationCtx,
-	chatId: Doc<"chats">["_id"],
+	runId: Id<"assistantRuns">,
 ) =>
 	await ctx.db
 		.query("chatActiveStreams")
-		.withIndex("by_chatId", (q) => q.eq("chatId", chatId))
+		.withIndex("by_runId", (q) => q.eq("runId", runId))
 		.unique();
 
-const getToolCallByChatIdAndMessageIdAndToolCallId = async (
+const getToolCallByRunIdAndToolCallId = async (
 	ctx: QueryCtx | MutationCtx,
-	chatId: Doc<"chats">["_id"],
-	messageId: string,
+	runId: Id<"assistantRuns">,
 	toolCallId: string,
 ) =>
 	await ctx.db
 		.query("chatToolCalls")
-		.withIndex("by_chatId_and_messageId_and_toolCallId", (q) =>
-			q
-				.eq("chatId", chatId)
-				.eq("messageId", messageId)
-				.eq("toolCallId", toolCallId),
+		.withIndex("by_runId_and_toolCallId", (q) =>
+			q.eq("runId", runId).eq("toolCallId", toolCallId),
 		)
 		.unique();
 
@@ -73,7 +68,7 @@ const requireOwnedActiveStream = async (
 	args: {
 		workspaceId: Id<"workspaces">;
 		chatId: string;
-		messageId: string;
+		runId: Id<"assistantRuns">;
 	},
 ) => {
 	const ownerTokenIdentifier = await requireTokenIdentifier(ctx, "chatToolCalls");
@@ -91,12 +86,13 @@ const requireOwnedActiveStream = async (
 		});
 	}
 
-	const stream = await getActiveStreamByChatId(ctx, chat._id);
-
+	const run = await ctx.db.get(args.runId);
 	if (
-		!stream ||
-		stream.status !== "streaming" ||
-		stream.messageId !== args.messageId
+		!run ||
+		run.ownerTokenIdentifier !== ownerTokenIdentifier ||
+		run.chatId !== chat._id ||
+		run.workspaceId !== args.workspaceId ||
+		run.status !== "running"
 	) {
 		throw new ConvexError({
 			code: "ACTIVE_STREAM_NOT_FOUND",
@@ -104,32 +100,36 @@ const requireOwnedActiveStream = async (
 		});
 	}
 
-	return { chat, ownerTokenIdentifier };
+	const stream = await getActiveStreamByRunId(ctx, args.runId);
+
+	if (!stream || stream.chatId !== chat._id) {
+		throw new ConvexError({
+			code: "ACTIVE_STREAM_NOT_FOUND",
+			message: "Active chat stream not found.",
+		});
+	}
+
+	return { chat, run };
 };
 
 export const startActiveStreamToolCall = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 		chatId: v.string(),
-		messageId: v.string(),
+		runId: v.id("assistantRuns"),
 		toolCallId: v.string(),
 		toolName: v.string(),
 		inputJson: v.optional(v.string()),
 	},
 	returns: chatToolCallValidator,
 	handler: async (ctx, args) => {
-		const { chat, ownerTokenIdentifier } = await requireOwnedActiveStream(
-			ctx,
-			args,
-		);
+		const { chat, run } = await requireOwnedActiveStream(ctx, args);
 		const now = Date.now();
-		const existingToolCall =
-			await getToolCallByChatIdAndMessageIdAndToolCallId(
-				ctx,
-				chat._id,
-				args.messageId,
-				args.toolCallId,
-			);
+		const existingToolCall = await getToolCallByRunIdAndToolCallId(
+			ctx,
+			run._id,
+			args.toolCallId,
+		);
 
 		if (existingToolCall) {
 			await ctx.db.patch(existingToolCall._id, {
@@ -145,9 +145,8 @@ export const startActiveStreamToolCall = mutation({
 		}
 
 		const toolCallId = await ctx.db.insert("chatToolCalls", {
+			runId: run._id,
 			chatId: chat._id,
-			ownerTokenIdentifier,
-			messageId: args.messageId,
 			toolCallId: args.toolCallId,
 			toolName: args.toolName,
 			status: "pending",
@@ -164,7 +163,7 @@ export const finishActiveStreamToolCall = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 		chatId: v.string(),
-		messageId: v.string(),
+		runId: v.id("assistantRuns"),
 		toolCallId: v.string(),
 		status: v.union(
 			v.literal("completed"),
@@ -176,11 +175,10 @@ export const finishActiveStreamToolCall = mutation({
 	},
 	returns: chatToolCallValidator,
 	handler: async (ctx, args) => {
-		const { chat } = await requireOwnedActiveStream(ctx, args);
-		const toolCall = await getToolCallByChatIdAndMessageIdAndToolCallId(
+		const { run } = await requireOwnedActiveStream(ctx, args);
+		const toolCall = await getToolCallByRunIdAndToolCallId(
 			ctx,
-			chat._id,
-			args.messageId,
+			run._id,
 			args.toolCallId,
 		);
 

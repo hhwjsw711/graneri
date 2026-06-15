@@ -11,6 +11,8 @@
 import type * as appConnectionActions from "../appConnectionActions.js";
 import type * as appConnectionProviders from "../appConnectionProviders.js";
 import type * as appConnections from "../appConnections.js";
+import type * as assistantQueuedMessages from "../assistantQueuedMessages.js";
+import type * as assistantRuns from "../assistantRuns.js";
 import type * as auth from "../auth.js";
 import type * as automationActions from "../automationActions.js";
 import type * as automations from "../automations.js";
@@ -56,6 +58,8 @@ declare const fullApi: ApiFromModules<{
   appConnectionActions: typeof appConnectionActions;
   appConnectionProviders: typeof appConnectionProviders;
   appConnections: typeof appConnections;
+  assistantQueuedMessages: typeof assistantQueuedMessages;
+  assistantRuns: typeof assistantRuns;
   auth: typeof auth;
   automationActions: typeof automationActions;
   automations: typeof automations;

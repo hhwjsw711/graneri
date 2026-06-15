@@ -6,8 +6,20 @@ import {
 	HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS,
 	HostedActiveChatStreamPersister,
 	pipeHostedActiveStreamText,
-	stopHostedActiveChatStream,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
+
+const collectStream = async <T>(stream: ReadableStream<T>) => {
+	const reader = stream.getReader();
+	const chunks: T[] = [];
+
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) {
+			return chunks;
+		}
+		chunks.push(value);
+	}
+};
 
 describe("hosted active chat stream", () => {
 	it("creates stable stream keys for active stream controllers", () => {
@@ -29,6 +41,7 @@ describe("hosted active chat stream", () => {
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
 			messageId: "stream-1",
+			runId: "run-1",
 			startActiveStream,
 			appendActiveStreamText,
 			finishActiveStream,
@@ -50,30 +63,29 @@ describe("hosted active chat stream", () => {
 			output: { result: "ok" },
 		});
 		await persister.flush();
-		await persister.finish("done");
+		await persister.finish();
 
 		expect(startActiveStream).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: "stream-1",
+			runId: "run-1",
 		});
 		expect(appendActiveStreamText).toHaveBeenCalledTimes(1);
 		expect(appendActiveStreamText).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: "stream-1",
+			runId: "run-1",
 			delta: "hello world",
 		});
 		expect(finishActiveStream).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: "stream-1",
-			status: "done",
+			runId: "run-1",
 		});
 		expect(startActiveStreamToolCall).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: "stream-1",
+			runId: "run-1",
 			toolCallId: "tool-call-1",
 			toolName: "search",
 			inputJson: JSON.stringify({ query: "graneri" }),
@@ -81,7 +93,7 @@ describe("hosted active chat stream", () => {
 		expect(finishActiveStreamToolCall).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: "stream-1",
+			runId: "run-1",
 			toolCallId: "tool-call-1",
 			status: "completed",
 			outputJson: JSON.stringify({ result: "ok" }),
@@ -101,6 +113,7 @@ describe("hosted active chat stream", () => {
 				workspaceId: "workspace-1",
 				chatId: "chat-1",
 				messageId: "stream-1",
+				runId: "run-1",
 				startActiveStream,
 				appendActiveStreamText,
 				finishActiveStream,
@@ -111,18 +124,82 @@ describe("hosted active chat stream", () => {
 			await Promise.resolve();
 			await Promise.resolve();
 
-			await expect(persister.finish("done")).rejects.toThrow("append failed");
+			await expect(persister.finish()).rejects.toThrow("append failed");
 			expect(finishActiveStream).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
+	it("drops pending active stream text after cleanup closes persistence", async () => {
+		vi.useFakeTimers();
+		try {
+			const startActiveStream = vi.fn().mockResolvedValue(undefined);
+			const appendActiveStreamText = vi.fn().mockResolvedValue(undefined);
+			const finishActiveStream = vi.fn().mockResolvedValue(undefined);
+			const persister = new HostedActiveChatStreamPersister({
+				workspaceId: "workspace-1",
+				chatId: "chat-1",
+				messageId: "stream-1",
+				runId: "run-1",
+				startActiveStream,
+				appendActiveStreamText,
+				finishActiveStream,
+			});
+
+			persister.append("hello");
+			persister.discardPending();
+			vi.advanceTimersByTime(HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS);
+			await persister.flush();
+			await persister.finish();
+
+			expect(appendActiveStreamText).not.toHaveBeenCalled();
+			expect(finishActiveStream).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("closes active stream persistence by flushing accepted text and rejecting later appends", async () => {
+		vi.useFakeTimers();
+		try {
+			const startActiveStream = vi.fn().mockResolvedValue(undefined);
+			const appendActiveStreamText = vi.fn().mockResolvedValue(undefined);
+			const finishActiveStream = vi.fn().mockResolvedValue(undefined);
+			const persister = new HostedActiveChatStreamPersister({
+				workspaceId: "workspace-1",
+				chatId: "chat-1",
+				messageId: "stream-1",
+				runId: "run-1",
+				startActiveStream,
+				appendActiveStreamText,
+				finishActiveStream,
+			});
+
+			persister.append("accepted");
+			await persister.closePersistence();
+			persister.append(" ignored");
+			vi.advanceTimersByTime(HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS);
+			await persister.flush();
+
+			expect(appendActiveStreamText).toHaveBeenCalledOnce();
+			expect(appendActiveStreamText).toHaveBeenCalledWith({
+				workspaceId: "workspace-1",
+				chatId: "chat-1",
+				runId: "run-1",
+				delta: "accepted",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("owns active stream controller replacement and cleanup", async () => {
-		const controllers = new Map<string, AbortController>();
+		const controllers = new Map();
 		const existingController = new AbortController();
 		const start = vi.fn().mockResolvedValue(undefined);
 		const append = vi.fn();
+		const closePersistence = vi.fn().mockResolvedValue(undefined);
 		const finish = vi.fn().mockResolvedValue(undefined);
 		const streamKey = "workspace-1:chat-1";
 		controllers.set(streamKey, existingController);
@@ -132,25 +209,26 @@ describe("hosted active chat stream", () => {
 			persister: {
 				start,
 				append,
+				closePersistence,
 				finish,
 			},
 		});
 
 		await session.start();
-		expect(controllers.get(streamKey)?.signal).toBe(session.abortSignal);
+		expect(controllers.get(streamKey)).toBe(session);
 		session.append("hello");
-		await session.finish("done");
+		await session.finish();
 
 		expect(existingController.signal.aborted).toBe(true);
 		expect(start).toHaveBeenCalledOnce();
 		expect(append).toHaveBeenCalledWith("hello");
-		expect(finish).toHaveBeenCalledWith("done");
+		expect(finish).toHaveBeenCalledWith();
 
 		expect(controllers.has(streamKey)).toBe(false);
 	});
 
 	it("cleans active stream controllers when session finish fails", async () => {
-		const controllers = new Map<string, AbortController>();
+		const controllers = new Map();
 		const streamKey = "workspace-1:chat-1";
 		const finish = vi.fn().mockRejectedValue(new Error("finish failed"));
 		const session = createHostedActiveStreamSession({
@@ -159,18 +237,117 @@ describe("hosted active chat stream", () => {
 			persister: {
 				start: vi.fn().mockResolvedValue(undefined),
 				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
 				finish,
 			},
 		});
 
 		await session.start();
 
-		await expect(session.finish("error")).rejects.toThrow("finish failed");
+		await expect(session.finish()).rejects.toThrow("finish failed");
+		expect(controllers.has(streamKey)).toBe(false);
+	});
+
+	it("broadcasts active stream chunks to original and reconnect subscribers", async () => {
+		const controllers = new Map();
+		const streamKey = "workspace-1:chat-1";
+		const session = createHostedActiveStreamSession({
+			controllers,
+			streamKey,
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+		const source = new ReadableStream<{ type: string; value: string }>({
+			start(controller) {
+				queueMicrotask(() => {
+					controller.enqueue({ type: "text-delta", value: "one" });
+					controller.enqueue({ type: "text-delta", value: "two" });
+					controller.close();
+				});
+			},
+		});
+
+		await session.start();
+		const originalStream = session.startBroadcast(source);
+		const reconnectStream = session.subscribe();
+		const [originalChunks, reconnectChunks] = await Promise.all([
+			collectStream(originalStream),
+			collectStream(reconnectStream),
+		]);
+
+		expect(originalChunks.map((chunk) => chunk.value)).toEqual(["one", "two"]);
+		expect(reconnectChunks.map((chunk) => chunk.value)).toEqual(["one", "two"]);
+		expect(controllers.has(streamKey)).toBe(false);
+	});
+
+	it("replays prior stream chunks to late reconnect subscribers", async () => {
+		const controllers = new Map();
+		const streamKey = "workspace-1:chat-1";
+		const session = createHostedActiveStreamSession({
+			controllers,
+			streamKey,
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+		let sourceController:
+			| ReadableStreamDefaultController<{
+					type: string;
+					id: string;
+					delta?: string;
+			  }>
+			| undefined;
+		const source = new ReadableStream<{
+			type: string;
+			id: string;
+			delta?: string;
+		}>({
+			start(controller) {
+				sourceController = controller;
+			},
+		});
+
+		await session.start();
+		const originalStream = session.startBroadcast(source);
+		sourceController?.enqueue({ type: "text-start", id: "text-1" });
+		sourceController?.enqueue({
+			type: "text-delta",
+			id: "text-1",
+			delta: "hello",
+		});
+		await Promise.resolve();
+
+		const reconnectStream = session.subscribe();
+		sourceController?.enqueue({
+			type: "text-delta",
+			id: "text-1",
+			delta: " world",
+		});
+		sourceController?.close();
+
+		const [originalChunks, reconnectChunks] = await Promise.all([
+			collectStream(originalStream),
+			collectStream(reconnectStream),
+		]);
+
+		expect(originalChunks).toEqual([
+			{ type: "text-start", id: "text-1" },
+			{ type: "text-delta", id: "text-1", delta: "hello" },
+			{ type: "text-delta", id: "text-1", delta: " world" },
+		]);
+		expect(reconnectChunks).toEqual(originalChunks);
 		expect(controllers.has(streamKey)).toBe(false);
 	});
 
 	it("creates chat-scoped active stream sessions through adapter callbacks", async () => {
-		const controllers = new Map<string, AbortController>();
+		const controllers = new Map();
 		const startActiveStream = vi.fn().mockResolvedValue(undefined);
 		const appendActiveStreamText = vi.fn().mockResolvedValue(undefined);
 		const finishActiveStream = vi.fn().mockResolvedValue(undefined);
@@ -178,6 +355,8 @@ describe("hosted active chat stream", () => {
 			controllers,
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
+			messageId: "stream-1",
+			runId: "run-1",
 			callbacks: {
 				startActiveStream,
 				appendActiveStreamText,
@@ -186,72 +365,27 @@ describe("hosted active chat stream", () => {
 		});
 
 		await session.start();
-		expect(controllers.get("workspace-1:chat-1")?.signal).toBe(
-			session.abortSignal,
-		);
+		expect(controllers.get("workspace-1:chat-1")).toBe(session);
 		session.append("hello");
-		await session.finish("done");
+		await session.finish();
 
 		expect(controllers.has("workspace-1:chat-1")).toBe(false);
 		expect(startActiveStream).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: expect.stringMatching(/^stream-/),
+			runId: "run-1",
 		});
 		expect(appendActiveStreamText).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: expect.stringMatching(/^stream-/),
+			runId: "run-1",
 			delta: "hello",
 		});
 		expect(finishActiveStream).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			chatId: "chat-1",
-			messageId: expect.stringMatching(/^stream-/),
-			status: "done",
+			runId: "run-1",
 		});
-	});
-
-	it("stops chat-scoped active streams atomically", async () => {
-		const controllers = new Map<string, AbortController>();
-		const activeController = new AbortController();
-		const stopActiveStream = vi.fn().mockResolvedValue(undefined);
-		controllers.set("workspace-1:chat-1", activeController);
-
-		await stopHostedActiveChatStream({
-			controllers,
-			workspaceId: "workspace-1",
-			chatId: "chat-1",
-			stopActiveStream,
-		});
-
-		expect(activeController.signal.aborted).toBe(true);
-		expect(controllers.has("workspace-1:chat-1")).toBe(false);
-		expect(stopActiveStream).toHaveBeenCalledWith({
-			workspaceId: "workspace-1",
-			chatId: "chat-1",
-		});
-	});
-
-	it("keeps active stream controllers alive when backend stop fails", async () => {
-		const controllers = new Map<string, AbortController>();
-		const activeController = new AbortController();
-		const stopActiveStream = vi
-			.fn()
-			.mockRejectedValue(new Error("stop failed"));
-		controllers.set("workspace-1:chat-1", activeController);
-
-		await expect(
-			stopHostedActiveChatStream({
-				controllers,
-				workspaceId: "workspace-1",
-				chatId: "chat-1",
-				stopActiveStream,
-			}),
-		).rejects.toThrow("stop failed");
-
-		expect(activeController.signal.aborted).toBe(false);
-		expect(controllers.get("workspace-1:chat-1")).toBe(activeController);
 	});
 
 	it("pipes stream chunks while persisting text deltas and tool lifecycle events", async () => {
@@ -304,5 +438,36 @@ describe("hosted active chat stream", () => {
 			status: "failed",
 			errorText: "search failed",
 		});
+	});
+
+	it("runs stream terminalization after pending active stream text flushes", async () => {
+		const events: string[] = [];
+		const stream = new ReadableStream<{ type: string; delta: string }>({
+			start(controller) {
+				controller.enqueue({ type: "text-delta", delta: "hello" });
+				controller.close();
+			},
+		});
+
+		const outputChunks = [];
+		for await (const chunk of pipeHostedActiveStreamText({
+			onFlush: () => {
+				events.push("terminalize");
+			},
+			stream,
+			persister: {
+				append: () => {
+					events.push("append");
+				},
+				async flush() {
+					events.push("flush");
+				},
+			},
+		})) {
+			outputChunks.push(chunk);
+		}
+
+		expect(outputChunks).toEqual([{ type: "text-delta", delta: "hello" }]);
+		expect(events).toEqual(["append", "flush", "terminalize"]);
 	});
 });

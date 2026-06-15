@@ -20,6 +20,8 @@ export function useAppSources(
 	);
 	const listGoogleSources = useAction(api.googleTools.listAvailableSources);
 	const [googleSources, setGoogleSources] = React.useState<AppSource[]>([]);
+	const [googleSourcesError, setGoogleSourcesError] =
+		React.useState<unknown>(null);
 
 	// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 	React.useEffect(() => {
@@ -28,16 +30,22 @@ export function useAppSources(
 		if (!workspaceId) {
 			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			setGoogleSources([]);
+			setGoogleSourcesError(null);
 			return () => {
 				cancelled = true;
 			};
 		}
 
 		void listGoogleSources({ workspaceId })
-			.catch(() => [])
 			.then((sources) => {
 				if (!cancelled) {
 					setGoogleSources(sources);
+					setGoogleSourcesError(null);
+				}
+			})
+			.catch((error: unknown) => {
+				if (!cancelled) {
+					setGoogleSourcesError(error);
 				}
 			});
 
@@ -46,8 +54,14 @@ export function useAppSources(
 		};
 	}, [listGoogleSources, workspaceId]);
 
-	return React.useMemo(
+	const sources = React.useMemo(
 		() => [...googleSources, ...(connectionSources ?? [])],
 		[connectionSources, googleSources],
 	);
+
+	if (googleSourcesError) {
+		throw googleSourcesError;
+	}
+
+	return sources;
 }

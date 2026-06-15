@@ -34,6 +34,34 @@ const createWorkspace = async () => {
 	};
 };
 
+type WorkspaceFixture = Awaited<ReturnType<typeof createWorkspace>>;
+type AsOwner = WorkspaceFixture["asOwner"];
+type WorkspaceId = WorkspaceFixture["workspaceId"];
+
+const startRunAndStream = async ({
+	asOwner,
+	chatId,
+	workspaceId,
+}: {
+	asOwner: AsOwner;
+	chatId: string;
+	workspaceId: WorkspaceId;
+}) => {
+	const run = await asOwner.mutation(api.assistantRuns.startAssistantRun, {
+		workspaceId,
+		chatId,
+		assistantMessageId: "stream-1",
+		model: "gpt-5",
+		policy: "reject",
+	});
+	await asOwner.mutation(api.chats.startActiveStream, {
+		workspaceId,
+		chatId,
+		runId: run._id,
+	});
+	return run;
+};
+
 test("chat titles preserve organization and person name capitalization", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 
@@ -226,15 +254,15 @@ test("truncating from an edited message removes that branch of the chat", async 
 			createdAt: 2_200,
 		},
 	});
-	await asOwner.mutation(api.chats.startActiveStream, {
+	const run = await startRunAndStream({
+		asOwner,
 		workspaceId,
 		chatId: "chat-edit",
-		messageId: "stream-1",
 	});
 	await asOwner.mutation(api.chatToolCalls.startActiveStreamToolCall, {
 		workspaceId,
 		chatId: "chat-edit",
-		messageId: "stream-1",
+		runId: run._id,
 		toolCallId: "tool-call-1",
 		toolName: "search",
 		inputJson: JSON.stringify({ query: "Second prompt" }),
@@ -276,10 +304,8 @@ test("truncating from an edited message removes that branch of the chat", async 
 			.unique();
 		const toolCalls = await ctx.db
 			.query("chatToolCalls")
-			.withIndex("by_chatId_and_messageId", (q) =>
-				q.eq("chatId", chat._id).eq("messageId", "stream-1"),
-			)
-			.collect();
+			.withIndex("by_runId", (q) => q.eq("runId", run._id))
+			.take(1);
 
 		return {
 			activeStream,
@@ -289,6 +315,82 @@ test("truncating from an edited message removes that branch of the chat", async 
 
 	expect(relatedRows.activeStream).toBeNull();
 	expect(relatedRows.toolCallCount).toBe(0);
+});
+
+test("appendActiveStreamText fails when the active stream snapshot is missing", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+
+	await asOwner.mutation(api.chats.saveMessage, {
+		workspaceId,
+		chatId: "chat-missing-stream",
+		preview: "Prompt",
+		message: {
+			id: "msg-user-1",
+			role: "user",
+			partsJson: JSON.stringify([{ type: "text", text: "Prompt" }]),
+			text: "Prompt",
+			createdAt: 2_000,
+		},
+	});
+	const run = await asOwner.mutation(api.assistantRuns.startAssistantRun, {
+		workspaceId,
+		chatId: "chat-missing-stream",
+		assistantMessageId: "stream-1",
+		model: "gpt-5",
+		policy: "reject",
+	});
+
+	await expect(
+		asOwner.mutation(api.chats.appendActiveStreamText, {
+			workspaceId,
+			chatId: "chat-missing-stream",
+			runId: run._id,
+			delta: "lost text",
+		}),
+	).rejects.toThrow("Active stream snapshot not found.");
+});
+
+test("stopActiveStream rejects a run from another chat", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+
+	for (const chatId of ["chat-stop-owner", "chat-stop-other"]) {
+		await asOwner.mutation(api.chats.saveMessage, {
+			workspaceId,
+			chatId,
+			preview: "Prompt",
+			message: {
+				id: `msg-${chatId}`,
+				role: "user",
+				partsJson: JSON.stringify([{ type: "text", text: "Prompt" }]),
+				text: "Prompt",
+				createdAt: 2_000,
+			},
+		});
+	}
+
+	const otherRun = await startRunAndStream({
+		asOwner,
+		workspaceId,
+		chatId: "chat-stop-other",
+	});
+
+	await expect(
+		asOwner.mutation(api.chats.stopActiveStream, {
+			workspaceId,
+			chatId: "chat-stop-owner",
+			runId: otherRun._id,
+		}),
+	).rejects.toThrow("Assistant run not found.");
+
+	const remainingSnapshotCount = await t.run(async (ctx) => {
+		const snapshots = await ctx.db
+			.query("chatActiveStreams")
+			.withIndex("by_runId", (q) => q.eq("runId", otherRun._id))
+			.take(1);
+		return snapshots.length;
+	});
+
+	expect(remainingSnapshotCount).toBe(1);
 });
 
 test("removing a chat deletes active stream and tool call runtime records", async () => {
@@ -306,15 +408,15 @@ test("removing a chat deletes active stream and tool call runtime records", asyn
 			createdAt: 2_000,
 		},
 	});
-	await asOwner.mutation(api.chats.startActiveStream, {
+	const run = await startRunAndStream({
+		asOwner,
 		workspaceId,
 		chatId: "chat-remove-runtime",
-		messageId: "stream-1",
 	});
 	await asOwner.mutation(api.chatToolCalls.startActiveStreamToolCall, {
 		workspaceId,
 		chatId: "chat-remove-runtime",
-		messageId: "stream-1",
+		runId: run._id,
 		toolCallId: "tool-call-1",
 		toolName: "search",
 	});
@@ -325,12 +427,14 @@ test("removing a chat deletes active stream and tool call runtime records", asyn
 	});
 
 	const rows = await t.run(async (ctx) => ({
-		activeStreams: await ctx.db.query("chatActiveStreams").collect(),
-		toolCalls: await ctx.db.query("chatToolCalls").collect(),
+		activeStreams: await ctx.db.query("chatActiveStreams").take(1),
+		toolCalls: await ctx.db.query("chatToolCalls").take(1),
+		runs: await ctx.db.query("assistantRuns").take(1),
 	}));
 
 	expect(rows.activeStreams).toHaveLength(0);
 	expect(rows.toolCalls).toHaveLength(0);
+	expect(rows.runs[0]?.status).toBe("stopped");
 });
 
 test("removing a chat skips malformed legacy attachment storage ids", async () => {

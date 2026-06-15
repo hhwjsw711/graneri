@@ -441,9 +441,9 @@ test("notes.remove deletes note comments and threads", async () => {
 	});
 
 	const relatedRows = await t.run(async (ctx) => ({
-		comments: await ctx.db.query("noteComments").collect(),
+		comments: await ctx.db.query("noteComments").take(10),
 		note: await ctx.db.get(noteId),
-		threads: await ctx.db.query("noteCommentThreads").collect(),
+		threads: await ctx.db.query("noteCommentThreads").take(10),
 	}));
 
 	expect(relatedRows.note).toBeNull();

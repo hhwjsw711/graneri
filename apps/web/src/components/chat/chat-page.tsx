@@ -6,10 +6,7 @@ import { Input } from "@workspace/ui/components/input";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import { cn } from "@workspace/ui/lib/utils";
 import type { ChatAddToolOutputFunction, UIMessage } from "ai";
-import {
-	DefaultChatTransport,
-	lastAssistantMessageIsCompleteWithToolCalls,
-} from "ai";
+import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { useMutation, useQuery } from "convex/react";
 import {
 	ArrowDown,
@@ -45,7 +42,10 @@ import { PageTitle } from "@/components/layout/page-title";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { useAppSources } from "@/hooks/use-app-sources";
 import { useComposerDraft } from "@/hooks/use-composer-draft";
+import { useQueuedChatDrain } from "@/hooks/use-queued-chat-drain";
+import { useResumeActiveChatRun } from "@/hooks/use-resume-active-chat-run";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
+import { useWorkspaceChatTransport } from "@/hooks/use-workspace-chat-transport";
 import {
 	getStoredChatModel as getStoredLocalChatModel,
 	storeChatModel,
@@ -62,6 +62,7 @@ import {
 import { getChatId } from "@/lib/chat";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
+import { toQueuedUserMessageInput } from "@/lib/chat-queue";
 import {
 	buildWorkspaceChatRequestBody,
 	buildWorkspaceChatRequestBodyFromLocalFolders,
@@ -77,7 +78,6 @@ import {
 	rehydrateSharedLocalFolders,
 } from "@/lib/local-folder-sharing";
 import { getNoteDisplayTitle } from "@/lib/note-title";
-import { getChatApiUrl } from "@/lib/runtime-config";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc } from "../../../../../convex/_generated/dataModel";
 import { ChatComposer, type ChatComposerMention } from "./chat-composer";
@@ -366,46 +366,22 @@ const useChatPageController = ({
 	}, [localFolderStorageScope]);
 	const truncateFromMessage = useMutation(api.chats.truncateFromMessage);
 	const persistChatSettings = useMutation(api.chats.setChatSettings);
+	const enqueueQueuedMessage = useMutation(
+		api.assistantQueuedMessages.enqueueForActiveRun,
+	);
 	const storedMessages = useQuery(
 		api.chats.getMessages,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
 	);
-	const activeStreamStatus = useQuery(
-		api.chats.getActiveStreamStatus,
+	const activeRun = useQuery(
+		api.assistantRuns.getAttachableRun,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
 	);
 	const runningAutomationRun = useQuery(
 		api.automations.getRunningRunForChat,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
 	);
-	const transport = React.useMemo(() => {
-		const chatApiUrl = getChatApiUrl();
-
-		return new DefaultChatTransport({
-			api: chatApiUrl,
-			prepareSendMessagesRequest: ({
-				id,
-				messages,
-				body,
-				headers,
-				credentials,
-				trigger,
-				messageId,
-			}) => ({
-				api: chatApiUrl,
-				headers,
-				credentials,
-				body: {
-					...body,
-					id,
-					message: messages[messages.length - 1],
-					trigger,
-					messageId,
-					workspaceId: activeWorkspaceId,
-				},
-			}),
-		});
-	}, [activeWorkspaceId]);
+	const transport = useWorkspaceChatTransport(activeWorkspaceId);
 	const latestRequestBodyRef = React.useRef<Record<string, unknown> | null>(
 		null,
 	);
@@ -427,6 +403,7 @@ const useChatPageController = ({
 		error,
 		status,
 		stop,
+		resumeStream,
 		addToolOutput,
 	} = useChat({
 		id: chatId,
@@ -438,6 +415,7 @@ const useChatPageController = ({
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
 	addToolOutputRef.current = addToolOutput;
+
 	const persistedMessages = React.useMemo(
 		() =>
 			storedMessages === undefined
@@ -453,6 +431,19 @@ const useChatPageController = ({
 
 		void prefetchConvexToken();
 	}, [activeWorkspaceId]);
+
+	const isLocalChatLoading =
+		status === "submitted" || status === "streaming" || isPreparingRequest;
+
+	useResumeActiveChatRun({
+		activeRun,
+		chatId,
+		enabled: !isLocalChatLoading,
+		resumeStream,
+		setMessages,
+		workspaceId: activeWorkspaceId,
+	});
+
 	const persistedMessagesSeedKey = React.useMemo(
 		() => getUIMessageSeedKey(persistedMessages),
 		[persistedMessages],
@@ -462,6 +453,10 @@ const useChatPageController = ({
 	);
 
 	React.useEffect(() => {
+		if (activeWorkspaceId && activeRun !== null) {
+			return;
+		}
+
 		const isLocalRequestRunning =
 			status === "submitted" || status === "streaming" || isPreparingRequest;
 
@@ -485,6 +480,8 @@ const useChatPageController = ({
 			return currentMessages;
 		});
 	}, [
+		activeRun,
+		activeWorkspaceId,
 		isPreparingRequest,
 		persistedMessages,
 		persistedMessagesSeedKey,
@@ -492,13 +489,20 @@ const useChatPageController = ({
 		status,
 	]);
 
-	const isLocalChatLoading =
-		status === "submitted" || status === "streaming" || isPreparingRequest;
-	const isPersistedChatStreaming = activeStreamStatus === "streaming";
+	const isPersistedChatStreaming = Boolean(activeRun);
 	const isAutomationRunning = Boolean(runningAutomationRun);
 	const isLoading =
 		isLocalChatLoading || isPersistedChatStreaming || isAutomationRunning;
 	const hasMessages = messages.length > 0 || isAutomationRunning;
+	useQueuedChatDrain({
+		activeRun,
+		chatId,
+		contextLabel: "chat",
+		isBlocked: isLocalChatLoading || isAutomationRunning,
+		latestRequestBodyRef,
+		sendMessage,
+		workspaceId: activeWorkspaceId,
+	});
 	const isNotesLoading = notes === undefined;
 	const selectedModel =
 		(selectedModelOverride?.chatId === chatId
@@ -587,7 +591,9 @@ const useChatPageController = ({
 		if (
 			(!value.trim() && attachedFiles.length === 0) ||
 			hasUploadingAttachments(attachedFiles) ||
-			isLoading
+			isLocalChatLoading ||
+			isAutomationRunning ||
+			(activeRun && attachedFiles.length > 0)
 		) {
 			return;
 		}
@@ -629,6 +635,26 @@ const useChatPageController = ({
 					};
 			latestRequestBodyRef.current = requestBody;
 
+			if (activeRun && activeWorkspaceId) {
+				await enqueueQueuedMessage({
+					workspaceId: activeWorkspaceId,
+					chatId,
+					runId: activeRun._id,
+					message: toQueuedUserMessageInput({
+						messageId: editingMessageId ?? undefined,
+						metadata,
+						requestBody,
+						text: value,
+					}),
+				});
+				setIsPreparingRequest(false);
+				setEditingMessageId(null);
+				clearDraft();
+				setAttachedFiles([]);
+				toast.success("Follow-up queued");
+				return;
+			}
+
 			void Promise.resolve(
 				sendMessage(nextOutgoingMessage, {
 					body: requestBody,
@@ -650,11 +676,14 @@ const useChatPageController = ({
 		}
 	}, [
 		activeWorkspaceId,
+		activeRun,
 		attachedFiles,
 		chatId,
 		editingMessageId,
+		enqueueQueuedMessage,
 		getDraftSnapshot,
-		isLoading,
+		isAutomationRunning,
+		isLocalChatLoading,
 		localFolderStorageScope,
 		mentions,
 		onChatPersisted,

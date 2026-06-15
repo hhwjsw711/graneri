@@ -474,15 +474,15 @@ const useAppShellState = ({
 			? { workspaceId: resolvedActiveWorkspaceId }
 			: "skip",
 	);
-	const activeStreamChatIds = useQuery(
-		api.chats.listActiveStreamChatIds,
+	const activeRunChatIds = useQuery(
+		api.assistantRuns.listActiveChatIds,
 		resolvedActiveWorkspaceId
 			? { workspaceId: resolvedActiveWorkspaceId }
 			: "skip",
 	);
 	const activeStreamingChatIds = React.useMemo(
-		() => new Set(activeStreamChatIds ?? []),
-		[activeStreamChatIds],
+		() => new Set(activeRunChatIds ?? []),
+		[activeRunChatIds],
 	);
 	const automations = useQuery(
 		api.automations.list,
@@ -569,6 +569,7 @@ const useAppShellState = ({
 			: undefined;
 	const hasMissingCurrentProject =
 		currentView === "project" &&
+		// react-doctor-disable-next-line react-doctor/no-event-handler
 		(currentProjectIdString === null ||
 			selectedProject === undefined ||
 			selectedProject === null);

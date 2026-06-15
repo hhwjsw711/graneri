@@ -21,9 +21,10 @@ import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-poli
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
 import {
 	createHostedActiveChatStreamSession,
+	createHostedActiveStreamKey,
 	pipeHostedActiveStreamText,
-	stopHostedActiveChatStream,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
+import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
 import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
 	buildHostedChatSaveMessageArgs,
@@ -310,19 +311,20 @@ const handleChatRequest = async ({
 
 	const resolvedWorkspaceId = workspaceId ?? null;
 	const resolvedTimezone = timezone?.trim() || "UTC";
-	const convexClient =
-		convexToken && id && resolvedWorkspaceId
-			? new ConvexHttpClient(getConvexUrl(), { auth: convexToken })
-			: null;
-	const storedChat =
-		convexClient && id && resolvedWorkspaceId
-			? await convexClient
-					.query(api.chats.getSession, {
-						workspaceId: resolvedWorkspaceId,
-						chatId: id,
-					})
-					.catch(() => null)
-			: null;
+	if (!id || !convexToken || !resolvedWorkspaceId) {
+		sendJson(response, 400, {
+			error: "chat id, convexToken, and workspaceId are required.",
+		});
+		return;
+	}
+
+	const convexClient = new ConvexHttpClient(getConvexUrl(), {
+		auth: convexToken,
+	});
+	const storedChat = await convexClient.query(api.chats.getSession, {
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+	});
 	logLatency("convex.session_loaded", {
 		hasStoredChat: Boolean(storedChat),
 	});
@@ -339,15 +341,12 @@ const handleChatRequest = async ({
 		reasoningEffort: resolvedReasoningEffort,
 	});
 	const resolvedNoteId = noteContext?.noteId ?? storedChat?.noteId ?? null;
-	const storedChatMessages =
-		message && convexClient && id && resolvedWorkspaceId
-			? await convexClient
-					.query(api.chats.getMessagesSnapshot, {
-						workspaceId: resolvedWorkspaceId,
-						chatId: id,
-					})
-					.catch(() => [])
-			: [];
+	const storedChatMessages = message
+		? await convexClient.query(api.chats.getMessagesSnapshot, {
+				workspaceId: resolvedWorkspaceId,
+				chatId: id,
+			})
+		: [];
 	const preparedBranch = prepareHostedChatBranch({
 		message,
 		messageId,
@@ -355,12 +354,7 @@ const handleChatRequest = async ({
 		storedMessages: message ? storedChatMessages : [],
 		trigger,
 	});
-	const shouldTruncateChatBranch = Boolean(
-		convexClient &&
-			id &&
-			resolvedWorkspaceId &&
-			preparedBranch.shouldTruncateChatBranch,
-	);
+	const shouldTruncateChatBranch = preparedBranch.shouldTruncateChatBranch;
 
 	if (shouldTruncateChatBranch && preparedBranch.truncateMessageId) {
 		try {
@@ -390,16 +384,28 @@ const handleChatRequest = async ({
 					.reverse()
 					.find((currentMessage) => currentMessage.role === "user");
 	const shouldGenerateChatTitle = Boolean(
-		convexClient &&
-			id &&
-			resolvedWorkspaceId &&
-			lastUserMessage &&
-			(!storedChat || storedChat.title === "New chat"),
+		lastUserMessage && (!storedChat || storedChat.title === "New chat"),
 	);
 	logLatency("chat.messages_validated", {
 		chatMessageCount: chatMessages.length,
 	});
-	if (convexClient && id && resolvedWorkspaceId && lastUserMessage) {
+	if (trigger !== "regenerate-message") {
+		const attachableRun = await convexClient.query(
+			api.assistantRuns.getAttachableRun,
+			{
+				workspaceId: resolvedWorkspaceId,
+				chatId: id,
+			},
+		);
+
+		if (attachableRun) {
+			sendJson(response, 409, {
+				error: "Chat already has an active assistant run.",
+			});
+			return;
+		}
+	}
+	if (lastUserMessage) {
 		try {
 			await convexClient.mutation(
 				api.chats.saveMessage,
@@ -417,9 +423,7 @@ const handleChatRequest = async ({
 		}
 	}
 	logLatency("convex.user_message_saved", {
-		attempted: Boolean(
-			convexClient && id && resolvedWorkspaceId && lastUserMessage,
-		),
+		attempted: Boolean(lastUserMessage),
 	});
 
 	const notesContext = await getNotesContext({
@@ -427,33 +431,26 @@ const handleChatRequest = async ({
 		mentions,
 		workspaceId: resolvedWorkspaceId,
 	});
-	const attachedNoteContext =
-		convexToken && resolvedNoteId && resolvedWorkspaceId
-			? await getStoredNoteContext({
-					convexToken,
-					noteId: resolvedNoteId,
-					workspaceId: resolvedWorkspaceId,
-				}).catch(() =>
-					getInlineHostedNoteContext({
-						title: noteContext?.title,
-						text: noteContext?.text,
-					}),
-				)
-			: getInlineHostedNoteContext({
-					title: noteContext?.title,
-					text: noteContext?.text,
-				});
+	const attachedNoteContext = resolvedNoteId
+		? await getStoredNoteContext({
+				convexToken,
+				noteId: resolvedNoteId,
+				workspaceId: resolvedWorkspaceId,
+			})
+		: getInlineHostedNoteContext({
+				title: noteContext?.title,
+				text: noteContext?.text,
+			});
 	const selectedRecipe = await getSelectedRecipe({
 		convexToken,
 		recipeSlug,
 		workspaceId: resolvedWorkspaceId,
 	});
 	const recipeContext = getHostedChatRecipeContext(selectedRecipe);
-	const userProfileContext = convexClient
-		? await convexClient
-				.query(api.userPreferences.getAiProfileContext, {})
-				.catch(() => null)
-		: null;
+	const userProfileContext = await convexClient.query(
+		api.userPreferences.getAiProfileContext,
+		{},
+	);
 	const selectedAppConnections = appsEnabled
 		? await getSelectedAppConnections({
 				convexToken,
@@ -498,14 +495,11 @@ const handleChatRequest = async ({
 	const automationContext = buildChatAutomationContext({
 		appConnections: selectedAppConnections,
 		chatId: id,
-		createAutomation:
-			convexClient && resolvedWorkspaceId
-				? async (automation) =>
-						await convexClient.mutation(api.automations.create, {
-							workspaceId: resolvedWorkspaceId,
-							...automation,
-						})
-				: null,
+		createAutomation: async (automation) =>
+			await convexClient.mutation(api.automations.create, {
+				workspaceId: resolvedWorkspaceId,
+				...automation,
+			}),
 		defaultModel: selectedModel.model,
 		defaultReasoningEffort: resolvedReasoningEffort,
 		defaultTimezone: resolvedTimezone,
@@ -537,37 +531,51 @@ const handleChatRequest = async ({
 		hasToolSearch: finalizedToolSet.hasToolSearch,
 		toolCount: finalizedToolSet.toolCount,
 	});
-	const activeStreamSession =
-		convexClient && id && resolvedWorkspaceId
-			? createHostedActiveChatStreamSession({
-					controllers: activeChatStreamControllers,
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-					callbacks: {
-						startActiveStream: (args) =>
-							convexClient.mutation(api.chats.startActiveStream, args),
-						appendActiveStreamText: (args) =>
-							convexClient.mutation(api.chats.appendActiveStreamText, args),
-						finishActiveStream: (args) =>
-							convexClient.mutation(api.chats.finishActiveStream, args),
-						startActiveStreamToolCall: (args) =>
-							convexClient.mutation(
-								api.chatToolCalls.startActiveStreamToolCall,
-								args,
-							),
-						finishActiveStreamToolCall: (args) =>
-							convexClient.mutation(
-								api.chatToolCalls.finishActiveStreamToolCall,
-								args,
-							),
-					},
-				})
-			: null;
+	const assistantMessageId = `stream-${crypto.randomUUID()}`;
+	const assistantRun = await convexClient.mutation(
+		api.assistantRuns.startAssistantRun,
+		{
+			workspaceId: resolvedWorkspaceId,
+			chatId: id,
+			assistantMessageId,
+			model: selectedModel.model,
+			reasoningEffort: resolvedReasoningEffort,
+			policy: trigger === "regenerate-message" ? "supersede" : "reject",
+		},
+	);
 
-	await activeStreamSession?.start();
-	logLatency("convex.active_stream_started", {
-		enabled: Boolean(activeStreamSession),
+	const activeStreamSession = createHostedActiveChatStreamSession({
+		controllers: activeChatStreamControllers,
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+		messageId: assistantMessageId,
+		runId: assistantRun._id,
+		callbacks: {
+			startActiveStream: (args) =>
+				convexClient.mutation(api.chats.startActiveStream, args),
+			appendActiveStreamText: (args) =>
+				convexClient.mutation(api.chats.appendActiveStreamText, args),
+			finishActiveStream: (args) =>
+				convexClient.mutation(api.chats.deleteActiveStreamSnapshot, args),
+			startActiveStreamToolCall: (args) =>
+				convexClient.mutation(
+					api.chatToolCalls.startActiveStreamToolCall,
+					args,
+				),
+			finishActiveStreamToolCall: (args) =>
+				convexClient.mutation(
+					api.chatToolCalls.finishActiveStreamToolCall,
+					args,
+				),
+		},
 	});
+
+	await activeStreamSession.start();
+	logLatency("convex.active_stream_started", {
+		enabled: true,
+		runId: assistantRun._id,
+	});
+	let assistantRunTerminalization = null;
 	logLatency("ai.agent_created", {
 		hasEnabledTools: finalizedToolSet.hasTools,
 		systemPromptLength: systemPrompt.length,
@@ -579,15 +587,11 @@ const handleChatRequest = async ({
 			return await createAgentUIStream({
 				agent,
 				uiMessages: chatMessages,
-				abortSignal: activeStreamSession?.abortSignal,
+				abortSignal: activeStreamSession.abortSignal,
 				originalMessages: chatMessages,
 				generateMessageId: generateHostedChatMessageId,
 				onFinish: async ({ responseMessage }) => {
 					logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
-
-					if (!convexClient || !id || !resolvedWorkspaceId) {
-						return;
-					}
 
 					try {
 						const generatedChatTitle =
@@ -609,28 +613,56 @@ const handleChatRequest = async ({
 								message: responseMessage,
 							}),
 						);
-						await activeStreamSession?.finish("done");
+						assistantRunTerminalization = { status: "completed" };
 					} catch (error) {
 						console.error("Failed to persist assistant chat message", error);
-						await activeStreamSession?.finish("error");
+						assistantRunTerminalization = {
+							status: "failed",
+							errorText:
+								error instanceof Error ? error.message : "Unknown error",
+						};
 					}
 				},
 				onError: () => "Something went wrong.",
 			});
 		} catch (error) {
-			await activeStreamSession?.finish("error");
+			await convexClient.mutation(api.assistantRuns.failAssistantRun, {
+				runId: assistantRun._id,
+				errorText: error instanceof Error ? error.message : "Unknown error",
+			});
+			activeStreamSession.cleanup();
 			throw error;
 		}
 	})();
 	logLatency("ai.stream_created");
 	const persistedStream = pipeHostedActiveStreamText({
+		onFlush: async () => {
+			if (!assistantRunTerminalization) {
+				return;
+			}
+
+			await activeStreamSession.closePersistence();
+
+			if (assistantRunTerminalization.status === "completed") {
+				await convexClient.mutation(api.assistantRuns.finishAssistantRun, {
+					runId: assistantRun._id,
+				});
+				return;
+			}
+
+			await convexClient.mutation(api.assistantRuns.failAssistantRun, {
+				runId: assistantRun._id,
+				errorText: assistantRunTerminalization.errorText,
+			});
+		},
 		persister: activeStreamSession,
 		stream: streamLatencyTracker.wrapStream(stream),
 	});
+	const responseStream = activeStreamSession.startBroadcast(persistedStream);
 
 	pipeUIMessageStreamToResponse({
 		response,
-		stream: persistedStream,
+		stream: responseStream,
 		consumeSseStream: consumeStream,
 	});
 };
@@ -650,15 +682,104 @@ const handleChatStopRequest = async (request, response) => {
 		auth: convexToken,
 	});
 
-	await stopHostedActiveChatStream({
-		controllers: activeChatStreamControllers,
+	const attachableRun = await convexClient.query(
+		api.assistantRuns.getAttachableRun,
+		{
+			workspaceId: resolvedWorkspaceId,
+			chatId: id,
+		},
+	);
+
+	if (!attachableRun) {
+		sendJson(response, 200, { ok: true });
+		return;
+	}
+
+	await convexClient.mutation(api.assistantRuns.requestStopAssistantRun, {
+		runId: attachableRun._id,
+		stopReason: "user_requested",
+	});
+
+	const streamKey = createHostedActiveStreamKey({
 		workspaceId: resolvedWorkspaceId,
 		chatId: id,
-		stopActiveStream: (args) =>
-			convexClient.mutation(api.chats.stopActiveStream, args),
+	});
+	const activeSession = activeChatStreamControllers.get(streamKey);
+	activeSession?.abort("stopped");
+	activeSession?.cleanup();
+
+	await convexClient.mutation(api.chats.stopActiveStream, {
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+		runId: attachableRun._id,
+	});
+	await convexClient.mutation(api.assistantRuns.finishStoppedAssistantRun, {
+		runId: attachableRun._id,
 	});
 
 	sendJson(response, 200, { ok: true });
+};
+
+const handleChatReconnectRequest = async (request, response) => {
+	const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+	const match = /^\/api\/chat\/([^/]+)\/stream$/.exec(requestUrl.pathname);
+	const id = match?.[1] ? decodeURIComponent(match[1]) : null;
+	const workspaceId = requestUrl.searchParams.get("workspaceId");
+	const convexToken = getBearerTokenFromAuthorizationHeader(
+		request.headers.authorization,
+	);
+
+	if (shouldProxyHostedAiRequest()) {
+		await proxyHostedAiRequest({
+			path: requestUrl.pathname + requestUrl.search,
+			request,
+			response,
+			responseMode: "stream",
+		});
+		return;
+	}
+
+	if (!id || !workspaceId || !convexToken) {
+		sendJson(response, 400, {
+			error: "chat id, workspaceId, and convexToken are required.",
+		});
+		return;
+	}
+
+	const convexClient = new ConvexHttpClient(getConvexUrl(), {
+		auth: convexToken,
+	});
+	const attachableRun = await convexClient.query(
+		api.assistantRuns.getAttachableRun,
+		{
+			workspaceId,
+			chatId: id,
+		},
+	);
+
+	if (!attachableRun) {
+		response.statusCode = 204;
+		response.end();
+		return;
+	}
+
+	const streamKey = createHostedActiveStreamKey({
+		workspaceId,
+		chatId: id,
+	});
+	const activeSession = activeChatStreamControllers.get(streamKey);
+
+	if (!activeSession || activeSession.persister.runId !== attachableRun._id) {
+		response.statusCode = 204;
+		response.end();
+		return;
+	}
+
+	pipeUIMessageStreamToResponse({
+		response,
+		stream: activeSession.subscribe(),
+		consumeSseStream: consumeStream,
+	});
 };
 
 export const startLocalServer = async ({
@@ -694,7 +815,13 @@ export const startLocalServer = async ({
 	const server = createServer((request, response) => {
 		const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
 		const requestPath = requestUrl.pathname;
-		const localAppRouteHandler = localAppRoutes.get(requestPath);
+		const localAppRouteHandler =
+			localAppRoutes.get(requestPath) ??
+			(/^\/api\/chat\/[^/]+\/stream$/.test(requestPath)
+				? handleChatReconnectRequest
+				: null);
+		const isReconnectRoute =
+			localAppRouteHandler === handleChatReconnectRequest;
 		const allowedOrigins = [
 			localServerOrigin,
 			...(typeof getAllowedOrigins === "function" ? getAllowedOrigins() : []),
@@ -737,7 +864,12 @@ export const startLocalServer = async ({
 
 			setCorsHeadersForLocalAppRequest(request, response, allowedOrigins);
 
-			if (request.method !== "POST") {
+			if (isReconnectRoute && request.method !== "GET") {
+				sendJson(response, 405, { error: "Method not allowed." });
+				return;
+			}
+
+			if (!isReconnectRoute && request.method !== "POST") {
 				sendJson(response, 405, { error: "Method not allowed." });
 				return;
 			}

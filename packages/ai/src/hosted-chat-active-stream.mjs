@@ -5,14 +5,17 @@ export const createHostedActiveStreamKey = ({ workspaceId, chatId }) =>
 
 export class HostedActiveChatStreamPersister {
 	#appendActiveStreamText;
+	#acceptingAppends = true;
 	#buffer = "";
 	#chatId;
+	#discarded = false;
 	#finishActiveStream;
 	#finishActiveStreamToolCall;
 	#flushError = null;
 	#flushPromise = null;
 	#flushTimer = null;
 	#messageId;
+	#runId;
 	#startActiveStream;
 	#startActiveStreamToolCall;
 	#workspaceId;
@@ -23,6 +26,7 @@ export class HostedActiveChatStreamPersister {
 		finishActiveStream,
 		finishActiveStreamToolCall,
 		messageId,
+		runId,
 		startActiveStream,
 		startActiveStreamToolCall,
 		workspaceId,
@@ -32,6 +36,7 @@ export class HostedActiveChatStreamPersister {
 		this.#finishActiveStream = finishActiveStream;
 		this.#finishActiveStreamToolCall = finishActiveStreamToolCall;
 		this.#messageId = messageId;
+		this.#runId = runId;
 		this.#startActiveStream = startActiveStream;
 		this.#startActiveStreamToolCall = startActiveStreamToolCall;
 		this.#workspaceId = workspaceId;
@@ -41,15 +46,23 @@ export class HostedActiveChatStreamPersister {
 		return this.#messageId;
 	}
 
+	get runId() {
+		return this.#runId;
+	}
+
 	async start() {
 		await this.#startActiveStream({
 			workspaceId: this.#workspaceId,
 			chatId: this.#chatId,
-			messageId: this.#messageId,
+			runId: this.#runId,
 		});
 	}
 
 	append(delta) {
+		if (!this.#acceptingAppends || this.#discarded) {
+			return;
+		}
+
 		if (!delta) {
 			return;
 		}
@@ -72,7 +85,7 @@ export class HostedActiveChatStreamPersister {
 		await this.#startActiveStreamToolCall({
 			workspaceId: this.#workspaceId,
 			chatId: this.#chatId,
-			messageId: this.#messageId,
+			runId: this.#runId,
 			toolCallId,
 			toolName,
 			inputJson: stringifyToolPayload(input),
@@ -83,7 +96,7 @@ export class HostedActiveChatStreamPersister {
 		await this.#finishActiveStreamToolCall({
 			workspaceId: this.#workspaceId,
 			chatId: this.#chatId,
-			messageId: this.#messageId,
+			runId: this.#runId,
 			toolCallId,
 			status,
 			outputJson: stringifyToolPayload(output),
@@ -92,6 +105,10 @@ export class HostedActiveChatStreamPersister {
 	}
 
 	async flush() {
+		if (this.#discarded) {
+			return;
+		}
+
 		if (this.#flushError) {
 			const error = this.#flushError;
 			this.#flushError = null;
@@ -112,7 +129,7 @@ export class HostedActiveChatStreamPersister {
 					this.#appendActiveStreamText({
 						workspaceId: this.#workspaceId,
 						chatId: this.#chatId,
-						messageId: this.#messageId,
+						runId: this.#runId,
 						delta,
 					}),
 				)
@@ -137,14 +154,38 @@ export class HostedActiveChatStreamPersister {
 		}
 	}
 
-	async finish(status) {
+	async finish() {
 		await this.flush();
+		if (this.#discarded) {
+			return;
+		}
+
 		await this.#finishActiveStream({
 			workspaceId: this.#workspaceId,
 			chatId: this.#chatId,
-			messageId: this.#messageId,
-			status,
+			runId: this.#runId,
 		});
+		this.#discardPending();
+	}
+
+	async closePersistence() {
+		this.#acceptingAppends = false;
+		await this.flush();
+		this.#discardPending();
+	}
+
+	discardPending() {
+		this.#acceptingAppends = false;
+		this.#discardPending();
+	}
+
+	#discardPending() {
+		this.#discarded = true;
+		this.#buffer = "";
+		if (this.#flushTimer) {
+			clearTimeout(this.#flushTimer);
+			this.#flushTimer = null;
+		}
 	}
 }
 
@@ -154,14 +195,70 @@ export const createHostedActiveStreamSession = ({
 	streamKey,
 }) => {
 	const abortController = new AbortController();
+	const subscribers = new Set();
+	const replayChunks = [];
+	let broadcastStarted = false;
+	let broadcastClosed = false;
+	let broadcastError = null;
 
-	return {
+	const removeSubscriber = (controller) => {
+		subscribers.delete(controller);
+	};
+
+	const publishChunk = (chunk) => {
+		if (broadcastClosed) {
+			return;
+		}
+
+		replayChunks.push(chunk);
+		for (const subscriber of subscribers) {
+			subscriber.enqueue(chunk);
+		}
+	};
+
+	const closeBroadcast = () => {
+		if (broadcastClosed) {
+			return;
+		}
+
+		broadcastClosed = true;
+		for (const subscriber of subscribers) {
+			subscriber.close();
+		}
+		subscribers.clear();
+		if (controllers.get(streamKey) === session) {
+			controllers.delete(streamKey);
+		}
+	};
+
+	const errorBroadcast = (error) => {
+		if (broadcastClosed) {
+			return;
+		}
+
+		broadcastClosed = true;
+		broadcastError = error;
+		for (const subscriber of subscribers) {
+			subscriber.error(error);
+		}
+		subscribers.clear();
+		if (controllers.get(streamKey) === session) {
+			controllers.delete(streamKey);
+		}
+	};
+
+	const session = {
+		abort(reason) {
+			abortController.abort(reason);
+		},
 		abortSignal: abortController.signal,
 		persister,
 		streamKey,
 		async start() {
-			controllers.get(streamKey)?.abort("superseded");
-			controllers.set(streamKey, abortController);
+			const existingSession = controllers.get(streamKey);
+			existingSession?.abort("superseded");
+			existingSession?.cleanup?.();
+			controllers.set(streamKey, session);
 			await persister.start();
 		},
 		append(delta) {
@@ -173,27 +270,92 @@ export const createHostedActiveStreamSession = ({
 		async finishToolCall(args) {
 			await persister.finishToolCall?.(args);
 		},
-		async finish(status) {
+		discardPending() {
+			persister.discardPending?.();
+		},
+		async closePersistence() {
+			await persister.closePersistence();
+		},
+		async finish() {
 			try {
-				await persister.finish(status);
+				await persister.finish();
 			} finally {
-				if (controllers.get(streamKey) === abortController) {
+				closeBroadcast();
+				if (controllers.get(streamKey) === session) {
 					controllers.delete(streamKey);
 				}
 			}
 		},
 		cleanup() {
-			if (controllers.get(streamKey) === abortController) {
+			persister.discardPending?.();
+			closeBroadcast();
+			if (controllers.get(streamKey) === session) {
 				controllers.delete(streamKey);
 			}
 		},
+		subscribe() {
+			let streamController = null;
+			return new ReadableStream({
+				start(controller) {
+					streamController = controller;
+					if (broadcastError) {
+						controller.error(broadcastError);
+						return;
+					}
+
+					for (const chunk of replayChunks) {
+						controller.enqueue(chunk);
+					}
+
+					if (broadcastClosed) {
+						controller.close();
+						return;
+					}
+
+					subscribers.add(controller);
+				},
+				cancel(_reason) {
+					if (streamController) {
+						removeSubscriber(streamController);
+					}
+				},
+			});
+		},
+		startBroadcast(stream) {
+			if (broadcastStarted) {
+				return session.subscribe();
+			}
+
+			broadcastStarted = true;
+			const reader = stream.getReader();
+			void (async () => {
+				try {
+					for (;;) {
+						const { done, value } = await reader.read();
+						if (done) {
+							closeBroadcast();
+							return;
+						}
+						publishChunk(value);
+					}
+				} catch (error) {
+					errorBroadcast(error);
+				}
+			})();
+
+			return session.subscribe();
+		},
 	};
+
+	return session;
 };
 
 export const createHostedActiveChatStreamSession = ({
 	callbacks,
 	chatId,
 	controllers,
+	messageId = `stream-${crypto.randomUUID()}`,
+	runId,
 	workspaceId,
 }) =>
 	createHostedActiveStreamSession({
@@ -205,30 +367,11 @@ export const createHostedActiveChatStreamSession = ({
 		persister: new HostedActiveChatStreamPersister({
 			workspaceId,
 			chatId,
-			messageId: `stream-${crypto.randomUUID()}`,
+			messageId,
+			runId,
 			...callbacks,
 		}),
 	});
-
-export const stopHostedActiveChatStream = async ({
-	chatId,
-	controllers,
-	stopActiveStream,
-	workspaceId,
-}) => {
-	const streamKey = createHostedActiveStreamKey({
-		workspaceId,
-		chatId,
-	});
-
-	await stopActiveStream({
-		workspaceId,
-		chatId,
-	});
-
-	controllers.get(streamKey)?.abort("stopped");
-	controllers.delete(streamKey);
-};
 
 const stringifyToolPayload = (payload) => {
 	if (payload === undefined) {
@@ -299,7 +442,7 @@ const persistHostedActiveStreamToolChunk = async ({ chunk, persister }) => {
 	}
 };
 
-export const pipeHostedActiveStreamEvents = ({ persister, stream }) =>
+export const pipeHostedActiveStreamEvents = ({ onFlush, persister, stream }) =>
 	stream.pipeThrough(
 		new TransformStream({
 			async transform(chunk, controller) {
@@ -309,6 +452,10 @@ export const pipeHostedActiveStreamEvents = ({ persister, stream }) =>
 
 				await persistHostedActiveStreamToolChunk({ chunk, persister });
 				controller.enqueue(chunk);
+			},
+			async flush() {
+				await persister?.flush?.();
+				await onFlush?.();
 			},
 		}),
 	);

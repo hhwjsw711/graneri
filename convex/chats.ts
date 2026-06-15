@@ -22,6 +22,7 @@ import {
 	truncate,
 	uppercaseFirstCharacter,
 } from "./domain";
+import { deleteRunSnapshots } from "./assistantRuns";
 
 const chatRoleValidator = v.union(
 	v.literal("system"),
@@ -77,16 +78,10 @@ const chatMessageValidator = v.object(chatMessageFields);
 const chatActiveStreamValidator = v.object({
 	_id: v.id("chatActiveStreams"),
 	_creationTime: v.number(),
+	runId: v.id("assistantRuns"),
 	chatId: v.id("chats"),
-	ownerTokenIdentifier: v.string(),
-	messageId: v.string(),
+	assistantMessageId: v.string(),
 	text: v.string(),
-	status: v.union(
-		v.literal("streaming"),
-		v.literal("done"),
-		v.literal("error"),
-	),
-	createdAt: v.number(),
 	updatedAt: v.number(),
 });
 
@@ -221,44 +216,57 @@ const getActiveStreamByChatId = async (
 		.withIndex("by_chatId", (q) => q.eq("chatId", chatId))
 		.unique();
 
-const deleteToolCallsForMessageIds = async (
+const getActiveStreamByRunId = async (
+	ctx: QueryCtx | MutationCtx,
+	runId: Id<"assistantRuns">,
+) =>
+	await ctx.db
+		.query("chatActiveStreams")
+		.withIndex("by_runId", (q) => q.eq("runId", runId))
+		.unique();
+
+const nonTerminalRunStatuses = [
+	"queued",
+	"running",
+	"waiting_for_user",
+	"stopping",
+] as const;
+
+const stopActiveRunsForChat = async (
 	ctx: MutationCtx,
 	chatId: Doc<"chats">["_id"],
-	messageIds: Iterable<string>,
 ) => {
-	const uniqueMessageIds = [...new Set(messageIds)];
-	const toolCalls = (
-		await Promise.all(
-			uniqueMessageIds.map((messageId) =>
-				ctx.db
-					.query("chatToolCalls")
-					.withIndex("by_chatId_and_messageId", (q) =>
-						q.eq("chatId", chatId).eq("messageId", messageId),
-					)
-					.collect(),
-			),
-		)
-	).flat();
+	const activeRuns: Doc<"assistantRuns">[] = [];
+	for (const status of nonTerminalRunStatuses) {
+		for await (const run of ctx.db
+			.query("assistantRuns")
+			.withIndex("by_chatId_and_status", (q) =>
+				q.eq("chatId", chatId).eq("status", status),
+			)) {
+			activeRuns.push(run);
+		}
+	}
 
-	await Promise.all(toolCalls.map((toolCall) => ctx.db.delete(toolCall._id)));
+	const now = Date.now();
+	await Promise.all(
+		activeRuns.map(async (run) => {
+			await ctx.db.patch(run._id, {
+				status: "stopped",
+				stopReason: "superseded",
+				pendingDecision: undefined,
+				updatedAt: now,
+				finishedAt: now,
+			});
+			await deleteRunSnapshots(ctx, run._id);
+		}),
+	);
 };
 
 const deleteChatRuntimeRecords = async (
 	ctx: MutationCtx,
 	chatId: Doc<"chats">["_id"],
 ) => {
-	const [activeStream, toolCalls] = await Promise.all([
-		getActiveStreamByChatId(ctx, chatId),
-		ctx.db
-			.query("chatToolCalls")
-			.withIndex("by_chatId_and_createdAt", (q) => q.eq("chatId", chatId))
-			.collect(),
-	]);
-
-	await Promise.all([
-		...(activeStream ? [ctx.db.delete(activeStream._id)] : []),
-		...toolCalls.map((toolCall) => ctx.db.delete(toolCall._id)),
-	]);
+	await stopActiveRunsForChat(ctx, chatId);
 };
 
 const toStoredUiMessageSnapshot = (message: Doc<"chatMessages">) => ({
@@ -272,10 +280,10 @@ const toStoredUiMessageSnapshot = (message: Doc<"chatMessages">) => ({
 const toActiveStreamMessageSnapshot = (
 	stream: Doc<"chatActiveStreams">,
 ): StoredUiMessageSnapshot => ({
-	id: stream.messageId,
+	id: stream.assistantMessageId,
 	role: "assistant",
 	partsJson: JSON.stringify([{ type: "text", text: stream.text }]),
-	createdAt: stream.createdAt,
+	createdAt: stream._creationTime,
 });
 
 type StoredUiMessageSnapshot = {
@@ -296,9 +304,8 @@ const shouldAppendActiveStreamMessage = (
 ) =>
 	Boolean(
 		stream &&
-			stream.status === "streaming" &&
 			stream.text.length > 0 &&
-			!messages.some((message) => message.id === stream.messageId),
+			!messages.some((message) => message.id === stream.assistantMessageId),
 	);
 
 const withActiveStreamSnapshot = async <T extends StoredUiMessageSnapshot>(
@@ -866,69 +873,6 @@ export const getMessagesSnapshot = query({
 	},
 });
 
-export const getActiveStreamStatus = query({
-	args: {
-		workspaceId: v.id("workspaces"),
-		chatId: v.string(),
-	},
-	returns: v.union(v.literal("streaming"), v.null()),
-	handler: async (ctx, args) => {
-		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
-		const chat = await getOwnedActiveChatById(
-			ctx,
-			ownerTokenIdentifier,
-			args.workspaceId,
-			args.chatId,
-		);
-
-		if (!chat) {
-			return null;
-		}
-
-		const stream = await getActiveStreamByChatId(ctx, chat._id);
-
-		return stream?.status === "streaming" ? "streaming" : null;
-	},
-});
-
-export const listActiveStreamChatIds = query({
-	args: {
-		workspaceId: v.id("workspaces"),
-	},
-	returns: v.array(v.string()),
-	handler: async (ctx, args) => {
-		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
-		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
-
-		const streams = await ctx.db
-			.query("chatActiveStreams")
-			.withIndex("by_ownerTokenIdentifier_and_chatId", (q) =>
-				q.eq("ownerTokenIdentifier", ownerTokenIdentifier),
-			)
-			.collect();
-		const activeChatIds: string[] = [];
-
-		for (const stream of streams) {
-			if (stream.status !== "streaming") {
-				continue;
-			}
-
-			const chat = await ctx.db.get(stream.chatId);
-
-			if (
-				chat &&
-				chat.ownerTokenIdentifier === ownerTokenIdentifier &&
-				chat.workspaceId === args.workspaceId &&
-				!chat.isArchived
-			) {
-				activeChatIds.push(chat.chatId);
-			}
-		}
-
-		return activeChatIds;
-	},
-});
-
 export const getMessagesForOwner = internalQuery({
 	args: {
 		ownerTokenIdentifier: v.string(),
@@ -1148,7 +1092,7 @@ export const startActiveStream = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 		chatId: v.string(),
-		messageId: v.string(),
+		runId: v.id("assistantRuns"),
 	},
 	returns: chatActiveStreamValidator,
 	handler: async (ctx, args) => {
@@ -1167,36 +1111,35 @@ export const startActiveStream = mutation({
 			});
 		}
 
+		const run = await ctx.db.get(args.runId);
+		if (
+			!run ||
+			run.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			run.workspaceId !== args.workspaceId ||
+			run.chatId !== chat._id ||
+			run.status !== "running"
+		) {
+			throw new ConvexError({
+				code: "ASSISTANT_RUN_NOT_FOUND",
+				message: "Active assistant run not found.",
+			});
+		}
+
 		const now = Date.now();
 		const existingStream = await getActiveStreamByChatId(ctx, chat._id);
 
 		if (existingStream) {
-			await ctx.db.patch(existingStream._id, {
-				messageId: args.messageId,
-				text: "",
-				status: "streaming",
-				createdAt: now,
-				updatedAt: now,
+			throw new ConvexError({
+				code: "ACTIVE_STREAM_EXISTS",
+				message: "Chat already has an active stream snapshot.",
 			});
-
-			const updatedStream = await ctx.db.get(existingStream._id);
-			if (!updatedStream) {
-				throw new ConvexError({
-					code: "STREAM_SAVE_FAILED",
-					message: "Failed to start chat stream.",
-				});
-			}
-
-			return updatedStream;
 		}
 
 		const streamId = await ctx.db.insert("chatActiveStreams", {
+			runId: run._id,
 			chatId: chat._id,
-			ownerTokenIdentifier,
-			messageId: args.messageId,
+			assistantMessageId: run.assistantMessageId,
 			text: "",
-			status: "streaming",
-			createdAt: now,
 			updatedAt: now,
 		});
 		const stream = await ctx.db.get(streamId);
@@ -1216,7 +1159,7 @@ export const appendActiveStreamText = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 		chatId: v.string(),
-		messageId: v.string(),
+		runId: v.id("assistantRuns"),
 		delta: v.string(),
 	},
 	returns: v.null(),
@@ -1234,17 +1177,23 @@ export const appendActiveStreamText = mutation({
 		);
 
 		if (!chat) {
-			return null;
+			throw new ConvexError({
+				code: "CHAT_NOT_FOUND",
+				message: "Chat not found.",
+			});
 		}
 
-		const stream = await getActiveStreamByChatId(ctx, chat._id);
+		const stream = await getActiveStreamByRunId(ctx, args.runId);
 
 		if (
 			!stream ||
-			stream.status !== "streaming" ||
-			stream.messageId !== args.messageId
+			stream.chatId !== chat._id ||
+			stream.runId !== args.runId
 		) {
-			return null;
+			throw new ConvexError({
+				code: "ACTIVE_STREAM_NOT_FOUND",
+				message: "Active stream snapshot not found.",
+			});
 		}
 
 		await ctx.db.patch(stream._id, {
@@ -1256,12 +1205,11 @@ export const appendActiveStreamText = mutation({
 	},
 });
 
-export const finishActiveStream = mutation({
+export const deleteActiveStreamSnapshot = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 		chatId: v.string(),
-		messageId: v.string(),
-		status: v.union(v.literal("done"), v.literal("error")),
+		runId: v.id("assistantRuns"),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -1274,19 +1222,22 @@ export const finishActiveStream = mutation({
 		);
 
 		if (!chat) {
-			return null;
+			throw new ConvexError({
+				code: "CHAT_NOT_FOUND",
+				message: "Chat not found.",
+			});
 		}
 
-		const stream = await getActiveStreamByChatId(ctx, chat._id);
+		const stream = await getActiveStreamByRunId(ctx, args.runId);
 
-		if (!stream || stream.messageId !== args.messageId) {
-			return null;
+		if (!stream || stream.chatId !== chat._id) {
+			throw new ConvexError({
+				code: "ACTIVE_STREAM_NOT_FOUND",
+				message: "Active stream snapshot not found.",
+			});
 		}
 
-		await ctx.db.patch(stream._id, {
-			status: args.status,
-			updatedAt: Date.now(),
-		});
+		await deleteRunSnapshots(ctx, args.runId);
 
 		return null;
 	},
@@ -1296,6 +1247,7 @@ export const stopActiveStream = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
 		chatId: v.string(),
+		runId: v.id("assistantRuns"),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -1311,16 +1263,20 @@ export const stopActiveStream = mutation({
 			return null;
 		}
 
-		const stream = await getActiveStreamByChatId(ctx, chat._id);
-
-		if (!stream || stream.status !== "streaming") {
-			return null;
+		const run = await ctx.db.get(args.runId);
+		if (
+			!run ||
+			run.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			run.workspaceId !== args.workspaceId ||
+			run.chatId !== chat._id
+		) {
+			throw new ConvexError({
+				code: "ASSISTANT_RUN_NOT_FOUND",
+				message: "Assistant run not found.",
+			});
 		}
 
-		await ctx.db.patch(stream._id, {
-			status: "done",
-			updatedAt: Date.now(),
-		});
+		await deleteRunSnapshots(ctx, args.runId);
 
 		return null;
 	},
@@ -1390,24 +1346,11 @@ export const truncateFromMessage = mutation({
 
 		const messagesToDelete = messages.slice(targetIndex);
 		const previousMessage = targetIndex > 0 ? messages[targetIndex - 1] : null;
-		const activeStream = await getActiveStreamByChatId(ctx, chat._id);
-		const deletedMessageIds = messagesToDelete.map(
-			(message) => message.messageId,
-		);
-
-		if (activeStream) {
-			deletedMessageIds.push(activeStream.messageId);
-		}
-
 		await deleteChatMessageAttachments(ctx, messagesToDelete);
 		await Promise.all(
 			messagesToDelete.map((message) => ctx.db.delete(message._id)),
 		);
-		await deleteToolCallsForMessageIds(ctx, chat._id, deletedMessageIds);
-
-		if (activeStream) {
-			await ctx.db.delete(activeStream._id);
-		}
+		await stopActiveRunsForChat(ctx, chat._id);
 
 		await ctx.db.patch(chat._id, {
 			preview: previousMessage?.text ?? "",

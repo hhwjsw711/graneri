@@ -31,10 +31,35 @@ prompt construction, branch preparation, tool-loop setup, message persistence
 payloads, and active-stream persistence behavior; callers provide
 runtime-specific reads, writes, request transport, and desktop-local
 capabilities through small adapter callbacks.
-Hosted chat active streams persist both incremental assistant text and tool-call
-lifecycle records through those callbacks. The persisted tool-call records are
-operational state for observing and recovering agent runs; they do not move
-desktop-local tool execution out of the renderer/local-server bridge.
+Hosted chat runs are durable Convex lifecycle records. `assistantRuns` owns run
+state, stop/failure/completion history, and the one-active-run-per-chat
+invariant. `chatActiveStreams` and active `chatToolCalls` are temporary render
+snapshots scoped to a run; terminal runs must leave no stream or active tool
+snapshots behind. These records do not move desktop-local tool execution out of
+the renderer/local-server bridge.
+AI SDK stream resume must attach to a non-terminal `assistantRuns` record and a
+live in-process producer. It must not infer lifecycle from partial stream text.
+If Convex has an attachable run but the current process has no matching producer,
+the run fails and temporary snapshots are cleaned up rather than returning a
+synthetic stream. Resume request preparation must fail when required workspace
+or authentication state is unavailable; it must not fall back to the normal chat
+send endpoint.
+Human-blocking assistant work uses `waiting_for_user` plus a typed
+`pendingDecision` on the run. Producers must resume the same run after the
+decision instead of creating a second active run. Normal duplicate sends must
+reject before persisting a new user message when a chat already has a
+non-terminal run; regenerate is the explicit supersede path. Stop requests are
+idempotent at the HTTP boundary: no attachable run means there is nothing left
+to stop, so the route may return success without creating synthetic run state.
+Follow-up queueing is durable run state, not UI-local buffering.
+`assistantQueuedMessages` stores queued user messages and request context scoped
+to the active run. Completed runs leave queued follow-ups for the client drain
+path, which claims the next queued item only after no non-terminal run remains
+for the chat. Stop, failure, and supersede cleanup may discard still-queued work
+for that run. If a producer fails before handing a claimed item to the chat
+transport, it must requeue the item rather than losing it. Durable queued
+request state must not persist desktop-local folder scope or absolute paths;
+follow-ups that need local-folder tools must wait for the current run to finish.
 
 Connected app AI capabilities are declared in
 `packages/ai/src/capability-registry.mjs`. The registry is the source of truth

@@ -34,6 +34,34 @@ const createWorkspace = async () => {
 	};
 };
 
+type WorkspaceFixture = Awaited<ReturnType<typeof createWorkspace>>;
+type AsOwner = WorkspaceFixture["asOwner"];
+type WorkspaceId = WorkspaceFixture["workspaceId"];
+
+const startRunAndStream = async ({
+	asOwner,
+	chatId,
+	workspaceId,
+}: {
+	asOwner: AsOwner;
+	chatId: string;
+	workspaceId: WorkspaceId;
+}) => {
+	const run = await asOwner.mutation(api.assistantRuns.startAssistantRun, {
+		workspaceId,
+		chatId,
+		assistantMessageId: "stream-1",
+		model: "gpt-5",
+		policy: "reject",
+	});
+	await asOwner.mutation(api.chats.startActiveStream, {
+		workspaceId,
+		chatId,
+		runId: run._id,
+	});
+	return run;
+};
+
 test("active stream tool calls persist lifecycle for the current stream", async () => {
 	const { asOwner, t, workspaceId } = await createWorkspace();
 
@@ -49,10 +77,10 @@ test("active stream tool calls persist lifecycle for the current stream", async 
 			createdAt: 2_000,
 		},
 	});
-	await asOwner.mutation(api.chats.startActiveStream, {
+	const run = await startRunAndStream({
+		asOwner,
 		workspaceId,
 		chatId: "chat-tools",
-		messageId: "stream-1",
 	});
 
 	const startedToolCall = await asOwner.mutation(
@@ -60,7 +88,7 @@ test("active stream tool calls persist lifecycle for the current stream", async 
 		{
 			workspaceId,
 			chatId: "chat-tools",
-			messageId: "stream-1",
+			runId: run._id,
 			toolCallId: "tool-call-1",
 			toolName: "search",
 			inputJson: JSON.stringify({ query: "note" }),
@@ -76,7 +104,7 @@ test("active stream tool calls persist lifecycle for the current stream", async 
 		{
 			workspaceId,
 			chatId: "chat-tools",
-			messageId: "stream-1",
+			runId: run._id,
 			toolCallId: "tool-call-1",
 			status: "completed",
 			outputJson: JSON.stringify({ result: "found" }),
@@ -89,16 +117,14 @@ test("active stream tool calls persist lifecycle for the current stream", async 
 	const storedToolCalls = await t.run(async (ctx) =>
 		ctx.db
 			.query("chatToolCalls")
-			.withIndex("by_chatId_and_createdAt", (q) =>
-				q.eq("chatId", startedToolCall.chatId),
-			)
+			.withIndex("by_runId", (q) => q.eq("runId", run._id))
 			.take(10),
 	);
 	expect(storedToolCalls).toHaveLength(1);
-	expect(storedToolCalls[0]?.messageId).toBe("stream-1");
+	expect(storedToolCalls[0]?.runId).toBe(run._id);
 });
 
-test("active stream tool calls reject stale stream message ids", async () => {
+test("active stream tool calls reject stale run ids", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 
 	await asOwner.mutation(api.chats.saveMessage, {
@@ -113,17 +139,20 @@ test("active stream tool calls reject stale stream message ids", async () => {
 			createdAt: 2_000,
 		},
 	});
-	await asOwner.mutation(api.chats.startActiveStream, {
+	const run = await startRunAndStream({
+		asOwner,
 		workspaceId,
 		chatId: "chat-tools-stale",
-		messageId: "stream-current",
+	});
+	await asOwner.mutation(api.assistantRuns.finishAssistantRun, {
+		runId: run._id,
 	});
 
 	await expect(
 		asOwner.mutation(api.chatToolCalls.startActiveStreamToolCall, {
 			workspaceId,
 			chatId: "chat-tools-stale",
-			messageId: "stream-stale",
+			runId: run._id,
 			toolCallId: "tool-call-1",
 			toolName: "search",
 		}),
