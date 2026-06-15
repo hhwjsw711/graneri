@@ -56,7 +56,9 @@ import {
 	findReasoningEffort,
 } from "@/lib/ai/models";
 import {
+	getStoredChatReasoningEffort,
 	getStoredReasoningEffort,
+	storeChatReasoningEffort,
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 import { getChatId } from "@/lib/chat";
@@ -125,7 +127,7 @@ const getLatestUserMessageText = (messages: UIMessage[]) => {
 const getStoredChatModel = (model: string | undefined): ChatModel | null =>
 	model ? (findChatModel(model) ?? null) : null;
 
-const getStoredChatReasoningEffort = (
+const getPersistedChatReasoningEffort = (
 	reasoningEffort: string | undefined,
 ): ReasoningEffort | null =>
 	reasoningEffort ? (findReasoningEffort(reasoningEffort)?.id ?? null) : null;
@@ -513,7 +515,8 @@ const useChatPageController = ({
 		getStoredLocalChatModel() ??
 		chatModels[0];
 	const selectedReasoningEffort =
-		getStoredChatReasoningEffort(currentChat?.reasoningEffort) ??
+		getStoredChatReasoningEffort(chatId) ??
+		getPersistedChatReasoningEffort(currentChat?.reasoningEffort) ??
 		reasoningEffort;
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const isModelResolving = isChatsLoading && !currentChat;
@@ -545,6 +548,7 @@ const useChatPageController = ({
 		(value: ReasoningEffort) => {
 			setReasoningEffort(value);
 			storeReasoningEffort(value);
+			storeChatReasoningEffort(chatId, value);
 
 			if (!activeWorkspaceId || currentChat?.reasoningEffort === value) {
 				return;

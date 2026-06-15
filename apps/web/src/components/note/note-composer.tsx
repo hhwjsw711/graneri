@@ -122,7 +122,9 @@ import {
 } from "@/lib/ai/chat-model";
 import { findChatModel, findReasoningEffort } from "@/lib/ai/models";
 import {
+	getStoredChatReasoningEffort,
 	getStoredReasoningEffort,
+	storeChatReasoningEffort,
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
@@ -230,7 +232,7 @@ const getNoteScopedStorageKey = ({
 const getStoredChatModel = (model: string | undefined): ChatModel | null =>
 	model ? (findChatModel(model) ?? null) : null;
 
-const getStoredChatReasoningEffort = (
+const getPersistedChatReasoningEffort = (
 	reasoningEffort: string | undefined,
 ): ReasoningEffort | null =>
 	reasoningEffort ? (findReasoningEffort(reasoningEffort)?.id ?? null) : null;
@@ -709,9 +711,11 @@ const useNoteComposerController = ({
 		getStoredChatModel(selectedNoteChat?.model ?? currentChatSession?.model) ??
 		getStoredLocalChatModel();
 	const selectedReasoningEffort =
-		getStoredChatReasoningEffort(
+		getStoredChatReasoningEffort(currentChatId) ??
+		getPersistedChatReasoningEffort(
 			selectedNoteChat?.reasoningEffort ?? currentChatSession?.reasoningEffort,
-		) ?? reasoningEffort;
+		) ??
+		reasoningEffort;
 	const updateUserPreferences = useMutation(api.userPreferences.update);
 	const truncateFromMessage = useMutation(api.chats.truncateFromMessage);
 	const persistChatSettings = useMutation(api.chats.setChatSettings);
@@ -751,6 +755,7 @@ const useNoteComposerController = ({
 		(value: ReasoningEffort) => {
 			setReasoningEffort(value);
 			storeReasoningEffort(value);
+			storeChatReasoningEffort(currentChatId, value);
 
 			if (!activeWorkspaceId || currentChatSession?.reasoningEffort === value) {
 				return;

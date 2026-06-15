@@ -1,4 +1,5 @@
 import { useMutation } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import * as React from "react";
 import { toast } from "sonner";
 import { fromQueuedUserMessage } from "@/lib/chat-queue";
@@ -13,6 +14,9 @@ type QueuedChatSendMessage = (
 	message: PreparedQueuedMessage["message"],
 	options: { body: PreparedQueuedMessage["body"] },
 ) => Promise<unknown>;
+type AttachableRun =
+	| FunctionReturnType<typeof api.assistantRuns.getAttachableRun>
+	| undefined;
 
 export const useQueuedChatDrain = ({
 	activeRun,
@@ -23,7 +27,7 @@ export const useQueuedChatDrain = ({
 	sendMessage,
 	workspaceId,
 }: {
-	activeRun: unknown;
+	activeRun: AttachableRun;
 	chatId: string;
 	contextLabel: string;
 	isBlocked: boolean;
