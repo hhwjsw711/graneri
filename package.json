@@ -60,6 +60,7 @@
     "better-auth": "1.5.5",
     "canvas-confetti": "^1.9.4",
     "convex": "^1.37.0",
+    "pino": "^10.1.0",
     "streamdown": "^2.5.0",
     "zod": "^4.1.12"
   },

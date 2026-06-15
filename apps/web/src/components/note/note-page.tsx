@@ -20,6 +20,7 @@ import { MarkdownStreamEntry } from "@/components/chat/markdown-stream-entry";
 import { COMPOSER_DOCK_WRAPPER_CLASS } from "@/components/layout/composer-dock";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
+import { logError } from "@/lib/logger";
 import {
 	getExportFileName,
 	getMarkdownContent,
@@ -136,7 +137,7 @@ const createTextMatchRanges = ({
 };
 
 const showActionError = (message: string, error: unknown) => {
-	console.error(message, error);
+	logError({ event: "client.error", error: error, message: message });
 	toast.error(message);
 };
 
@@ -331,7 +332,11 @@ const useNotePageController = ({
 					pendingSaveRef.current = null;
 				}
 			} catch (error) {
-				console.error("Failed to save note", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to save note",
+				});
 			} finally {
 				saveInFlightRef.current = false;
 
@@ -982,7 +987,11 @@ const useNotePageController = ({
 						});
 					}
 				} catch (revertError) {
-					console.error("Failed to revert note template", revertError);
+					logError({
+						event: "client.error",
+						error: revertError,
+						message: "Failed to revert note template",
+					});
 				}
 				setEditorDocument(previousDocument);
 				setTitle(previousTitle);

@@ -1,3 +1,4 @@
+import { logInfo } from "@/lib/logger";
 import type { NoteTemplate } from "@/lib/note-templates";
 import {
 	isStructuredNote,
@@ -32,7 +33,8 @@ export const requestEnhancedStructuredNote = async (
 	};
 	const payloadKeys = Object.keys(payload);
 
-	console.info("[enhance-note] renderer.response", {
+	logInfo({
+		event: "enhance_note.renderer_response",
 		ok: response.ok,
 		payloadKeys,
 		status: response.status,

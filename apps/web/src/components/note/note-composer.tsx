@@ -141,6 +141,7 @@ import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
 } from "@/lib/local-folder-sharing";
+import { logError } from "@/lib/logger";
 import { ENHANCED_NOTE_TEMPLATE_SLUG } from "@/lib/note-templates";
 import { createPlainTextEditorExtensions } from "@/lib/plain-text-editor";
 import {
@@ -730,7 +731,11 @@ const useNoteComposerController = ({
 				chatId: currentChatId,
 				model: model.model,
 			}).catch((error) => {
-				console.error("Failed to persist note chat model", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to persist note chat model",
+				});
 				toast.error("Failed to save model");
 			});
 		},
@@ -755,7 +760,11 @@ const useNoteComposerController = ({
 				chatId: currentChatId,
 				reasoningEffort: value,
 			}).catch((error) => {
-				console.error("Failed to persist note chat reasoning effort", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to persist note chat reasoning effort",
+				});
 				toast.error("Failed to save reasoning");
 			});
 		},
@@ -792,7 +801,11 @@ const useNoteComposerController = ({
 					transcriptionLanguage: parseTranscriptionLanguageSelectValue(value),
 				});
 			} catch (error) {
-				console.error("Failed to update transcription language", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to update transcription language",
+				});
 				toast.error("Failed to update transcription language");
 			} finally {
 				setIsSavingTranscriptionLanguage(false);
@@ -831,7 +844,11 @@ const useNoteComposerController = ({
 				convex,
 				workspaceId: activeWorkspaceId,
 			}).catch((error) => {
-				console.error("Failed to prefetch note chat snapshot", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to prefetch note chat snapshot",
+				});
 			});
 		},
 		[activeWorkspaceId, convex],
@@ -1376,7 +1393,11 @@ const useNoteComposerController = ({
 	}, [activeWorkspaceId, currentChatId, isPersistedChatStreaming, stop]);
 	const handleStop = React.useCallback(() => {
 		void stopCurrentStream().catch((error) => {
-			console.error("Failed to stop note chat stream", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to stop note chat stream",
+			});
 			toast.error(
 				error instanceof Error
 					? error.message
@@ -1676,7 +1697,11 @@ const useNoteComposerController = ({
 			setAttachedFiles([]);
 			resetTextareaHeight();
 		} catch (error) {
-			console.error("Failed to prepare note chat request", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to prepare note chat request",
+			});
 			toast.error(
 				error instanceof Error
 					? error.message
@@ -1806,7 +1831,11 @@ const useNoteComposerController = ({
 				chatId: currentChatId,
 				messageId,
 			}).catch((error) => {
-				console.error("Failed to delete note chat message", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to delete note chat message",
+				});
 				toast.error("Failed to delete message");
 			});
 		},
@@ -1851,7 +1880,11 @@ const useNoteComposerController = ({
 					setIsPreparingRequest(false);
 				});
 			} catch (error) {
-				console.error("Failed to prepare note chat regeneration", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to prepare note chat regeneration",
+				});
 				setIsPreparingRequest(false);
 			}
 		},
@@ -2071,7 +2104,11 @@ const useNoteComposerController = ({
 			try {
 				await openDesktopSoundSettings();
 			} catch (error) {
-				console.error("Failed to open sound settings", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to open sound settings",
+				});
 				toast.error("Failed to open sound settings");
 			}
 		},
@@ -3528,7 +3565,11 @@ function TranscriptPanelHeader({
 									);
 									toast.success("Transcript copied");
 								} catch (error) {
-									console.error("Failed to copy transcript", error);
+									logError({
+										event: "client.error",
+										error: error,
+										message: "Failed to copy transcript",
+									});
 									toast.error("Failed to copy transcript");
 								}
 							}}

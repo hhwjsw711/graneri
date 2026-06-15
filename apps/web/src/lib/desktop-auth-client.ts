@@ -1,9 +1,14 @@
 import { getDesktopBridge } from "@workspace/platform/desktop";
 import * as React from "react";
+import type {
+	GraneriAuthClient,
+	JsonWebKeySet,
+} from "@/lib/graneri-auth-client";
 
 type DesktopSessionData = {
 	user: Record<string, unknown> & {
 		email?: string | null;
+		id?: string | null;
 		image?: string | null;
 		name?: string | null;
 	};
@@ -16,12 +21,18 @@ type SessionState = {
 	data: DesktopSessionData;
 	error: Error | null;
 	isPending: boolean;
+	isRefetching: boolean;
+	refetch: () => void;
 };
 
 const defaultSessionState: SessionState = {
 	data: null,
 	error: null,
 	isPending: true,
+	isRefetching: false,
+	refetch: () => {
+		void refreshDesktopSession();
+	},
 };
 
 const listeners = new Set<() => void>();
@@ -65,9 +76,6 @@ type ConvexFetchOptions = {
 
 type OneTimeTokenVerifyArgs = {
 	token: string;
-	fetchOptions?: {
-		headers?: HeadersInit;
-	};
 };
 
 type DesktopFetchOptions = {
@@ -145,6 +153,24 @@ const setSessionState = (
 	notifyListeners();
 };
 
+const createSessionState = ({
+	data,
+	error,
+	isPending,
+}: {
+	data: DesktopSessionData;
+	error: Error | null;
+	isPending: boolean;
+}): SessionState => ({
+	data,
+	error,
+	isPending,
+	isRefetching: false,
+	refetch: () => {
+		void refreshDesktopSession();
+	},
+});
+
 const desktopAuthFetch = async ({
 	path,
 	method = "GET",
@@ -188,11 +214,13 @@ const refreshDesktopSession = async ({
 		.then((data: unknown) => {
 			const nextData = isDesktopSessionData(data) ? data : null;
 
-			setSessionState({
-				data: nextData,
-				error: null,
-				isPending: false,
-			});
+			setSessionState(
+				createSessionState({
+					data: nextData,
+					error: null,
+					isPending: false,
+				}),
+			);
 
 			return {
 				data: nextData,
@@ -207,11 +235,13 @@ const refreshDesktopSession = async ({
 				"Failed to fetch session.",
 			);
 
-			setSessionState({
-				data: null,
-				error: nextError,
-				isPending: false,
-			});
+			setSessionState(
+				createSessionState({
+					data: null,
+					error: nextError,
+					isPending: false,
+				}),
+			);
 
 			return {
 				data: null,
@@ -287,21 +317,23 @@ export const desktopAuthClient = {
 			body: {},
 			throw: true,
 		});
-		setSessionState({
-			data: null,
-			error: null,
-			isPending: false,
-		});
-		return { data: null, error: null };
+		setSessionState(
+			createSessionState({
+				data: null,
+				error: null,
+				isPending: false,
+			}),
+		);
+		return { data: { success: true }, error: null };
 	},
-	$fetch: async (path: string, options: DesktopFetchOptions = {}) =>
-		await desktopAuthFetch({
+	$fetch: async <TResult>(path: string, options: DesktopFetchOptions = {}) =>
+		(await desktopAuthFetch({
 			path,
 			method: options.method,
 			body: options.body,
 			headers: options.headers,
 			throw: options.throw,
-		}),
+		})) as TResult,
 	signIn: {
 		social: async ({
 			provider,
@@ -350,53 +382,51 @@ export const desktopAuthClient = {
 		},
 	},
 	convex: {
-		token: async ({ fetchOptions }: ConvexFetchOptions = {}) => ({
-			data: await fetchConvexEndpoint("/convex/token", fetchOptions?.headers),
-			error: null,
-		}),
-		jwks: async ({ fetchOptions }: ConvexFetchOptions = {}) => ({
-			data: await fetchConvexEndpoint("/convex/jwks", fetchOptions?.headers),
-			error: null,
-		}),
-		getJwks: async ({ fetchOptions }: ConvexFetchOptions = {}) => ({
-			data: await fetchConvexEndpoint("/convex/jwks", fetchOptions?.headers),
-			error: null,
-		}),
-		getOpenIdConfig: async ({ fetchOptions }: ConvexFetchOptions = {}) => ({
-			data: await fetchConvexEndpoint(
-				"/convex/.well-known/openid-configuration",
+		token: async ({ fetchOptions }: ConvexFetchOptions = {}) => {
+			const data = await fetchConvexEndpoint(
+				"/convex/token",
 				fetchOptions?.headers,
-			),
+			);
+			const token =
+				data && typeof data === "object" && "token" in data ? data.token : null;
+			return {
+				data: typeof token === "string" ? { token } : null,
+				error: null,
+			};
+		},
+		jwks: async ({ fetchOptions }: ConvexFetchOptions = {}) => ({
+			data: (await fetchConvexEndpoint(
+				"/convex/jwks",
+				fetchOptions?.headers,
+			)) as JsonWebKeySet,
 			error: null,
 		}),
-	},
-	updateSession: () => {
-		void refreshDesktopSession();
 	},
 	crossDomain: {
 		oneTimeToken: {
-			verify: async ({ token, fetchOptions }: OneTimeTokenVerifyArgs) => {
+			verify: async ({ token }: OneTimeTokenVerifyArgs) => {
 				const data = await desktopAuthFetch({
 					path: "/cross-domain/one-time-token/verify",
 					method: "POST",
 					body: { token },
-					headers: fetchOptions?.headers,
 				});
 
-				void refreshDesktopSession({
-					headers: isDesktopSessionData(data)
-						? {
-								...(fetchOptions?.headers ?? {}),
-								Authorization: `Bearer ${String(data.session?.token ?? "")}`,
-							}
-						: fetchOptions?.headers,
-				});
+				if (isDesktopSessionData(data)) {
+					void refreshDesktopSession({
+						headers: {
+							Authorization: `Bearer ${String(data.session?.token ?? "")}`,
+						},
+					});
+				}
 
 				return {
-					data,
+					data: isDesktopSessionData(data) ? data : null,
 					error: null,
 				};
 			},
 		},
 	},
-};
+	updateSession: () => {
+		void refreshDesktopSession();
+	},
+} satisfies GraneriAuthClient;

@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import * as React from "react";
+import { logError } from "@/lib/logger";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 type AttachableRun = {
@@ -50,7 +51,11 @@ export const useResumeActiveChatRun = ({
 				if (resumedRunKeyRef.current === runKey) {
 					resumedRunKeyRef.current = null;
 				}
-				console.error("Failed to resume active chat run", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to resume active chat run",
+				});
 			})
 			.finally(() => {
 				if (resumeRunPromises.get(runKey) === resumePromise) {

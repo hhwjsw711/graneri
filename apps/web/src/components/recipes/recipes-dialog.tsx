@@ -25,6 +25,7 @@ import {
 	createUniqueDraftName,
 	createUniqueDraftSlug,
 } from "@/lib/draft-naming";
+import { logError } from "@/lib/logger";
 import {
 	getRecipeIcon,
 	type RecipePrompt,
@@ -326,7 +327,11 @@ const useRecipeDraftEditor = ({
 			toast.success("Recipes saved");
 			onOpenChange(false);
 		} catch (error) {
-			console.error("Failed to save recipes", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to save recipes",
+			});
 			toast.error("Failed to save recipes");
 		} finally {
 			setIsSaving(false);

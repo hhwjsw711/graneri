@@ -51,6 +51,7 @@ import {
 	createUniqueDraftName,
 	createUniqueDraftSlug,
 } from "@/lib/draft-naming";
+import { logError } from "@/lib/logger";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
@@ -503,7 +504,11 @@ const useTemplateDraftEditor = ({
 			toast.success("Templates saved");
 			onOpenChange(false);
 		} catch (error) {
-			console.error("Failed to save templates", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to save templates",
+			});
 			toast.error("Failed to save templates");
 		} finally {
 			setIsSaving(false);

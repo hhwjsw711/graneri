@@ -13,7 +13,11 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 import { CalendarClock, FileText } from "lucide-react";
 import * as React from "react";
-import type { AppUser, UpcomingCalendarEvent } from "@/app/app-types";
+import type {
+	AppUser,
+	UpcomingCalendarEvent,
+	UpcomingCalendarState,
+} from "@/app/app-types";
 import {
 	formatUpcomingEventMeta,
 	getUpcomingCalendarIndicator,
@@ -36,9 +40,7 @@ export function HomeView({
 	currentDayOfMonth,
 	currentMonthLabel,
 	currentWeekdayLabel,
-	upcomingCalendarEvents,
-	upcomingCalendarStatus,
-	isLoadingUpcomingCalendarEvents,
+	upcomingCalendar,
 	notes,
 	currentNoteId,
 	currentNoteTitle,
@@ -54,9 +56,7 @@ export function HomeView({
 	currentDayOfMonth: number;
 	currentMonthLabel: string;
 	currentWeekdayLabel: string;
-	upcomingCalendarEvents: UpcomingCalendarEvent[];
-	upcomingCalendarStatus: "idle" | "ready" | "not_connected" | "error";
-	isLoadingUpcomingCalendarEvents: boolean;
+	upcomingCalendar: UpcomingCalendarState;
 	notes: Array<Doc<"notes">> | undefined;
 	currentNoteId: Id<"notes"> | null;
 	currentNoteTitle: string;
@@ -75,7 +75,7 @@ export function HomeView({
 	onOpenCalendarSettings: () => void;
 }) {
 	const visibleUpcomingEvents = [];
-	for (const event of upcomingCalendarEvents) {
+	for (const event of upcomingCalendar.events) {
 		if (event.isMeeting && isUpcomingEventToday(event, currentDate)) {
 			visibleUpcomingEvents.push(event);
 			if (visibleUpcomingEvents.length === 5) {
@@ -84,15 +84,14 @@ export function HomeView({
 		}
 	}
 	const shouldShowUpcomingCalendarSkeleton =
-		isLoadingUpcomingCalendarEvents &&
-		upcomingCalendarStatus === "idle" &&
+		upcomingCalendar.status === "checking" &&
 		visibleUpcomingEvents.length === 0;
 	const hasLiveUpcomingMeeting = visibleUpcomingEvents.some((event) =>
 		isUpcomingEventLive(event, currentDate),
 	);
 	const upcomingCalendarIndicator = getUpcomingCalendarIndicator({
 		hasLiveMeeting: hasLiveUpcomingMeeting,
-		status: upcomingCalendarStatus,
+		status: upcomingCalendar.status,
 	});
 	const recordingNoteId = useRecordingNoteId();
 
@@ -230,16 +229,16 @@ export function HomeView({
 													<CalendarClock className="size-4" />
 												</EmptyMedia>
 												<EmptyTitle>
-													{upcomingCalendarStatus === "not_connected"
+													{upcomingCalendar.status === "not_connected"
 														? "Connect a calendar"
-														: upcomingCalendarStatus === "error"
+														: upcomingCalendar.status === "error"
 															? "Couldn’t load calendar"
 															: "No upcoming events today"}
 												</EmptyTitle>
 												<EmptyDescription>
-													{upcomingCalendarStatus === "not_connected"
+													{upcomingCalendar.status === "not_connected"
 														? "Link your calendar in settings to see upcoming meetings."
-														: upcomingCalendarStatus === "error"
+														: upcomingCalendar.status === "error"
 															? "Try reconnecting your calendars or refresh the app."
 															: "Check your visible calendars for today"}
 												</EmptyDescription>

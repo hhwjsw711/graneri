@@ -1,25 +1,14 @@
-import {
-	convexClient,
-	crossDomainClient,
-} from "@convex-dev/better-auth/client/plugins";
-import { createAuthClient } from "better-auth/react";
 import { desktopAuthClient } from "./desktop-auth-client";
+import type { AuthSession, GraneriAuthClient } from "./graneri-auth-client";
+import { createWebGraneriAuthClient } from "./web-auth-client";
 
-const createConfiguredAuthClient = (baseURL: string) =>
-	createAuthClient({
-		baseURL,
-		plugins: [convexClient(), crossDomainClient()],
-	});
+export let authClient!: GraneriAuthClient;
 
-type WebAuthClient = ReturnType<typeof createConfiguredAuthClient>;
-export type AuthSession = WebAuthClient["$Infer"]["Session"];
-type AuthClient = WebAuthClient;
-
-export let authClient!: AuthClient;
+export type { AuthSession };
 
 export function initializeAuthClient(baseURL: string, isDesktop = false) {
 	authClient = isDesktop
-		? (desktopAuthClient as unknown as AuthClient)
-		: createConfiguredAuthClient(baseURL);
+		? desktopAuthClient
+		: createWebGraneriAuthClient(baseURL);
 	return authClient;
 }

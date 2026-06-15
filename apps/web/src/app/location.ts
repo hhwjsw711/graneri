@@ -159,7 +159,7 @@ export const getUpcomingCalendarIndicator = ({
 	status,
 }: {
 	hasLiveMeeting: boolean;
-	status: "idle" | "ready" | "not_connected" | "error";
+	status: "checking" | "ready" | "not_connected" | "error";
 }) => {
 	if (hasLiveMeeting) {
 		return {
@@ -168,7 +168,7 @@ export const getUpcomingCalendarIndicator = ({
 		};
 	}
 
-	if (status === "idle") {
+	if (status === "checking") {
 		return {
 			label: "Checking",
 			dotClassName: "bg-warning-foreground",

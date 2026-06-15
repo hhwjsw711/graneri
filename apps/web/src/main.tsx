@@ -1,4 +1,3 @@
-import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
 import { StrictMode, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -12,10 +11,12 @@ import {
 	useTheme,
 } from "@workspace/ui/components/theme-provider";
 import { ScrollRailVisibilityProvider } from "@workspace/ui/lib/scroll-rail";
+import { logError } from "@/lib/logger";
 import App from "./App.tsx";
 import { MeetingWidgetScreen } from "./components/desktop/meeting-widget-screen";
 import { initializeAuthClient } from "./lib/auth-client";
 import { initializeConvexClient } from "./lib/convex";
+import { GraneriConvexAuthProvider } from "./lib/graneri-convex-auth-provider";
 import { installNavigationHistoryState } from "./lib/navigation-history-state";
 import { loadRuntimeConfig } from "./lib/runtime-config";
 
@@ -35,7 +36,11 @@ installNavigationHistoryState();
 
 const syncDesktopNativeTheme = (theme: DesktopThemeSource) => {
 	void setDesktopNativeTheme(theme).catch((error: unknown) => {
-		console.error("Failed to sync native desktop theme", error);
+		logError({
+			event: "client.error",
+			error: error,
+			message: "Failed to sync native desktop theme",
+		});
 	});
 };
 
@@ -66,21 +71,18 @@ async function bootstrap() {
 	const runtimeConfig = await loadRuntimeConfig();
 
 	const convex = initializeConvexClient(runtimeConfig.convexUrl);
-	const authClient = initializeAuthClient(
-		runtimeConfig.convexSiteUrl,
-		runtimeConfig.isDesktop,
-	);
+	initializeAuthClient(runtimeConfig.convexSiteUrl, runtimeConfig.isDesktop);
 
 	root.render(
 		<StrictMode>
-			<ConvexBetterAuthProvider client={convex} authClient={authClient}>
+			<GraneriConvexAuthProvider client={convex}>
 				<ThemeProvider>
 					<DesktopNativeThemeSync />
 					<ScrollRailVisibilityProvider />
 					<App />
 					<Toaster />
 				</ThemeProvider>
-			</ConvexBetterAuthProvider>
+			</GraneriConvexAuthProvider>
 		</StrictMode>,
 	);
 }

@@ -64,6 +64,7 @@ import {
 import * as React from "react";
 import { toast } from "sonner";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
+import { logError } from "@/lib/logger";
 import { archiveNoteChats } from "@/lib/optimistic-note-chats";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
@@ -183,7 +184,11 @@ function useNoteStarControl(noteId: Id<"notes">) {
 			});
 			toast.success(result.isStarred ? "Note starred" : "Note unstarred");
 		} catch (error) {
-			console.error("Failed to update note star", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to update note star",
+			});
 			toast.error("Failed to update note star");
 		} finally {
 			setIsUpdatingStar(false);
@@ -374,7 +379,11 @@ function useNoteActionsMenu({
 			await writeTextToClipboard(shareUrl);
 			toast.success("Link copied");
 		} catch (error) {
-			console.error("Failed to copy note link", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to copy note link",
+			});
 			toast.error("Failed to copy link");
 		}
 	}, [activeWorkspaceId, ensureShareId, noteId]);
@@ -405,7 +414,11 @@ function useNoteActionsMenu({
 			setRenameValue(nextTitle);
 			toast.success("Note renamed");
 		} catch (error) {
-			console.error("Failed to rename note", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to rename note",
+			});
 			toast.error("Failed to rename note");
 		} finally {
 			setIsRenaming(false);
@@ -487,7 +500,11 @@ function useNoteActionsMenu({
 						: "Note shared and link copied",
 				);
 			} catch (error) {
-				console.error("Failed to update note visibility", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to update note visibility",
+				});
 				toast.error("Failed to update sharing");
 			} finally {
 				setIsUpdatingShare(false);
@@ -520,7 +537,11 @@ function useNoteActionsMenu({
 					projectId ? "Note moved to project" : "Removed from project",
 				);
 			} catch (error) {
-				console.error("Failed to update project", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to update project",
+				});
 				toast.error("Failed to update project");
 			} finally {
 				setIsUpdatingProject(false);
@@ -543,7 +564,11 @@ function useNoteActionsMenu({
 				toast.success("Note moved to trash");
 			})
 			.catch((error) => {
-				console.error("Failed to move note to trash", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to move note to trash",
+				});
 				toast.error("Failed to move note to trash");
 			})
 			.finally(() => {

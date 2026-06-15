@@ -123,6 +123,7 @@ import {
 	getGoogleLinkedAccount,
 	hasGoogleScope,
 } from "@/lib/google-integrations";
+import { logError } from "@/lib/logger";
 import { loadRuntimeConfig } from "@/lib/runtime-config";
 import {
 	mergeUserPreferencesForOptimisticUpdate,
@@ -1267,7 +1268,11 @@ function NotificationsSettings() {
 				...preferences,
 			});
 		} catch (error) {
-			console.error("Failed to update notification preferences", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to update notification preferences",
+			});
 			toast.error("Failed to update notification preferences");
 		} finally {
 			setIsSavingNotificationPreference(false);
@@ -1343,7 +1348,11 @@ function PreferencesSettings() {
 					}
 				}
 			} catch (error) {
-				console.error("Failed to load desktop preferences", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to load desktop preferences",
+				});
 				if (!isCancelled) {
 					dispatch({ type: "finishLoading" });
 					toast.error("Failed to load desktop preferences");
@@ -1358,12 +1367,17 @@ function PreferencesSettings() {
 		};
 	}, []);
 
-	const savePreference = async (
-		key: "keepDictationBarVisible" | "launchAtLogin",
-		value: boolean,
-		save: (value: boolean) => Promise<DesktopPreferences | null>,
-		errorMessage: string,
-	) => {
+	const savePreference = async ({
+		errorMessage,
+		key,
+		save,
+		value,
+	}: {
+		errorMessage: string;
+		key: "keepDictationBarVisible" | "launchAtLogin";
+		save: (value: boolean) => Promise<DesktopPreferences | null>;
+		value: boolean;
+	}) => {
 		if (!isDesktopRuntime()) {
 			return;
 		}
@@ -1379,7 +1393,7 @@ function PreferencesSettings() {
 			}
 			dispatch({ type: "setPreferences", value: nextPreferences });
 		} catch (error) {
-			console.error(errorMessage, error);
+			logError({ event: "client.error", error: error, message: errorMessage });
 			dispatch({ type: "setPreferences", value: previousPreferences });
 			toast.error(errorMessage);
 		} finally {
@@ -1416,12 +1430,12 @@ function PreferencesSettings() {
 						!(preferences?.canLaunchAtLogin ?? false)
 					}
 					onCheckedChange={(checked) => {
-						void savePreference(
-							"launchAtLogin",
-							checked,
-							setDesktopLaunchAtLogin,
-							"Failed to update launch at login preference",
-						);
+						void savePreference({
+							errorMessage: "Failed to update launch at login preference",
+							key: "launchAtLogin",
+							save: setDesktopLaunchAtLogin,
+							value: checked,
+						});
 					}}
 				/>
 				<SettingsSwitchRow
@@ -1433,12 +1447,12 @@ function PreferencesSettings() {
 						savingPreference === "keepDictationBarVisible"
 					}
 					onCheckedChange={(checked) => {
-						void savePreference(
-							"keepDictationBarVisible",
-							checked,
-							setDesktopKeepDictationBarVisible,
-							"Failed to update dictation bar preference",
-						);
+						void savePreference({
+							errorMessage: "Failed to update dictation bar preference",
+							key: "keepDictationBarVisible",
+							save: setDesktopKeepDictationBarVisible,
+							value: checked,
+						});
 					}}
 				/>
 			</FieldGroup>
@@ -1521,7 +1535,11 @@ function useCalendarSettingsController() {
 				...nextPreferences,
 			});
 		} catch (error) {
-			console.error("Failed to update calendar preferences", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to update calendar preferences",
+			});
 			toast.error("Failed to update calendar visibility");
 		} finally {
 			dispatch({ type: "setIsSavingCalendarPreferences", value: false });
@@ -1764,7 +1782,11 @@ function useYandexCalendarConnectionDialog({
 			toast.success("Yandex Calendar connected");
 			handleYandexCalendarDialogOpenChange(false);
 		} catch (error) {
-			console.error("Failed to connect Yandex Calendar", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Yandex Calendar",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -2448,7 +2470,11 @@ function useConnectionsSettingsController() {
 			toast.success("Yandex Tracker connected");
 			handleYandexTrackerDialogOpenChange(false);
 		} catch (error) {
-			console.error("Failed to connect Yandex Tracker", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Yandex Tracker",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -2505,7 +2531,11 @@ function useConnectionsSettingsController() {
 			toast.success("Jira Sync connected");
 			handleJiraDialogOpenChange(false);
 		} catch (error) {
-			console.error("Failed to connect Jira", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Jira",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -2577,7 +2607,11 @@ function useConnectionsSettingsController() {
 			handleJiraMcpDialogOpenChange(false);
 		} catch (error) {
 			oauthWindow?.close();
-			console.error("Failed to connect Jira", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Jira",
+			});
 			toast.error(getConnectionErrorMessage(error, "Failed to connect Jira"));
 		} finally {
 			dispatch({ type: "setIsSavingJiraMcpConnection", value: false });
@@ -2633,7 +2667,11 @@ function useConnectionsSettingsController() {
 			toast.success("Context7 connected");
 			handleContext7DialogOpenChange(false);
 		} catch (error) {
-			console.error("Failed to connect Context7", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Context7",
+			});
 			toast.error(
 				getConnectionErrorMessage(error, "Failed to connect Context7"),
 			);
@@ -2702,7 +2740,11 @@ function useConnectionsSettingsController() {
 			handleFigmaDialogOpenChange(false);
 		} catch (error) {
 			oauthWindow?.close();
-			console.error("Failed to connect Figma", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Figma",
+			});
 			toast.error(getConnectionErrorMessage(error, "Failed to connect Figma"));
 		} finally {
 			dispatch({ type: "setIsSavingFigmaConnection", value: false });
@@ -2769,7 +2811,11 @@ function useConnectionsSettingsController() {
 			handleLinearDialogOpenChange(false);
 		} catch (error) {
 			oauthWindow?.close();
-			console.error("Failed to connect Linear", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Linear",
+			});
 			toast.error(getConnectionErrorMessage(error, "Failed to connect Linear"));
 		} finally {
 			dispatch({ type: "setIsSavingLinearConnection", value: false });
@@ -2803,7 +2849,11 @@ function useConnectionsSettingsController() {
 			toast.success(successMessage);
 			onDisabled();
 		} catch (error) {
-			console.error("Failed to disable connection", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to disable connection",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -2991,7 +3041,11 @@ function useConnectionsSettingsController() {
 			handlePostHogDialogOpenChange(false);
 		} catch (error) {
 			oauthWindow?.close();
-			console.error("Failed to connect PostHog", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect PostHog",
+			});
 			toast.error(
 				getConnectionErrorMessage(error, "Failed to connect PostHog"),
 			);
@@ -3060,7 +3114,11 @@ function useConnectionsSettingsController() {
 			handleNotionDialogOpenChange(false);
 		} catch (error) {
 			oauthWindow?.close();
-			console.error("Failed to connect Notion", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Notion",
+			});
 			toast.error(getConnectionErrorMessage(error, "Failed to connect Notion"));
 		} finally {
 			dispatch({ type: "setIsSavingNotionConnection", value: false });
@@ -3126,7 +3184,11 @@ function useConnectionsSettingsController() {
 			handleZoomDialogOpenChange(false);
 		} catch (error) {
 			oauthWindow?.close();
-			console.error("Failed to connect Zoom", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Zoom",
+			});
 			toast.error(getConnectionErrorMessage(error, "Failed to connect Zoom"));
 		} finally {
 			dispatch({ type: "setIsSavingZoomConnection", value: false });
@@ -3281,7 +3343,11 @@ function useConnectionsSettingsController() {
 
 			window.location.assign(url);
 		} catch (error) {
-			console.error("Failed to connect Google tool", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to connect Google tool",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -3460,7 +3526,11 @@ function useConnectionsSettingsController() {
 			await writeTextToClipboard(jiraWebhookUrl);
 			toast.success("Jira webhook URL copied");
 		} catch (error) {
-			console.error("Failed to copy Jira webhook URL", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to copy Jira webhook URL",
+			});
 			toast.error("Failed to copy Jira webhook URL");
 		}
 	};
@@ -4114,7 +4184,11 @@ function WorkspaceSettings({
 				iconPreviewUrl: URL.createObjectURL(file),
 			}));
 		} catch (error) {
-			console.error("Failed to upload workspace icon", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to upload workspace icon",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -4144,7 +4218,11 @@ function WorkspaceSettings({
 			toast.success("Workspace settings updated");
 			onSave();
 		} catch (error) {
-			console.error("Failed to update workspace", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to update workspace",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -4305,7 +4383,11 @@ function DataControlsSettings({
 			onClose();
 			window.location.assign("/");
 		} catch (error) {
-			console.error("Failed to delete account", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to delete account",
+			});
 			setState((currentState) => ({
 				...currentState,
 				showDeleteAccountDialog: false,
@@ -4333,7 +4415,11 @@ function DataControlsSettings({
 			navigateTo("/home");
 			toast.success("Workspace deleted");
 		} catch (error) {
-			console.error("Failed to delete workspace", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to delete workspace",
+			});
 			setShowDeleteWorkspaceDialog(false);
 			toast.error(
 				error instanceof Error
@@ -4367,7 +4453,11 @@ function DataControlsSettings({
 				result.hasMore ? "Note deletion started" : "All notes deleted",
 			);
 		} catch (error) {
-			console.error("Failed to delete all notes", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to delete all notes",
+			});
 			setState((currentState) => ({
 				...currentState,
 				showDeleteAllNotesDialog: false,
@@ -4403,7 +4493,11 @@ function DataControlsSettings({
 				result.hasMore ? "Chat deletion started" : "All chats deleted",
 			);
 		} catch (error) {
-			console.error("Failed to delete all chats", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to delete all chats",
+			});
 			setState((currentState) => ({
 				...currentState,
 				showDeleteAllChatsDialog: false,
@@ -4678,7 +4772,11 @@ function useManageAccountFormElement({
 				avatarPreviewUrl: URL.createObjectURL(file),
 			}));
 		} catch (error) {
-			console.error("Failed to upload profile avatar", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to upload profile avatar",
+			});
 			toast.error(
 				error instanceof Error
 					? withoutTrailingPeriod(error.message)
@@ -4848,7 +4946,11 @@ function useManageAccountFormElement({
 							toast.success("Profile updated");
 							onSave();
 						} catch (error) {
-							console.error("Failed to update profile", error);
+							logError({
+								event: "client.error",
+								error: error,
+								message: "Failed to update profile",
+							});
 							toast.error(
 								error instanceof Error
 									? withoutTrailingPeriod(error.message)

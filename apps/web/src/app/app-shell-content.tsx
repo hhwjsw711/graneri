@@ -9,7 +9,11 @@ import {
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
 import type { UIMessage } from "ai";
 import * as React from "react";
-import type { AppUser, UpcomingCalendarEvent } from "@/app/app-types";
+import type {
+	AppUser,
+	UpcomingCalendarEvent,
+	UpcomingCalendarState,
+} from "@/app/app-types";
 import { HomeView, SharedView } from "@/app/home-shared-views";
 import { ProjectView } from "@/app/project-view";
 import type { AutomationListItem } from "@/components/automations/automation-types";
@@ -35,9 +39,7 @@ export type AppShellContentView =
 			currentDayOfMonth: number;
 			currentMonthLabel: string;
 			currentWeekdayLabel: string;
-			upcomingCalendarEvents: UpcomingCalendarEvent[];
-			upcomingCalendarStatus: "idle" | "ready" | "not_connected" | "error";
-			isLoadingUpcomingCalendarEvents: boolean;
+			upcomingCalendar: UpcomingCalendarState;
 			notes: Array<Doc<"notes">> | undefined;
 			onCreateNote: () => void;
 			onOpenCalendarEventNote: (
@@ -142,9 +144,7 @@ export const AppShellContent = React.memo(function AppShellContent({
 					currentDayOfMonth={view.currentDayOfMonth}
 					currentMonthLabel={view.currentMonthLabel}
 					currentWeekdayLabel={view.currentWeekdayLabel}
-					upcomingCalendarEvents={view.upcomingCalendarEvents}
-					upcomingCalendarStatus={view.upcomingCalendarStatus}
-					isLoadingUpcomingCalendarEvents={view.isLoadingUpcomingCalendarEvents}
+					upcomingCalendar={view.upcomingCalendar}
 					notes={view.notes}
 					currentNoteId={view.currentNoteId}
 					currentNoteTitle={view.currentNoteTitle}

@@ -79,7 +79,12 @@ import {
 	AppShellContent,
 	type AppShellContentView,
 } from "@/app/app-shell-content";
-import type { AppUser, AppView, UpcomingCalendarEvent } from "@/app/app-types";
+import type {
+	AppUser,
+	AppView,
+	UpcomingCalendarEvent,
+	UpcomingCalendarState,
+} from "@/app/app-types";
 import {
 	buildCalendarEventNoteDocument,
 	buildCalendarEventSearchableText,
@@ -132,6 +137,7 @@ import {
 	DESKTOP_MAIN_HEADER_CONTENT_CLASS,
 	DESKTOP_MAIN_HEADER_LEADING_CLASS,
 } from "@/lib/desktop-chrome";
+import { logError } from "@/lib/logger";
 import { getSidebarViewTitle } from "@/lib/navigation";
 import {
 	createNoteCaptureRequestId,
@@ -194,8 +200,8 @@ const toAppUser = (
 	session: AuthSession,
 	avatarOverride?: string | null,
 ): AppUser => ({
-	name: session.user.name?.trim() || session.user.email,
-	email: session.user.email,
+	name: session.user.name?.trim() || session.user.email || "Unknown user",
+	email: session.user.email || "",
 	avatar: avatarOverride ?? session.user.image ?? "",
 });
 
@@ -358,14 +364,11 @@ const useAppShellState = ({
 	const currentMonthLabel = currentMonthFormatter.format(currentDate);
 	const currentWeekdayLabel = currentWeekdayFormatter.format(currentDate);
 	const currentDayKey = `${currentDate.getFullYear()}-${currentDate.getMonth() + 1}-${currentDate.getDate()}`;
-	const [upcomingCalendarEvents, setUpcomingCalendarEvents] = React.useState<
-		UpcomingCalendarEvent[]
-	>([]);
-	const [upcomingCalendarStatus, setUpcomingCalendarStatus] = React.useState<
-		"idle" | "ready" | "not_connected" | "error"
-	>("idle");
-	const [isLoadingUpcomingCalendarEvents, setIsLoadingUpcomingCalendarEvents] =
-		React.useState(false);
+	const [upcomingCalendar, setUpcomingCalendar] =
+		React.useState<UpcomingCalendarState>({
+			status: "checking",
+			events: [],
+		});
 	const upcomingCalendarRequestIdRef = React.useRef(0);
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const upcomingCalendarLoadKey = session?.user?.email
@@ -600,17 +603,13 @@ const useAppShellState = ({
 					return;
 				}
 
-				setUpcomingCalendarEvents([]);
-				setUpcomingCalendarStatus("not_connected");
-				setIsLoadingUpcomingCalendarEvents(false);
+				setUpcomingCalendar({ status: "not_connected", events: [] });
 				return;
 			}
 
 			if (shouldResetState) {
-				setUpcomingCalendarEvents([]);
-				setUpcomingCalendarStatus("idle");
+				setUpcomingCalendar({ status: "checking", events: [] });
 			}
-			setIsLoadingUpcomingCalendarEvents(true);
 
 			try {
 				// react-doctor-disable-next-line react-doctor/async-defer-await
@@ -624,25 +623,22 @@ const useAppShellState = ({
 				}
 
 				if (result.status === "not_connected") {
-					setUpcomingCalendarEvents([]);
-					setUpcomingCalendarStatus("not_connected");
+					setUpcomingCalendar({ status: "not_connected", events: [] });
 					return;
 				}
 
-				setUpcomingCalendarEvents(result.events);
-				setUpcomingCalendarStatus("ready");
+				setUpcomingCalendar({ status: "ready", events: result.events });
 			} catch (error) {
 				if (upcomingCalendarRequestIdRef.current !== requestId) {
 					return;
 				}
 
-				console.error("Failed to load upcoming calendar events", error);
-				setUpcomingCalendarEvents([]);
-				setUpcomingCalendarStatus("error");
-			} finally {
-				if (upcomingCalendarRequestIdRef.current === requestId) {
-					setIsLoadingUpcomingCalendarEvents(false);
-				}
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to load upcoming calendar events",
+				});
+				setUpcomingCalendar({ status: "error", events: [] });
 			}
 		},
 	);
@@ -1050,7 +1046,11 @@ const useAppShellState = ({
 				setEditingAutomationId(null);
 				setAutomationChatId(null);
 			} catch (error) {
-				console.error("Failed to save automation", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to save automation",
+				});
 				toast.error("Failed to save automation");
 			}
 		},
@@ -1076,7 +1076,11 @@ const useAppShellState = ({
 				const result = await runAutomationNow({ automationId });
 				openStoredChat(result.chatId);
 			} catch (error) {
-				console.error("Failed to run automation", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to run automation",
+				});
 				toast.error("Failed to run automation");
 			}
 		},
@@ -1091,7 +1095,11 @@ const useAppShellState = ({
 					automation.isPaused ? "Automation paused" : "Automation resumed",
 				);
 			} catch (error) {
-				console.error("Failed to update automation", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to update automation",
+				});
 				toast.error("Failed to update automation");
 			}
 		},
@@ -1110,7 +1118,11 @@ const useAppShellState = ({
 			setEditingAutomationId(null);
 			setAutomationChatId(null);
 		} catch (error) {
-			console.error("Failed to disable automation", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to disable automation",
+			});
 			toast.error("Failed to disable automation");
 		}
 	}, [
@@ -1125,7 +1137,11 @@ const useAppShellState = ({
 				await deleteAutomation({ automationId });
 				toast.success("Automation deleted");
 			} catch (error) {
-				console.error("Failed to delete automation", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to delete automation",
+				});
 				toast.error("Failed to delete automation");
 			}
 		},
@@ -1299,7 +1315,11 @@ const useAppShellState = ({
 					});
 				})
 				.catch((error) => {
-					console.error("Failed to create note", error);
+					logError({
+						event: "client.error",
+						error: error,
+						message: "Failed to create note",
+					});
 				})
 				.finally(() => {
 					creatingNoteRef.current = false;
@@ -1358,7 +1378,11 @@ const useAppShellState = ({
 				openNote(noteId);
 				return "created" as const;
 			} catch (error) {
-				console.error("Failed to create note from chat response", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to create note from chat response",
+				});
 				return undefined;
 			} finally {
 				creatingNoteRef.current = false;
@@ -1561,7 +1585,11 @@ const useAppShellState = ({
 				clearCachedConvexToken();
 				await authClient.signOut();
 			} catch (error) {
-				console.error("Failed to sign out", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to sign out",
+				});
 			}
 		});
 	}, []);
@@ -1592,7 +1620,11 @@ const useAppShellState = ({
 				convex,
 				workspaceId: resolvedActiveWorkspaceId,
 			}).catch((error) => {
-				console.error("Failed to prefetch chat messages snapshot", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to prefetch chat messages snapshot",
+				});
 			});
 		},
 		[convex, resolvedActiveWorkspaceId],
@@ -1757,7 +1789,6 @@ const useAppShellState = ({
 		currentChatHasAutomation,
 		editingAutomation,
 		isDesktopMac,
-		isLoadingUpcomingCalendarEvents,
 		isResolvingCurrentNoteRoute: isResolvingCurrentNote,
 		isSharedNote,
 		isSigningOut,
@@ -1777,8 +1808,7 @@ const useAppShellState = ({
 		shouldAutoStartNoteCapture,
 		shouldStopNoteCaptureWhenMeetingEnds,
 		handleAutomationSave,
-		upcomingCalendarEvents,
-		upcomingCalendarStatus,
+		upcomingCalendar,
 		user,
 		workspaces,
 	};
@@ -1925,7 +1955,11 @@ function AppShellHeader({
 			setTitleValue(nextTitle);
 			toast.success(currentView === "chat" ? "Chat renamed" : "Note renamed");
 		} catch (error) {
-			console.error(`Failed to rename ${renameItemLabel}`, error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: `Failed to rename ${renameItemLabel}`,
+			});
 			toast.error(
 				currentView === "chat"
 					? "Failed to rename chat"
@@ -2507,7 +2541,11 @@ function ChatHeaderActions({
 				toast.success(result.isStarred ? "Chat starred" : "Chat unstarred");
 			})
 			.catch((error) => {
-				console.error("Failed to update chat star", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to update chat star",
+				});
 				toast.error("Failed to update chat star");
 			})
 			.finally(() => {
@@ -2529,7 +2567,11 @@ function ChatHeaderActions({
 				toast.success("Chat moved to trash");
 			})
 			.catch((error) => {
-				console.error("Failed to move chat to trash", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to move chat to trash",
+				});
 				toast.error("Failed to move chat to trash");
 			})
 			.finally(() => {
@@ -2705,10 +2747,7 @@ function createAppShellContentView({
 			currentDayOfMonth: controller.currentDayOfMonth,
 			currentMonthLabel: controller.currentMonthLabel,
 			currentWeekdayLabel: controller.currentWeekdayLabel,
-			upcomingCalendarEvents: controller.upcomingCalendarEvents,
-			upcomingCalendarStatus: controller.upcomingCalendarStatus,
-			isLoadingUpcomingCalendarEvents:
-				controller.isLoadingUpcomingCalendarEvents,
+			upcomingCalendar: controller.upcomingCalendar,
 			notes: controller.notes,
 			currentNoteId: controller.currentNoteId,
 			currentNoteTitle: controller.currentNoteTitle,

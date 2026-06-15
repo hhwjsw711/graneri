@@ -5,6 +5,7 @@ import {
 import * as React from "react";
 import { useNoteTranscriptScope } from "@/hooks/use-note-transcript-scope";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
+import { logError } from "@/lib/logger";
 import {
 	createStoredTranscriptText,
 	createVisibleTranscriptView,
@@ -487,7 +488,11 @@ export const useNoteTranscriptSession = ({
 				return sessionId;
 			})
 			.catch((error) => {
-				console.error("Failed to start transcript session", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to start transcript session",
+				});
 				return null;
 			})
 			.finally(() => {
@@ -518,10 +523,12 @@ export const useNoteTranscriptSession = ({
 					sessionId: activeSessionId,
 				})
 				.catch((error) => {
-					console.error(
-						"Failed to complete transcript session while switching notes",
-						error,
-					);
+					logError({
+						event: "client.error",
+						error: error,
+						message:
+							"Failed to complete transcript session while switching notes",
+					});
 				});
 		}
 
@@ -673,7 +680,11 @@ export const useNoteTranscriptSession = ({
 						sessionId: completedSessionId,
 					})
 					.catch((error) => {
-						console.error("Failed to complete transcript session", error);
+						logError({
+							event: "client.error",
+							error: error,
+							message: "Failed to complete transcript session",
+						});
 					});
 			}
 		}
@@ -732,10 +743,11 @@ export const useNoteTranscriptSession = ({
 			})
 			.catch((error) => {
 				sessionSystemAudioModePersistedRef.current = null;
-				console.error(
-					"Failed to persist transcript session system audio",
-					error,
-				);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to persist transcript session system audio",
+				});
 			});
 	}, [
 		captureTranscriptSessionRepository,
@@ -811,7 +823,11 @@ export const useNoteTranscriptSession = ({
 					sessionSystemAudioModePersistedRef.current = null;
 				}
 			} catch (error) {
-				console.error("Failed to generate notes from transcript", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to generate notes from transcript",
+				});
 			} finally {
 				setIsGeneratingNotes(false);
 			}
@@ -848,7 +864,11 @@ export const useNoteTranscriptSession = ({
 					utterance,
 					"live",
 				).catch((error) => {
-					console.error("Failed to persist transcript utterance", error);
+					logError({
+						event: "client.error",
+						error: error,
+						message: "Failed to persist transcript utterance",
+					});
 				});
 				return;
 			}

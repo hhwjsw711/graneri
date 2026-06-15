@@ -27,6 +27,7 @@ import {
 import { resolveSidebarSortableItems } from "@/components/nav/sidebar-sortable-utils";
 import { NoteActionsMenu } from "@/components/note/note-actions-menu";
 import { getChatId } from "@/lib/chat";
+import { logError } from "@/lib/logger";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
@@ -251,7 +252,11 @@ export function NavStarred({
 			}
 
 			void reorderStarred({ workspaceId, items }).catch((error) => {
-				console.error("Failed to reorder starred items", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to reorder starred items",
+				});
 				toast.error("Failed to reorder starred items");
 			});
 		},

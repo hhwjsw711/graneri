@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import type { LinkedAccount } from "@/lib/google-integrations";
+import { logError } from "@/lib/logger";
 
 const linkedAccountsCache = new Map<string, LinkedAccount[]>();
 
@@ -41,7 +42,11 @@ export const useLinkedAccounts = (
 			}
 			setAccounts(nextAccounts);
 		} catch (error) {
-			console.error("Failed to load linked accounts", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to load linked accounts",
+			});
 			toast.error("Failed to load linked Google accounts");
 		} finally {
 			setIsLoadingAccounts(false);

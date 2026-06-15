@@ -17,6 +17,7 @@ import type { FileUIPart } from "ai";
 import { useMutation } from "convex/react";
 import { FileText, Paperclip, X } from "lucide-react";
 import * as React from "react";
+import { logError } from "@/lib/logger";
 import { api } from "../../../../../convex/_generated/api";
 import type { ChatAttachment, UploadResult } from "./file-attachment-utils";
 
@@ -180,7 +181,11 @@ export function useFileAttachmentDropzone({
 				void uploadFile(file)
 					.then((uploadedFile) => onFileUploaded(attachment.id, uploadedFile))
 					.catch((error) => {
-						console.error("Failed to upload attachment", error);
+						logError({
+							event: "client.error",
+							error: error,
+							message: "Failed to upload attachment",
+						});
 						onFileUploadFailed(attachment.id);
 					});
 			}

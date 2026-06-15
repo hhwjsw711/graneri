@@ -75,6 +75,7 @@ import { toast } from "sonner";
 import { NoteActionsMenu } from "@/components/note/note-actions-menu";
 import { NoteTitleEditInput } from "@/components/note/note-title-edit-input";
 import { ProjectComposer } from "@/components/projects/project-composer";
+import { logError } from "@/lib/logger";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import { archiveNoteChats } from "@/lib/optimistic-note-chats";
 import { optimisticUpdateProjectList } from "@/lib/optimistic-projects";
@@ -514,7 +515,11 @@ export function NavProjects({
 				workspaceId,
 				projectIds,
 			}).catch((error) => {
-				console.error("Failed to reorder projects", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to reorder projects",
+				});
 				toast.error("Failed to reorder projects");
 			});
 		},
@@ -911,7 +916,11 @@ export function ProjectSidebarItem({
 			dispatch({ type: "closeRename", value: nextName });
 			toast.success("Project renamed");
 		} catch (error) {
-			console.error("Failed to rename project", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to rename project",
+			});
 			toast.error("Failed to rename project");
 		} finally {
 			setIsRenaming(false);
@@ -961,7 +970,11 @@ export function ProjectSidebarItem({
 			});
 			toast.success(result.isStarred ? "Project starred" : "Project unstarred");
 		} catch (error) {
-			console.error("Failed to update project star", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to update project star",
+			});
 			toast.error("Failed to update project");
 		} finally {
 			isUpdatingStarRef.current = false;
@@ -983,7 +996,11 @@ export function ProjectSidebarItem({
 			dispatch({ type: "setConfirmOpen", value: false });
 			toast.success("Project deleted");
 		} catch (error) {
-			console.error("Failed to delete project", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to delete project",
+			});
 			toast.error("Failed to delete project");
 		} finally {
 			setIsRemoving(false);
@@ -1009,7 +1026,11 @@ export function ProjectSidebarItem({
 					: `${result.movedCount} notes moved to trash`,
 			);
 		} catch (error) {
-			console.error("Failed to move project notes to trash", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to move project notes to trash",
+			});
 			toast.error("Failed to move notes to trash");
 		} finally {
 			setIsMovingNotesToTrash(false);

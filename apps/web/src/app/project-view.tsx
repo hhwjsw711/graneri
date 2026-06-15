@@ -15,6 +15,7 @@ import * as React from "react";
 import type { AppUser } from "@/app/app-types";
 import { NotesList } from "@/app/note-list";
 import { PageTitle } from "@/components/layout/page-title";
+import { logError } from "@/lib/logger";
 import { optimisticUpdateProjectList } from "@/lib/optimistic-projects";
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
@@ -136,7 +137,11 @@ function ProjectDescriptionEditor({ project }: { project: Doc<"projects"> }) {
 			id: project._id,
 			description,
 		}).catch((error) => {
-			console.error("Failed to update project description", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to update project description",
+			});
 			setDescription(project.description);
 		});
 	}, [description, project, updateDescription]);

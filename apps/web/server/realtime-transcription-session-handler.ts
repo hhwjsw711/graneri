@@ -5,6 +5,7 @@ import {
 	createRealtimeTranscriptionSessionOptions,
 	normalizeTranscriptionLanguage,
 } from "../../../packages/ai/src/transcription.mjs";
+import { createServerWideEvent, emitServerWideEvent } from "./server-logger";
 
 const sendJson = (
 	response: ServerResponse,
@@ -39,32 +40,21 @@ const readJsonBody = async (request: IncomingMessage) => {
 const trim = (value: unknown) =>
 	typeof value === "string" ? value.trim() : undefined;
 
-const logOpenAiResponseMetadata = ({
-	context,
-	requestId,
-	response,
-}: {
-	context: string;
-	requestId: string;
-	response: Response;
-}) => {
-	const openAiRequestId = response.headers.get("x-request-id");
-	const processingMs = response.headers.get("openai-processing-ms");
-
-	console.info("[openai]", {
-		context,
-		openAiRequestId,
-		processingMs,
-		requestId,
-		status: response.status,
-	});
-};
-
 export const handleRealtimeTranscriptionSessionRequest = async (
 	request: IncomingMessage,
 	response: ServerResponse,
 ) => {
+	const startedAt = Date.now();
+	const wideEvent = createServerWideEvent({
+		event: "realtime_transcription_session.request",
+		request,
+	});
+
 	if (!process.env.OPENAI_API_KEY) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "openai_api_key_missing";
+		emitServerWideEvent({ event: wideEvent, level: "error", startedAt });
 		sendJson(response, 500, {
 			error: "OPENAI_API_KEY is not configured.",
 		});
@@ -76,6 +66,10 @@ export const handleRealtimeTranscriptionSessionRequest = async (
 	const requestId = randomUUID();
 	const speaker = trim(rawSpeaker);
 	const normalizedSource = trim(source);
+	wideEvent.request_id = requestId;
+	wideEvent.language = language;
+	wideEvent.has_speaker = Boolean(speaker);
+	wideEvent.source = normalizedSource ?? null;
 
 	const sessionResponse = await fetch(
 		"https://api.openai.com/v1/realtime/client_secrets",
@@ -102,11 +96,11 @@ export const handleRealtimeTranscriptionSessionRequest = async (
 		},
 	);
 
-	logOpenAiResponseMetadata({
-		context: "web.realtime.client_secret",
-		requestId,
-		response: sessionResponse,
-	});
+	wideEvent.openai_request_id = sessionResponse.headers.get("x-request-id");
+	wideEvent.openai_processing_ms = sessionResponse.headers.get(
+		"openai-processing-ms",
+	);
+	wideEvent.openai_status_code = sessionResponse.status;
 
 	const payload = (await sessionResponse.json().catch(() => ({}))) as {
 		error?: {
@@ -116,6 +110,12 @@ export const handleRealtimeTranscriptionSessionRequest = async (
 	};
 
 	if (!sessionResponse.ok) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = sessionResponse.status;
+		wideEvent.error_message =
+			payload.error?.message ||
+			"Failed to create realtime transcription session.";
+		emitServerWideEvent({ event: wideEvent, level: "error", startedAt });
 		sendJson(response, sessionResponse.status, {
 			error:
 				payload.error?.message ||
@@ -127,12 +127,19 @@ export const handleRealtimeTranscriptionSessionRequest = async (
 	const clientSecret = payload.value;
 
 	if (!clientSecret) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "client_secret_missing";
+		emitServerWideEvent({ event: wideEvent, level: "error", startedAt });
 		sendJson(response, 500, {
 			error: "OpenAI did not return a client secret.",
 		});
 		return;
 	}
 
+	wideEvent.outcome = "success";
+	wideEvent.status_code = 200;
+	emitServerWideEvent({ event: wideEvent, startedAt });
 	sendJson(response, 200, {
 		clientSecret,
 	});

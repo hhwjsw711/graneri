@@ -1,3 +1,5 @@
+import { aiLogger } from "./logger.mjs";
+
 export const createChatLatencyLogger = ({
 	chatId,
 	enabled,
@@ -17,8 +19,8 @@ export const createChatLatencyLogger = ({
 		const deltaMs = Math.round(now - previousMarkAt);
 		previousMarkAt = now;
 
-		console.log("[chat-latency]", {
-			event,
+		aiLogger.info({
+			event: `chat_latency.${event}`,
 			elapsedMs,
 			deltaMs,
 			chatId: chatId ?? null,

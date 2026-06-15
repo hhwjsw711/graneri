@@ -27,6 +27,7 @@ import {
 	experimental_transcribe as transcribe,
 } from "ai";
 import { createBashTool } from "bash-tool";
+import { aiLogger } from "./logger.mjs";
 import { buildLocalFolderToolConfigs } from "./local-folder-tool-definitions.mjs";
 import { DEFAULT_CHAT_MODEL_ID } from "./models.mjs";
 import { TRANSCRIPTION_MODEL } from "./transcription.mjs";
@@ -344,7 +345,10 @@ const logLocalToolEvent = (event, payload = {}) => {
 		return;
 	}
 
-	console.info("[local-tools]", event, payload);
+	aiLogger.info({
+		event: `local_tools.${event}`,
+		...payload,
+	});
 };
 
 const toRootSummary = (root, index) => ({

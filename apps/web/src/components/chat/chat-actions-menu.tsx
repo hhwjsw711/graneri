@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { NoteTitleEditInput } from "@/components/note/note-title-edit-input";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { getChatId } from "@/lib/chat";
+import { logError } from "@/lib/logger";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc } from "../../../../../convex/_generated/dataModel";
 import { optimisticPatchChat } from "./optimistic-patch-chat";
@@ -172,7 +173,11 @@ export function ChatActionsMenu({
 			updateMenuState({ renameOpen: false, renameValue: nextTitle });
 			toast.success("Chat renamed");
 		} catch (error) {
-			console.error("Failed to rename chat", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to rename chat",
+			});
 			toast.error("Failed to rename chat");
 		} finally {
 			updateMenuState({ isRenaming: false });
@@ -224,7 +229,11 @@ export function ChatActionsMenu({
 			});
 			toast.success(result.isStarred ? "Chat starred" : "Chat unstarred");
 		} catch (error) {
-			console.error("Failed to update chat star", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to update chat star",
+			});
 			toast.error("Failed to update chat star");
 		} finally {
 			updateMenuState({ isUpdatingStar: false });
@@ -247,7 +256,11 @@ export function ChatActionsMenu({
 			updateMenuState({ confirmTrashOpen: false });
 			toast.success("Chat moved to trash");
 		} catch (error) {
-			console.error("Failed to move chat to trash", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to move chat to trash",
+			});
 			toast.error("Failed to move chat to trash");
 		} finally {
 			updateMenuState({ isMovingToTrash: false });

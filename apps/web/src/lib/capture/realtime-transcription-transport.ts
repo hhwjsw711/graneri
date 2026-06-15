@@ -136,7 +136,7 @@ const waitForConnectedPeer = async (
 		};
 
 		const handleConnectionStateChange = () => {
-			logger.debug("transport.connection_state_change", {
+			logger.info("transport.connection_state_change", {
 				connectionState: peerConnection.connectionState,
 			});
 

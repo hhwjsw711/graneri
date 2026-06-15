@@ -51,6 +51,7 @@ import {
 	groupItemsByRelativeDate,
 	RELATIVE_DATE_GROUP_SECTIONS,
 } from "@/lib/group-by-relative-date";
+import { logError } from "@/lib/logger";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import { removeNoteChats, restoreNoteChats } from "@/lib/optimistic-note-chats";
 import { api } from "../../../../../convex/_generated/api";
@@ -267,7 +268,11 @@ function TrashPopoverContent() {
 					toast.success("Note restored");
 				})
 				.catch((error) => {
-					console.error("Failed to restore note", error);
+					logError({
+						event: "client.error",
+						error: error,
+						message: "Failed to restore note",
+					});
 					toast.error("Failed to restore note");
 				});
 		},
@@ -284,7 +289,11 @@ function TrashPopoverContent() {
 					toast.success("Chat restored");
 				})
 				.catch((error) => {
-					console.error("Failed to restore chat", error);
+					logError({
+						event: "client.error",
+						error: error,
+						message: "Failed to restore chat",
+					});
 					toast.error("Failed to restore chat");
 				});
 		},
@@ -306,7 +315,11 @@ function TrashPopoverContent() {
 				toast.success("Note deleted permanently");
 			})
 			.catch((error) => {
-				console.error("Failed to delete note", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to delete note",
+				});
 				toast.error("Failed to delete note");
 			});
 	}, [activeWorkspaceId, deleteNoteId, remove]);
@@ -325,7 +338,11 @@ function TrashPopoverContent() {
 				toast.success("Chat deleted permanently");
 			})
 			.catch((error) => {
-				console.error("Failed to delete chat", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to delete chat",
+				});
 				toast.error("Failed to delete chat");
 			});
 	}, [activeWorkspaceId, deleteChatId, removeChat]);

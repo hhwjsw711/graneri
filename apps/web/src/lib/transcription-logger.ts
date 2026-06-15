@@ -1,23 +1,12 @@
-type TranscriptionLogLevel = "debug" | "info" | "warn" | "error";
+import { logError, logInfo } from "@/lib/logger";
 
 type TranscriptionLoggerContext = {
 	sessionId: string;
 	scopeKey: string | null;
 };
 
-const LOG_LEVELS: Record<TranscriptionLogLevel, number> = {
-	debug: 10,
-	info: 20,
-	warn: 30,
-	error: 40,
-};
-
-const resolveMinimumLogLevel = (): TranscriptionLogLevel => "warn";
-
 export type TranscriptionLogger = {
-	debug: (event: string, details?: Record<string, unknown>) => void;
 	info: (event: string, details?: Record<string, unknown>) => void;
-	warn: (event: string, details?: Record<string, unknown>) => void;
 	error: (event: string, details?: Record<string, unknown>) => void;
 };
 
@@ -25,41 +14,29 @@ export const createTranscriptionLogger = ({
 	sessionId,
 	scopeKey,
 }: TranscriptionLoggerContext): TranscriptionLogger => {
-	const minimumLevel = resolveMinimumLogLevel();
-
 	const write = (
-		level: TranscriptionLogLevel,
+		level: "error" | "info",
 		event: string,
 		details?: Record<string, unknown>,
 	) => {
-		if (LOG_LEVELS[level] < LOG_LEVELS[minimumLevel]) {
-			return;
-		}
-
 		const payload = {
-			event,
+			event: `transcription.${event}`,
 			scopeKey,
 			sessionId,
 			timestamp: new Date().toISOString(),
 			...(details ?? {}),
 		};
 
-		const method =
-			level === "debug"
-				? console.debug
-				: level === "info"
-					? console.info
-					: level === "warn"
-						? console.warn
-						: console.error;
+		if (level === "error") {
+			logError(payload);
+			return;
+		}
 
-		method("[transcription]", payload);
+		logInfo(payload);
 	};
 
 	return {
-		debug: (event, details) => write("debug", event, details),
 		info: (event, details) => write("info", event, details),
-		warn: (event, details) => write("warn", event, details),
 		error: (event, details) => write("error", event, details),
 	};
 };

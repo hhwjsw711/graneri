@@ -3,6 +3,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { fromQueuedUserMessage } from "@/lib/chat-queue";
 import { getCachedConvexToken } from "@/lib/convex-token";
+import { logError } from "@/lib/logger";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -76,13 +77,18 @@ export const useQueuedChatDrain = ({
 					await requeueClaimedMessage({
 						queuedMessageId: claimedQueuedMessageId,
 					}).catch((requeueError) => {
-						console.error(
-							`Failed to requeue ${contextLabel} message`,
-							requeueError,
-						);
+						logError({
+							event: "client.error",
+							error: requeueError,
+							message: `Failed to requeue ${contextLabel} message`,
+						});
 					});
 				}
-				console.error(`Failed to drain queued ${contextLabel} message`, error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: `Failed to drain queued ${contextLabel} message`,
+				});
 				toast.error(
 					error instanceof Error
 						? error.message

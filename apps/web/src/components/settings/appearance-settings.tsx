@@ -24,6 +24,7 @@ import {
 	DEFAULT_TRANSLUCENT_SIDEBAR,
 	type ReduceMotionPreference,
 } from "@/lib/appearance-preferences";
+import { logError } from "@/lib/logger";
 import {
 	getTranscriptionLanguageSelectValue,
 	OTHER_TRANSCRIPTION_LANGUAGE_OPTIONS,
@@ -126,7 +127,11 @@ export function AppearanceSettings() {
 		try {
 			await updateUserPreferences(patch);
 		} catch (error) {
-			console.error(`Failed to update ${errorLabel}`, error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: `Failed to update ${errorLabel}`,
+			});
 			toast.error(`Failed to update ${errorLabel}`);
 		} finally {
 			setSavingPreference(null);

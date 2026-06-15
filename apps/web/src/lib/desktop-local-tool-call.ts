@@ -5,6 +5,7 @@ import type {
 	UIMessage,
 } from "ai";
 import type { RefObject } from "react";
+import { logError } from "@/lib/logger";
 import { getLocalFolderToolApiUrl } from "@/lib/runtime-config";
 
 const localToolNames = new Set([
@@ -131,10 +132,14 @@ const submitDesktopLocalToolCall = async ({
 			toolError,
 			"Local tool execution failed.",
 		);
-		console.error("[desktop-local-tool] failed", {
-			error: errorText,
-			toolCallId: toolCall.toolCallId,
-			toolName: toolCall.toolName,
+		logError({
+			event: "client.error",
+			error: {
+				error: errorText,
+				toolCallId: toolCall.toolCallId,
+				toolName: toolCall.toolName,
+			},
+			message: "[desktop-local-tool] failed",
 		});
 		addToolOutputRef.current?.({
 			errorText,

@@ -51,6 +51,11 @@ import {
 	getChatModelProviderOptions,
 	normalizeReasoningEffort,
 } from "../src/lib/ai/models";
+import {
+	createServerWideEvent,
+	emitServerWideEvent,
+	recordServerError,
+} from "./server-logger";
 
 type ChatRequestBody = {
 	id?: string;
@@ -211,7 +216,26 @@ export const handleChatRequest = async (
 	request: IncomingMessage,
 	response: ServerResponse,
 ) => {
+	const startedAt = Date.now();
+	const wideEvent = createServerWideEvent({
+		event: "chat.request",
+		request,
+	});
+	let wideEventEmitted = false;
+	const emitWideEvent = (level: "error" | "info") => {
+		if (wideEventEmitted) {
+			return;
+		}
+
+		wideEventEmitted = true;
+		emitServerWideEvent({ event: wideEvent, level, startedAt });
+	};
+
 	if (!process.env.OPENAI_API_KEY) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "openai_api_key_missing";
+		emitWideEvent("error");
 		sendJson(response, 500, {
 			error: "OPENAI_API_KEY is not configured.",
 		});
@@ -236,6 +260,18 @@ export const handleChatRequest = async (
 		recipeSlug,
 		noteContext,
 	} = await readJsonBody(request);
+	wideEvent.chat_id = id ?? null;
+	wideEvent.workspace_id = workspaceId ?? null;
+	wideEvent.trigger = trigger ?? null;
+	wideEvent.model = model ?? null;
+	wideEvent.reasoning_effort = reasoningEffort ?? null;
+	wideEvent.web_search_enabled = webSearchEnabled;
+	wideEvent.apps_enabled = appsEnabled;
+	wideEvent.mention_count = mentions?.length ?? 0;
+	wideEvent.selected_source_count = selectedSourceIds?.length ?? 0;
+	wideEvent.local_folder_count = localFolders.length;
+	wideEvent.has_note_context = Boolean(noteContext);
+	wideEvent.has_recipe = Boolean(recipeSlug);
 	const logLatency = createChatLatencyLogger({
 		chatId: id,
 		enabled: AI_LATENCY_DEBUG_ENABLED,
@@ -254,6 +290,10 @@ export const handleChatRequest = async (
 	const resolvedTimezone = timezone?.trim() || "UTC";
 
 	if (!message) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 400;
+		wideEvent.error_code = "message_missing";
+		emitWideEvent("error");
 		sendJson(response, 400, {
 			error: "message is required.",
 		});
@@ -261,6 +301,10 @@ export const handleChatRequest = async (
 	}
 
 	if (!id || !convexToken || !resolvedWorkspaceId) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 400;
+		wideEvent.error_code = "chat_auth_context_missing";
+		emitWideEvent("error");
 		sendJson(response, 400, {
 			error: "chat id, convexToken, and workspaceId are required.",
 		});
@@ -280,6 +324,10 @@ export const handleChatRequest = async (
 	const requestedModel = model ?? storedChat?.model ?? null;
 
 	if (!requestedModel) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 400;
+		wideEvent.error_code = "model_missing";
+		emitWideEvent("error");
 		sendJson(response, 400, {
 			error: "model is required.",
 		});
@@ -289,6 +337,11 @@ export const handleChatRequest = async (
 	const resolvedModel = findChatModel(requestedModel);
 
 	if (!resolvedModel) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 400;
+		wideEvent.error_code = "model_unsupported";
+		wideEvent.requested_model = requestedModel;
+		emitWideEvent("error");
 		sendJson(response, 400, {
 			error: `Unsupported model: ${requestedModel}.`,
 		});
@@ -338,10 +391,14 @@ export const handleChatRequest = async (
 				messageId: preparedBranch.truncateMessageId,
 			});
 		} catch (error) {
-			console.error(
-				"Failed to truncate regenerated chat message branch",
+			recordServerError({
+				details: {
+					message_id: preparedBranch.truncateMessageId,
+				},
 				error,
-			);
+				event: wideEvent,
+				operation: "branch_truncate",
+			});
 		}
 	}
 	logLatency("chat.branch_ready", {
@@ -485,6 +542,11 @@ export const handleChatRequest = async (
 		);
 
 		if (attachableRun) {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 409;
+			wideEvent.error_code = "active_run_exists";
+			wideEvent.active_run_id = attachableRun._id;
+			emitWideEvent("error");
 			sendJson(response, 409, {
 				error: "Chat already has an active assistant run.",
 			});
@@ -505,7 +567,14 @@ export const handleChatRequest = async (
 				}),
 			);
 		} catch (error) {
-			console.error("Failed to persist user chat message", error);
+			recordServerError({
+				details: {
+					message_id: lastUserMessage.id,
+				},
+				error,
+				event: wideEvent,
+				operation: "user_message_persist",
+			});
 		}
 	}
 	logLatency("convex.user_message_saved", {
@@ -552,6 +621,8 @@ export const handleChatRequest = async (
 	});
 
 	await activeStreamSession.start();
+	wideEvent.assistant_run_id = assistantRun._id;
+	wideEvent.assistant_message_id = assistantMessageId;
 	logLatency("convex.active_stream_started", {
 		enabled: true,
 		runId: assistantRun._id,
@@ -603,7 +674,15 @@ export const handleChatRequest = async (
 						);
 						assistantRunTerminalization = { status: "completed" };
 					} catch (error) {
-						console.error("Failed to persist assistant chat message", error);
+						recordServerError({
+							details: {
+								message_id: responseMessage.id,
+								run_id: assistantRun._id,
+							},
+							error,
+							event: wideEvent,
+							operation: "assistant_message_persist",
+						});
 						assistantRunTerminalization = {
 							status: "failed",
 							errorText:
@@ -614,6 +693,15 @@ export const handleChatRequest = async (
 				onError: () => "Something went wrong.",
 			});
 		} catch (error) {
+			recordServerError({
+				error,
+				event: wideEvent,
+				operation: "stream_create",
+			});
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 500;
+			wideEvent.error_code = "stream_create_failed";
+			emitWideEvent("error");
 			await convexClient.mutation(api.assistantRuns.failAssistantRun, {
 				runId: assistantRun._id,
 				errorText: error instanceof Error ? error.message : "Unknown error",
@@ -629,24 +717,50 @@ export const handleChatRequest = async (
 				return;
 			}
 
-			await activeStreamSession.closePersistence();
+			try {
+				await activeStreamSession.closePersistence();
 
-			if (assistantRunTerminalization.status === "completed") {
-				await convexClient.mutation(api.assistantRuns.finishAssistantRun, {
+				if (assistantRunTerminalization.status === "completed") {
+					await convexClient.mutation(api.assistantRuns.finishAssistantRun, {
+						runId: assistantRun._id,
+					});
+					wideEvent.outcome = "success";
+					wideEvent.status_code = 200;
+					emitWideEvent(wideEvent.errors?.length ? "error" : "info");
+					return;
+				}
+
+				await convexClient.mutation(api.assistantRuns.failAssistantRun, {
 					runId: assistantRun._id,
+					errorText: assistantRunTerminalization.errorText,
 				});
-				return;
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 500;
+				wideEvent.error_code = "assistant_run_failed";
+				emitWideEvent("error");
+			} catch (error) {
+				recordServerError({
+					error,
+					event: wideEvent,
+					operation: "stream_finalize",
+				});
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 500;
+				wideEvent.error_code = "stream_finalize_failed";
+				emitWideEvent("error");
+				throw error;
 			}
-
-			await convexClient.mutation(api.assistantRuns.failAssistantRun, {
-				runId: assistantRun._id,
-				errorText: assistantRunTerminalization.errorText,
-			});
 		},
 		persister: activeStreamSession,
 		stream: streamLatencyTracker.wrapStream(stream),
 	});
 	const responseStream = activeStreamSession.startBroadcast(persistedStream);
+	wideEvent.outcome = "success";
+	wideEvent.status_code = 200;
+	wideEvent.tool_count = finalizedToolSet.toolCount;
+	wideEvent.deferred_tool_count = finalizedToolSet.deferredToolCount;
+	wideEvent.local_folder_root_count = localFolderRoots.length;
+	wideEvent.app_connection_count = selectedAppConnections.length;
 
 	pipeUIMessageStreamToResponse({
 		response,

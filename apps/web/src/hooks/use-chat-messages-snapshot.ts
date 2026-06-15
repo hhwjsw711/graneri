@@ -1,6 +1,7 @@
 import { useConvex } from "convex/react";
 import * as React from "react";
 import type { StoredChatMessage } from "@/lib/chat-snapshot";
+import { logError } from "@/lib/logger";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -212,7 +213,11 @@ export const useChatMessagesSnapshot = ({
 				});
 			}
 
-			console.error("Failed to load chat messages snapshot", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to load chat messages snapshot",
+			});
 
 			return [];
 		}

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { logError } from "@/lib/logger";
 
 type ComponentEntryBoundaryProps = {
 	children: React.ReactNode;
@@ -21,7 +22,11 @@ export class ComponentEntryBoundary extends React.Component<
 	}
 
 	componentDidCatch(error: Error) {
-		console.error("Failed to load component entry", error);
+		logError({
+			event: "client.error",
+			error: error,
+			message: "Failed to load component entry",
+		});
 	}
 
 	render() {

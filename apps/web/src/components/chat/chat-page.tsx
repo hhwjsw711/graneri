@@ -77,6 +77,7 @@ import {
 	loadStoredSharedLocalFolders,
 	rehydrateSharedLocalFolders,
 } from "@/lib/local-folder-sharing";
+import { logError } from "@/lib/logger";
 import { getNoteDisplayTitle } from "@/lib/note-title";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc } from "../../../../../convex/_generated/dataModel";
@@ -530,7 +531,11 @@ const useChatPageController = ({
 				chatId,
 				model: model.model,
 			}).catch((error) => {
-				console.error("Failed to persist chat model", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to persist chat model",
+				});
 				toast.error("Failed to save model");
 			});
 		},
@@ -550,7 +555,11 @@ const useChatPageController = ({
 				chatId,
 				reasoningEffort: value,
 			}).catch((error) => {
-				console.error("Failed to persist chat reasoning effort", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to persist chat reasoning effort",
+				});
 				toast.error("Failed to save reasoning");
 			});
 		},
@@ -666,7 +675,11 @@ const useChatPageController = ({
 			clearDraft();
 			setAttachedFiles([]);
 		} catch (error) {
-			console.error("Failed to prepare chat request", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to prepare chat request",
+			});
 			toast.error(
 				error instanceof Error
 					? error.message
@@ -729,7 +742,11 @@ const useChatPageController = ({
 
 	const handleStop = React.useCallback(() => {
 		void stopCurrentStream().catch((error) => {
-			console.error("Failed to stop chat stream", error);
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to stop chat stream",
+			});
 			toast.error(
 				error instanceof Error ? error.message : "Failed to stop chat stream",
 			);
@@ -806,7 +823,11 @@ const useChatPageController = ({
 				chatId,
 				messageId,
 			}).catch((error) => {
-				console.error("Failed to delete message", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to delete message",
+				});
 				toast.error("Failed to delete message");
 			});
 		},
@@ -843,7 +864,11 @@ const useChatPageController = ({
 					setIsPreparingRequest(false);
 				});
 			} catch (error) {
-				console.error("Failed to prepare chat regeneration", error);
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to prepare chat regeneration",
+				});
 				setIsPreparingRequest(false);
 			}
 		},

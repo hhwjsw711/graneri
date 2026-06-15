@@ -97,6 +97,7 @@ import { writeTextToClipboard } from "@/components/note/share-note";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { getAvatarSrc } from "@/lib/avatar";
 import { DESKTOP_MAIN_HEADER_CONTENT_CLASS } from "@/lib/desktop-chrome";
+import { logError } from "@/lib/logger";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 
@@ -1706,7 +1707,11 @@ function useNoteCommentsSheetController({
 				})
 				.then((detail) => commitPrefetchedThreadDetail(threadId, detail))
 				.catch((error) => {
-					console.error("Failed to prefetch comment thread detail", error);
+					logError({
+						event: "client.error",
+						error: error,
+						message: "Failed to prefetch comment thread detail",
+					});
 					return commitPrefetchedThreadDetail(threadId, null);
 				})
 				.finally(() => {

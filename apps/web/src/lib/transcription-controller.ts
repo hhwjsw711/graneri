@@ -1120,7 +1120,7 @@ export class TranscriptionController {
 
 			return true;
 		} catch (error) {
-			logger.warn("system_audio.attach_failed", {
+			logger.error("system_audio.attach_failed", {
 				automatic,
 				message:
 					error instanceof Error

@@ -5,6 +5,7 @@ import {
 	deriveFallbackChatTitle,
 	finalizeGeneratedChatTitle,
 } from "./chat-titles.mjs";
+import { aiLogger, serializeError } from "./logger.mjs";
 import { CHAT_TITLE_MODEL_ID } from "./models.mjs";
 import { buildChatSystemPrompt, CHAT_TITLE_SYSTEM_PROMPT } from "./prompts.mjs";
 
@@ -283,7 +284,11 @@ export const generateHostedChatTitle = async ({
 			maxLength: MAX_CHAT_TITLE_LENGTH,
 		});
 	} catch (error) {
-		console.error("Failed to generate chat title", error);
+		aiLogger.error({
+			event: "chat_title.generate_failed",
+			error: serializeError(error),
+			model: CHAT_TITLE_MODEL_ID,
+		});
 		return deriveFallbackChatTitle({
 			userText,
 			maxLength: MAX_CHAT_TITLE_LENGTH,

@@ -1,3 +1,6 @@
+import type { FunctionReturnType } from "convex/server";
+import type { api } from "../../../../convex/_generated/api";
+
 export type AppUser = {
 	name: string;
 	email: string;
@@ -14,19 +17,18 @@ export type AppView =
 	| "note"
 	| "notFound";
 
-export type UpcomingCalendarEvent = {
-	id: string;
-	calendarId: string;
-	calendarName: string;
-	title: string;
-	startAt: string;
-	endAt: string;
-	isAllDay: boolean;
-	isMeeting: boolean;
-	htmlLink?: string;
-	meetingUrl?: string;
-	location?: string;
-};
+type UpcomingCalendarEventsResponse = FunctionReturnType<
+	typeof api.calendar.listUpcomingGoogleEvents
+>;
+
+export type UpcomingCalendarEvent =
+	UpcomingCalendarEventsResponse["events"][number];
+
+export type UpcomingCalendarState =
+	| { status: "checking"; events: [] }
+	| { status: "ready"; events: UpcomingCalendarEvent[] }
+	| { status: "not_connected"; events: [] }
+	| { status: "error"; events: [] };
 
 export type AppLocationState = {
 	view: AppView;
