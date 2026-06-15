@@ -1,12 +1,13 @@
 import type { UIMessage } from "ai";
+import type { FunctionReturnType } from "convex/server";
 import * as React from "react";
 import { logError } from "@/lib/logger";
+import type { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
-type AttachableRun = {
-	_id: Id<"assistantRuns">;
-	assistantMessageId: string;
-};
+type AttachableRun =
+	| FunctionReturnType<typeof api.assistantRuns.getAttachableRun>
+	| undefined;
 
 const resumeRunPromises = new Map<string, Promise<void>>();
 
@@ -18,7 +19,7 @@ export const useResumeActiveChatRun = ({
 	setMessages,
 	workspaceId,
 }: {
-	activeRun: AttachableRun | null | undefined;
+	activeRun: AttachableRun;
 	chatId: string;
 	enabled?: boolean;
 	resumeStream: () => Promise<void>;

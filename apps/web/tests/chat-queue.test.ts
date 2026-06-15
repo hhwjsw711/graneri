@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { toQueuedUserMessageInput } from "@/lib/chat-queue";
+import {
+	fromQueuedUserMessage,
+	toQueuedUserMessageInput,
+} from "@/lib/chat-queue";
 
 describe("chat queue serialization", () => {
 	it("does not persist desktop local folder scope in durable queued messages", () => {
@@ -40,5 +43,43 @@ describe("chat queue serialization", () => {
 			localFolders: [],
 			model: "gpt-5",
 		});
+	});
+
+	it("restores queued request state with a fresh Convex token", async () => {
+		const queuedMessage = toQueuedUserMessageInput({
+			metadata: { selectedModel: "gpt-5" },
+			requestBody: {
+				convexToken: "stale-token",
+				localFolders: [],
+				model: "gpt-5",
+				timezone: "UTC",
+			},
+			text: "Follow up",
+		});
+
+		const prepared = await fromQueuedUserMessage({
+			queuedMessage,
+			resolveConvexToken: async () => "fresh-token",
+		});
+
+		expect(prepared.body).toMatchObject({
+			convexToken: "fresh-token",
+			model: "gpt-5",
+		});
+		expect(prepared.message.metadata).toEqual({ selectedModel: "gpt-5" });
+		expect(prepared.message.text).toBe("Follow up");
+	});
+
+	it("rejects invalid queued request body shapes at the boundary", async () => {
+		await expect(
+			fromQueuedUserMessage({
+				queuedMessage: {
+					messageId: "queued-1",
+					requestBodyJson: "[]",
+					text: "Follow up",
+				},
+				resolveConvexToken: async () => "fresh-token",
+			}),
+		).rejects.toThrow("Queued chat request body is invalid.");
 	});
 });

@@ -1,5 +1,7 @@
 import type { UIMessage } from "ai";
 
+type QueuedRequestBody = Record<string, unknown>;
+
 const hasDurableUnsafeLocalFolders = (requestBody: Record<string, unknown>) =>
 	Array.isArray(requestBody.localFolders) &&
 	requestBody.localFolders.length > 0;
@@ -9,6 +11,35 @@ type QueuedMessage = {
 	metadataJson?: string;
 	requestBodyJson: string;
 	text: string;
+};
+
+const isRecord = (value: unknown): value is QueuedRequestBody =>
+	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseQueuedRequestBody = (requestBodyJson: string): QueuedRequestBody => {
+	const parsed = JSON.parse(requestBodyJson) as unknown;
+
+	if (!isRecord(parsed)) {
+		throw new Error("Queued chat request body is invalid.");
+	}
+
+	return parsed;
+};
+
+const parseQueuedMessageMetadata = (
+	metadataJson: string | undefined,
+): UIMessage["metadata"] | undefined => {
+	if (metadataJson === undefined) {
+		return undefined;
+	}
+
+	const parsed = JSON.parse(metadataJson) as unknown;
+
+	if (parsed !== undefined && !isRecord(parsed)) {
+		throw new Error("Queued chat message metadata is invalid.");
+	}
+
+	return parsed as UIMessage["metadata"];
 };
 
 export const toQueuedUserMessageInput = ({
@@ -50,15 +81,9 @@ export const fromQueuedUserMessage = async ({
 	queuedMessage: QueuedMessage;
 	resolveConvexToken: () => Promise<string | null>;
 }) => {
-	const requestBody = JSON.parse(queuedMessage.requestBodyJson) as Record<
-		string,
-		unknown
-	>;
+	const requestBody = parseQueuedRequestBody(queuedMessage.requestBodyJson);
 	const convexToken = await resolveConvexToken();
-	const metadata =
-		queuedMessage.metadataJson === undefined
-			? undefined
-			: (JSON.parse(queuedMessage.metadataJson) as UIMessage["metadata"]);
+	const metadata = parseQueuedMessageMetadata(queuedMessage.metadataJson);
 
 	return {
 		body: {

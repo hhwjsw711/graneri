@@ -74,8 +74,6 @@ const nonTerminalRunStatuses = [
 	"stopping",
 ] as const;
 
-type NonTerminalRunStatus = (typeof nonTerminalRunStatuses)[number];
-
 const getOwnedActiveChatById = async (
 	ctx: QueryCtx | MutationCtx,
 	ownerTokenIdentifier: string,
@@ -149,12 +147,12 @@ const getNonTerminalRunsForWorkspace = async (
 ) => {
 	const runs: Doc<"assistantRuns">[] = [];
 
-	for await (const run of ctx.db
-		.query("assistantRuns")
-		.withIndex("by_workspaceId_and_chatId", (q) =>
-			q.eq("workspaceId", workspaceId),
-		)) {
-		if (isNonTerminalStatus(run.status)) {
+	for (const status of nonTerminalRunStatuses) {
+		for await (const run of ctx.db
+			.query("assistantRuns")
+			.withIndex("by_workspaceId_and_status", (q) =>
+				q.eq("workspaceId", workspaceId).eq("status", status),
+			)) {
 			runs.push(run);
 		}
 	}
@@ -604,8 +602,3 @@ export const listActiveChatIds = query({
 		return Array.from(activeChatIds);
 	},
 });
-
-const isNonTerminalStatus = (
-	status: Doc<"assistantRuns">["status"],
-): status is NonTerminalRunStatus =>
-	nonTerminalRunStatuses.some((candidate) => candidate === status);

@@ -579,6 +579,7 @@ export default defineSchema({
 	})
 		.index("by_chatId_and_status", ["chatId", "status"])
 		.index("by_workspaceId_and_chatId", ["workspaceId", "chatId"])
+		.index("by_workspaceId_and_status", ["workspaceId", "status"])
 		.index("by_assistantMessageId", ["assistantMessageId"]),
 	assistantQueuedMessages: defineTable({
 		ownerTokenIdentifier: v.string(),

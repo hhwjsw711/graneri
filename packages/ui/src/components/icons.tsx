@@ -382,10 +382,10 @@ export const Icons = {
 			xmlns="http://www.w3.org/2000/svg"
 			fill="none"
 			viewBox="0 0 24 24"
-			aria-label="Loading"
+			aria-label="In progress"
 			{...props}
 		>
-			<title>Loading spinner</title>
+			<title>In progress</title>
 			<circle
 				className="opacity-25"
 				cx="12"
