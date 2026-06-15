@@ -417,6 +417,8 @@ const getOverlayWindowPosition = (bounds) => {
 	};
 };
 
+const shouldOverlayAcceptMouseEvents = (status) => status === "error";
+
 const createDictationOverlay = ({ onClose, onRetry } = {}) => {
 	let overlayWindow = null;
 	let isLoaded = false;
@@ -454,6 +456,7 @@ const createDictationOverlay = ({ onClose, onRetry } = {}) => {
 		overlayWindow.setVisibleOnAllWorkspaces(true, {
 			visibleOnFullScreen: true,
 		});
+		overlayWindow.setIgnoreMouseEvents(true, { forward: true });
 		overlayWindow.on("closed", () => {
 			overlayWindow = null;
 			isLoaded = false;
@@ -494,9 +497,19 @@ const createDictationOverlay = ({ onClose, onRetry } = {}) => {
 		return overlayWindow;
 	};
 
+	const updateMouseEvents = (window, status) => {
+		if (shouldOverlayAcceptMouseEvents(status)) {
+			window.setIgnoreMouseEvents(false);
+			return;
+		}
+
+		window.setIgnoreMouseEvents(true, { forward: true });
+	};
+
 	const updateStatus = async ({ status }) => {
 		const window = await ensureWindow();
 		pendingStatus = { status };
+		updateMouseEvents(window, status);
 
 		if (!isLoaded) {
 			return;
