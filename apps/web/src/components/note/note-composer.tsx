@@ -142,6 +142,7 @@ import {
 	rehydrateSharedLocalFolders,
 } from "@/lib/local-folder-sharing";
 import { logError } from "@/lib/logger";
+import { resolveCanGenerateNotes } from "@/lib/note-generate-action";
 import { ENHANCED_NOTE_TEMPLATE_SLUG } from "@/lib/note-templates";
 import { createPlainTextEditorExtensions } from "@/lib/plain-text-editor";
 import {
@@ -1272,14 +1273,18 @@ const useNoteComposerController = ({
 		workspaceId: activeWorkspaceId,
 	});
 	const hasMessage = message.trim().length > 0;
-	const canGenerateNotes =
-		transcriptSession.isTranscriptSessionReady &&
-		transcriptSession.hasPendingGenerateTranscript &&
-		!transcriptSession.hasGeneratedLatestTranscript &&
-		noteContext.templateSlug !== ENHANCED_NOTE_TEMPLATE_SLUG &&
-		!isCurrentNoteSpeechListening &&
-		!isChatOpen &&
-		!isTranscriptOpen;
+	const canGenerateNotes = resolveCanGenerateNotes({
+		hasGeneratedLatestTranscript:
+			transcriptSession.hasGeneratedLatestTranscript,
+		hasPendingGenerateTranscript:
+			transcriptSession.hasPendingGenerateTranscript,
+		isChatOpen,
+		isGeneratingTemplateNote:
+			noteContext.templateSlug === ENHANCED_NOTE_TEMPLATE_SLUG,
+		isSpeechListening: isCurrentNoteSpeechListening,
+		isTranscriptOpen,
+		isTranscriptSessionReady: transcriptSession.isTranscriptSessionReady,
+	});
 	const chatTitle =
 		selectedNoteChat?.title?.trim() ||
 		currentChatSession?.title?.trim() ||
@@ -1432,7 +1437,6 @@ const useNoteComposerController = ({
 		}
 
 		previousNoteIdRef.current = noteId;
-		previousSpeechListeningRef.current = false;
 
 		if (isChatLoading) {
 			// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent

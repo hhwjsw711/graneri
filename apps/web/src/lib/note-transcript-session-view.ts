@@ -44,6 +44,21 @@ export const createStoredTranscriptText = ({
 		? createTranscriptText(session.utterances) || session.finalTranscript
 		: (summary?.finalTranscript ?? "");
 
+export const resolveTranscriptSessionReady = ({
+	hasLocalCaptureTranscript,
+	isDraftReady,
+	isSummaryLoading,
+	isViewingCaptureScope,
+}: {
+	hasLocalCaptureTranscript: boolean;
+	isDraftReady: boolean;
+	isSummaryLoading: boolean;
+	isViewingCaptureScope: boolean;
+}) =>
+	isViewingCaptureScope
+		? hasLocalCaptureTranscript || (isDraftReady && !isSummaryLoading)
+		: !isSummaryLoading;
+
 export const createVisibleTranscriptView = ({
 	currentNoteLatestTranscriptSession,
 	isViewingCaptureScope,

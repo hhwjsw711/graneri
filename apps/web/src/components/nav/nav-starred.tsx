@@ -5,15 +5,10 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
+import { Spinner } from "@workspace/ui/components/spinner";
 import type { OptimisticLocalStore } from "convex/browser";
 import { useMutation } from "convex/react";
-import {
-	Clock,
-	FileText,
-	LoaderCircle,
-	MessageCircle,
-	MoreHorizontal,
-} from "lucide-react";
+import { Clock, FileText, MessageCircle, MoreHorizontal } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { ChatActionsMenu } from "@/components/chat/chat-actions-menu";
@@ -534,10 +529,7 @@ function StarredChatItem({
 				{...sortable?.buttonProps}
 			>
 				{isStreaming ? (
-					<LoaderCircle
-						className="animate-spin"
-						aria-label="Chat is generating"
-					/>
+					<Spinner aria-label="Chat is generating" />
 				) : (
 					<MessageCircle />
 				)}

@@ -4,12 +4,19 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 
-type TranscriptSessionStatus = "capturing" | "completed" | "failed";
-type TranscriptRefinementStatus = "idle" | "running" | "completed" | "failed";
+type TranscriptSessionStatus = Doc<"transcriptSessionStates">["status"];
+type TranscriptRefinementStatus =
+	Doc<"transcriptSessionStates">["refinementStatus"];
 type SystemAudioSourceMode = "desktop-native" | "display-media" | "unsupported";
 
 const transcriptSessionStatusValidator = v.union(
 	v.literal("capturing"),
+	v.literal("stopping"),
+	v.literal("completed"),
+	v.literal("failed"),
+);
+
+const terminalTranscriptSessionStatusValidator = v.union(
 	v.literal("completed"),
 	v.literal("failed"),
 );
@@ -243,24 +250,6 @@ const getLatestNoteSession = async (
 	);
 };
 
-const listNoteUtterances = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	noteId: Id<"notes">,
-) => {
-	const utterances: Doc<"transcriptUtterances">[] = [];
-
-	for await (const utterance of ctx.db
-		.query("transcriptUtterances")
-		.withIndex("by_ownerTokenIdentifier_and_noteId_and_startedAt", (q) =>
-			q.eq("ownerTokenIdentifier", ownerTokenIdentifier).eq("noteId", noteId),
-		)) {
-		utterances.push(utterance);
-	}
-
-	return utterances;
-};
-
 const formatTranscriptClockTime = (timestamp: number) => {
 	const date = new Date(timestamp);
 	const hours = String(date.getHours()).padStart(2, "0");
@@ -295,6 +284,25 @@ const createTranscriptText = (utterances: Doc<"transcriptUtterances">[]) =>
 		.filter(Boolean)
 		.join("\n\n")
 		.trim();
+
+const createMarkGeneratedStatePatch = ({
+	now,
+	status,
+}: {
+	now: number;
+	status: TranscriptSessionStatus;
+}): Partial<Doc<"transcriptSessionStates">> =>
+	status === "stopping"
+		? {
+				status: "completed",
+				endedAt: now,
+				generatedNoteAt: now,
+				updatedAt: now,
+			}
+		: {
+				generatedNoteAt: now,
+				updatedAt: now,
+			};
 
 const deleteUtterancesForSessionBatch = async (
 	ctx: MutationCtx,
@@ -363,11 +371,7 @@ export const getStoredTranscriptForNote = query({
 			return null;
 		}
 
-		const utterances = await listNoteUtterances(
-			ctx,
-			ownerTokenIdentifier,
-			args.noteId,
-		);
+		const utterances = await listSessionUtterances(ctx, session._id);
 		const aggregatedFinalTranscript =
 			createTranscriptText(utterances) || session.finalTranscript;
 
@@ -484,7 +488,7 @@ export const completeSession = mutation({
 	args: {
 		sessionId: v.id("transcriptSessions"),
 		finalTranscript: v.optional(v.string()),
-		status: v.optional(transcriptSessionStatusValidator),
+		status: v.optional(terminalTranscriptSessionStatusValidator),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -495,14 +499,59 @@ export const completeSession = mutation({
 			args.sessionId,
 		);
 		const now = Date.now();
+		const state = await requireTranscriptSessionState(ctx, session._id);
 
-		await patchTranscriptSessionState(ctx, session._id, {
+		if (state.status !== "capturing" && state.status !== "stopping") {
+			throw new ConvexError({
+				code: "TRANSCRIPT_SESSION_NOT_ACTIVE",
+				message: "Transcript session is not active.",
+			});
+		}
+
+		await ctx.db.patch(state._id, {
 			status: args.status ?? "completed",
 			endedAt: now,
 			updatedAt: now,
 		});
+		const finalTranscript =
+			args.finalTranscript?.trim() ||
+			createTranscriptText(await listSessionUtterances(ctx, args.sessionId));
 		await ctx.db.patch(args.sessionId, {
-			finalTranscript: args.finalTranscript?.trim() || undefined,
+			finalTranscript: finalTranscript || undefined,
+		});
+
+		return null;
+	},
+});
+
+export const requestStopSession = mutation({
+	args: {
+		sessionId: v.id("transcriptSessions"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
+		const session = await requireOwnedSession(
+			ctx,
+			ownerTokenIdentifier,
+			args.sessionId,
+		);
+		const state = await requireTranscriptSessionState(ctx, session._id);
+
+		if (state.status === "stopping") {
+			return null;
+		}
+
+		if (state.status !== "capturing") {
+			throw new ConvexError({
+				code: "TRANSCRIPT_SESSION_NOT_CAPTURING",
+				message: "Transcript session is not capturing.",
+			});
+		}
+
+		await ctx.db.patch(state._id, {
+			status: "stopping",
+			updatedAt: Date.now(),
 		});
 
 		return null;
@@ -575,12 +624,16 @@ export const markGenerated = mutation({
 			ownerTokenIdentifier,
 			args.sessionId,
 		);
+		const state = await requireTranscriptSessionState(ctx, session._id);
 		const now = Date.now();
 
-		await patchTranscriptSessionState(ctx, session._id, {
-			generatedNoteAt: now,
-			updatedAt: now,
-		});
+		await ctx.db.patch(
+			state._id,
+			createMarkGeneratedStatePatch({
+				now,
+				status: state.status,
+			}),
+		);
 
 		return null;
 	},

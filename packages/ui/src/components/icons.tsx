@@ -1,65 +1,7 @@
-import { cn } from "@workspace/ui/lib/utils";
 import type { LucideIcon, LucideProps } from "lucide-react";
-import * as React from "react";
+import { Spinner } from "./spinner";
 
 export type Icon = LucideIcon;
-
-function SidebarRecordingSpinnerIcon({
-	className,
-	...props
-}: React.SVGProps<SVGSVGElement>) {
-	const gradientId = React.useId();
-
-	return (
-		<svg
-			aria-hidden="true"
-			fill="none"
-			stroke="currentColor"
-			strokeLinejoin="round"
-			strokeWidth="1.9"
-			viewBox="0 0 24 24"
-			xmlns="http://www.w3.org/2000/svg"
-			className={cn("size-4 shrink-0", className)}
-			{...props}
-		>
-			<defs>
-				<linearGradient
-					id={gradientId}
-					x1="3"
-					x2="21"
-					y1="12"
-					y2="12"
-					gradientUnits="userSpaceOnUse"
-				>
-					<stop offset="0%" stopColor="currentColor" stopOpacity="0" />
-					<stop offset="36%" stopColor="currentColor" stopOpacity="0.22" />
-					<stop offset="68%" stopColor="currentColor" stopOpacity="0.62" />
-					<stop offset="100%" stopColor="currentColor" stopOpacity="0.96" />
-				</linearGradient>
-			</defs>
-			<circle cx="12" cy="12" r="9" opacity="0.24" />
-			<circle
-				cx="12"
-				cy="12"
-				r="9"
-				pathLength="100"
-				stroke={`url(#${gradientId})`}
-				strokeDasharray="30 70"
-				strokeLinecap="round"
-				transform="rotate(-90 12 12)"
-			>
-				<animateTransform
-					attributeName="transform"
-					type="rotate"
-					from="-90 12 12"
-					to="270 12 12"
-					dur="2.2s"
-					repeatCount="indefinite"
-				/>
-			</circle>
-		</svg>
-	);
-}
 
 export const Icons = {
 	codexLogo: ({ ...props }: LucideProps) => (
@@ -459,7 +401,7 @@ export const Icons = {
 			/>
 		</svg>
 	),
-	sidebarRecordingSpinner: SidebarRecordingSpinnerIcon,
+	sidebarRecordingSpinner: Spinner,
 	contextUsage: ({
 		usedTokens,
 		maxTokens,

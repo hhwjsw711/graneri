@@ -11,16 +11,20 @@ import {
 	saveTranscriptDraft,
 } from "@/lib/transcript-draft";
 import { api } from "../../../../convex/_generated/api";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 
 type TranscriptDraftRecord = Awaited<ReturnType<typeof loadTranscriptDraft>>;
+type TranscriptSessionStatus = Doc<"transcriptSessionStates">["status"];
+type TranscriptRefinementStatus =
+	Doc<"transcriptSessionStates">["refinementStatus"];
 
 type TranscriptSessionSnapshot = {
 	finalTranscript: string;
 	generatedNoteAt: number | null;
 	refinementError: string | null;
-	refinementStatus: "idle" | "running" | "completed" | "failed";
+	refinementStatus: TranscriptRefinementStatus;
 	sessionId: Id<"transcriptSessions">;
+	status: TranscriptSessionStatus;
 	updatedAt: number;
 	utterances: TranscriptUtterance[];
 };
@@ -54,6 +58,9 @@ export const useTranscriptSessionRepository = (
 	const convex = useConvex();
 	const startTranscriptSessionMutation = useMutation(
 		api.transcriptSessions.startSession,
+	);
+	const requestStopTranscriptSessionMutation = useMutation(
+		api.transcriptSessions.requestStopSession,
 	);
 	const appendTranscriptUtteranceMutation = useMutation(
 		api.transcriptSessions.appendUtterance,
@@ -105,6 +112,7 @@ export const useTranscriptSessionRepository = (
 								latestTranscriptSessionSummaryQuery.refinementError ?? null,
 							refinementStatus:
 								latestTranscriptSessionSummaryQuery.refinementStatus,
+							status: latestTranscriptSessionSummaryQuery.status,
 							updatedAt: latestTranscriptSessionSummaryQuery.updatedAt,
 						}
 					: null,
@@ -140,6 +148,7 @@ export const useTranscriptSessionRepository = (
 						generatedNoteAt: result.session.generatedNoteAt ?? null,
 						refinementError: result.session.refinementError ?? null,
 						refinementStatus: result.session.refinementStatus,
+						status: result.session.status,
 						updatedAt: result.session.updatedAt,
 						utterances: result.utterances.map((utterance) => ({
 							id: utterance.utteranceId,
@@ -283,7 +292,7 @@ export const useTranscriptSessionRepository = (
 		}: {
 			finalTranscript?: string;
 			sessionId: Id<"transcriptSessions">;
-			status?: "capturing" | "completed" | "failed";
+			status?: "completed" | "failed";
 		}) =>
 			await completeTranscriptSessionMutation({
 				sessionId,
@@ -291,6 +300,14 @@ export const useTranscriptSessionRepository = (
 				status,
 			}),
 		[completeTranscriptSessionMutation],
+	);
+
+	const requestStopSession = React.useCallback(
+		async ({ sessionId }: { sessionId: Id<"transcriptSessions"> }) =>
+			await requestStopTranscriptSessionMutation({
+				sessionId,
+			}),
+		[requestStopTranscriptSessionMutation],
 	);
 
 	const setSystemAudioSourceMode = React.useCallback(
@@ -360,6 +377,7 @@ export const useTranscriptSessionRepository = (
 			loadDraft,
 			markGenerated,
 			refreshLatestTranscriptSession,
+			requestStopSession,
 			saveDraft,
 			setSystemAudioSourceMode,
 			startSession,
@@ -375,6 +393,7 @@ export const useTranscriptSessionRepository = (
 			loadDraft,
 			markGenerated,
 			refreshLatestTranscriptSession,
+			requestStopSession,
 			saveDraft,
 			setSystemAudioSourceMode,
 			startSession,

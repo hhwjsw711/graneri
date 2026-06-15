@@ -6,13 +6,9 @@ import {
 	EmptyTitle,
 } from "@workspace/ui/components/empty";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import { Spinner } from "@workspace/ui/components/spinner";
 import { cn } from "@workspace/ui/lib/utils";
-import {
-	Clock,
-	LoaderCircle,
-	MessageCircle,
-	MoreHorizontal,
-} from "lucide-react";
+import { Clock, MessageCircle, MoreHorizontal } from "lucide-react";
 import { getChatId } from "@/lib/chat";
 import { formatRelativeTimestamp } from "@/lib/chat-timestamp";
 import {
@@ -155,10 +151,7 @@ function ChatHistoryItem({
 			>
 				<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
 					{isStreaming ? (
-						<LoaderCircle
-							className="size-4 animate-spin"
-							aria-label="Chat is generating"
-						/>
+						<Spinner className="size-4" aria-label="Chat is generating" />
 					) : (
 						<MessageCircle className="size-4" />
 					)}

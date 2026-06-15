@@ -10,6 +10,7 @@ const workspaceRoleValidator = v.union(
 
 const transcriptSessionStatusValidator = v.union(
 	v.literal("capturing"),
+	v.literal("stopping"),
 	v.literal("completed"),
 	v.literal("failed"),
 );
