@@ -32,12 +32,13 @@ const copyRichTextWithSelectionFallback = async ({
 	html: string;
 	text: string;
 }) => {
+	const sanitizedHtml = sanitizeClipboardHtml(html);
 	const container = document.createElement("div");
 	container.setAttribute("contenteditable", "true");
 	container.setAttribute("aria-hidden", "true");
 	container.style.cssText =
 		"position: fixed; pointer-events: none; opacity: 0; white-space: pre-wrap; inset: 0;";
-	container.innerHTML = html;
+	container.innerHTML = sanitizedHtml;
 	document.body.appendChild(container);
 
 	const selection = window.getSelection();
@@ -76,6 +77,36 @@ const copyRichTextWithSelectionFallback = async ({
 	}
 };
 
+const URL_ATTRIBUTE_NAMES = new Set(["action", "href", "src", "xlink:href"]);
+
+function sanitizeClipboardHtml(html: string) {
+	const parsedDocument = new DOMParser().parseFromString(html, "text/html");
+
+	for (const element of parsedDocument.body.querySelectorAll(
+		"script, iframe, object, embed, link, meta",
+	)) {
+		element.remove();
+	}
+
+	for (const element of parsedDocument.body.querySelectorAll("*")) {
+		for (const attribute of Array.from(element.attributes)) {
+			const attributeName = attribute.name.toLowerCase();
+			const attributeValue = attribute.value.trim().toLowerCase();
+
+			if (
+				attributeName.startsWith("on") ||
+				(URL_ATTRIBUTE_NAMES.has(attributeName) &&
+					(attributeValue.startsWith("javascript:") ||
+						attributeValue.startsWith("data:text/html")))
+			) {
+				element.removeAttribute(attribute.name);
+			}
+		}
+	}
+
+	return parsedDocument.body.innerHTML;
+}
+
 export async function writeRichTextToClipboard({
 	html,
 	text,
@@ -83,11 +114,12 @@ export async function writeRichTextToClipboard({
 	html: string;
 	text: string;
 }) {
+	const sanitizedHtml = sanitizeClipboardHtml(html);
 	const desktopBridge = getDesktopBridge();
 
 	if (desktopBridge?.writeClipboardRichText) {
 		await desktopBridge.writeClipboardRichText({
-			html,
+			html: sanitizedHtml,
 			text,
 		});
 		return;
@@ -101,7 +133,7 @@ export async function writeRichTextToClipboard({
 		try {
 			await navigator.clipboard.write([
 				new ClipboardItem({
-					"text/html": new Blob([html], { type: "text/html" }),
+					"text/html": new Blob([sanitizedHtml], { type: "text/html" }),
 					"text/plain": new Blob([text], { type: "text/plain" }),
 				}),
 			]);
@@ -113,7 +145,7 @@ export async function writeRichTextToClipboard({
 	}
 
 	await copyRichTextWithSelectionFallback({
-		html,
+		html: sanitizedHtml,
 		text,
 	});
 }

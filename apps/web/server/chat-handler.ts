@@ -718,9 +718,8 @@ export const handleChatRequest = async (
 			}
 
 			try {
-				await activeStreamSession.closePersistence();
-
 				if (assistantRunTerminalization.status === "completed") {
+					await activeStreamSession.closePersistence();
 					await convexClient.mutation(api.assistantRuns.finishAssistantRun, {
 						runId: assistantRun._id,
 					});
@@ -730,6 +729,7 @@ export const handleChatRequest = async (
 					return;
 				}
 
+				await activeStreamSession.closePersistence();
 				await convexClient.mutation(api.assistantRuns.failAssistantRun, {
 					runId: assistantRun._id,
 					errorText: assistantRunTerminalization.errorText,

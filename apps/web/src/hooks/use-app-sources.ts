@@ -11,6 +11,51 @@ export type AppSource = {
 	provider: ChatAppSourceProvider;
 };
 
+type GoogleSourcesState = {
+	sources: AppSource[];
+	error: unknown;
+	workspaceId: Id<"workspaces"> | null;
+};
+
+type GoogleSourcesAction =
+	| {
+			type: "loaded";
+			sources: AppSource[];
+			workspaceId: Id<"workspaces">;
+	  }
+	| {
+			type: "failed";
+			error: unknown;
+			workspaceId: Id<"workspaces">;
+	  };
+
+const initialGoogleSourcesState: GoogleSourcesState = {
+	sources: [],
+	error: null,
+	workspaceId: null,
+};
+const EMPTY_APP_SOURCES: AppSource[] = [];
+
+const googleSourcesReducer = (
+	_state: GoogleSourcesState,
+	action: GoogleSourcesAction,
+): GoogleSourcesState => {
+	switch (action.type) {
+		case "loaded":
+			return {
+				sources: action.sources,
+				error: null,
+				workspaceId: action.workspaceId,
+			};
+		case "failed":
+			return {
+				sources: [],
+				error: action.error,
+				workspaceId: action.workspaceId,
+			};
+	}
+};
+
 export function useAppSources(
 	workspaceId: Id<"workspaces"> | null | undefined,
 ) {
@@ -19,18 +64,15 @@ export function useAppSources(
 		workspaceId ? { workspaceId } : "skip",
 	);
 	const listGoogleSources = useAction(api.googleTools.listAvailableSources);
-	const [googleSources, setGoogleSources] = React.useState<AppSource[]>([]);
-	const [googleSourcesError, setGoogleSourcesError] =
-		React.useState<unknown>(null);
+	const [googleSourcesState, dispatchGoogleSources] = React.useReducer(
+		googleSourcesReducer,
+		initialGoogleSourcesState,
+	);
 
-	// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 	React.useEffect(() => {
 		let cancelled = false;
 
 		if (!workspaceId) {
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-			setGoogleSources([]);
-			setGoogleSourcesError(null);
 			return () => {
 				cancelled = true;
 			};
@@ -39,13 +81,12 @@ export function useAppSources(
 		void listGoogleSources({ workspaceId })
 			.then((sources) => {
 				if (!cancelled) {
-					setGoogleSources(sources);
-					setGoogleSourcesError(null);
+					dispatchGoogleSources({ type: "loaded", sources, workspaceId });
 				}
 			})
 			.catch((error: unknown) => {
 				if (!cancelled) {
-					setGoogleSourcesError(error);
+					dispatchGoogleSources({ type: "failed", error, workspaceId });
 				}
 			});
 
@@ -54,13 +95,20 @@ export function useAppSources(
 		};
 	}, [listGoogleSources, workspaceId]);
 
+	const googleSources =
+		workspaceId && googleSourcesState.workspaceId === workspaceId
+			? googleSourcesState.sources
+			: EMPTY_APP_SOURCES;
+
 	const sources = React.useMemo(
 		() => [...googleSources, ...(connectionSources ?? [])],
 		[connectionSources, googleSources],
 	);
 
-	if (googleSourcesError) {
-		throw googleSourcesError;
+	if (workspaceId && googleSourcesState.workspaceId === workspaceId) {
+		if (googleSourcesState.error) {
+			throw googleSourcesState.error;
+		}
 	}
 
 	return sources;

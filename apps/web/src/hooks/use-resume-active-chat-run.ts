@@ -28,16 +28,22 @@ export const useResumeActiveChatRun = ({
 	const resumedRunKeyRef = React.useRef<string | null>(null);
 
 	React.useEffect(() => {
+		let cancelled = false;
+
 		if (!workspaceId || !enabled || !activeRun) {
 			if (!workspaceId || !enabled) {
 				resumedRunKeyRef.current = null;
 			}
-			return;
+			return () => {
+				cancelled = true;
+			};
 		}
 
 		const runKey = `${workspaceId}:${chatId}:${activeRun._id}`;
 		if (resumedRunKeyRef.current === runKey || resumeRunPromises.has(runKey)) {
-			return;
+			return () => {
+				cancelled = true;
+			};
 		}
 
 		resumedRunKeyRef.current = runKey;
@@ -48,7 +54,7 @@ export const useResumeActiveChatRun = ({
 		);
 		const resumePromise = resumeStream()
 			.catch((error: unknown) => {
-				if (resumedRunKeyRef.current === runKey) {
+				if (!cancelled && resumedRunKeyRef.current === runKey) {
 					resumedRunKeyRef.current = null;
 				}
 				logError({
@@ -63,5 +69,9 @@ export const useResumeActiveChatRun = ({
 				}
 			});
 		resumeRunPromises.set(runKey, resumePromise);
+
+		return () => {
+			cancelled = true;
+		};
 	}, [activeRun, chatId, enabled, resumeStream, setMessages, workspaceId]);
 };

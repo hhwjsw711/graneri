@@ -6,7 +6,7 @@ type WorkspaceId = Id<"workspaces">;
 type ProjectListItem = Doc<"projects"> & { isStarred: boolean };
 
 const sortProjectsBySortOrder = (projects: ProjectListItem[]) =>
-	[...projects].sort((leftProject, rightProject) => {
+	projects.toSorted((leftProject, rightProject) => {
 		if (leftProject.sortOrder !== rightProject.sortOrder) {
 			return leftProject.sortOrder - rightProject.sortOrder;
 		}

@@ -1038,6 +1038,95 @@ export function ProjectSidebarItem({
 	}, [isMovingNotesToTrash, moveProjectNotesToTrash, project._id, workspaceId]);
 
 	return (
+		<ProjectSidebarItemView
+			currentNoteId={currentNoteId}
+			currentNoteTitle={currentNoteTitle}
+			dispatch={dispatch}
+			hasNotes={hasNotes}
+			ignoreInitialRenameInteractOutsideRef={
+				ignoreInitialRenameInteractOutsideRef
+			}
+			isMovingNotesToTrash={isMovingNotesToTrash}
+			isRemoving={isRemoving}
+			notes={notes}
+			onDeleteProject={handleDeleteProject}
+			onMoveNotesToTrash={handleMoveNotesToTrash}
+			onNoteSelect={onNoteSelect}
+			onNoteTitleChange={onNoteTitleChange}
+			onNoteTrashed={onNoteTrashed}
+			onOpenChange={onOpenChange}
+			onPrefetchNote={onPrefetchNote}
+			onProjectSelect={onProjectSelect}
+			onRename={handleRename}
+			onRenameCancel={handleRenameCancel}
+			onRenameOpenChange={handleRenameOpenChange}
+			onStartRename={handleStartRename}
+			onToggleStar={handleToggleStar}
+			open={open}
+			preventMenuCloseAutoFocusRef={preventMenuCloseAutoFocusRef}
+			project={project}
+			projectRowActions={projectRowActions}
+			recordingNoteId={recordingNoteId}
+			renameInputRef={renameInputRef}
+			renameValue={renameValue}
+			sortable={sortable}
+			state={state}
+			workspaceId={workspaceId}
+		/>
+	);
+}
+
+function ProjectSidebarItemView({
+	currentNoteId,
+	currentNoteTitle,
+	dispatch,
+	hasNotes,
+	ignoreInitialRenameInteractOutsideRef,
+	isMovingNotesToTrash,
+	isRemoving,
+	notes,
+	onDeleteProject,
+	onMoveNotesToTrash,
+	onNoteSelect,
+	onNoteTitleChange,
+	onNoteTrashed,
+	onOpenChange,
+	onPrefetchNote,
+	onProjectSelect,
+	onRename,
+	onRenameCancel,
+	onRenameOpenChange,
+	onStartRename,
+	onToggleStar,
+	open,
+	preventMenuCloseAutoFocusRef,
+	project,
+	projectRowActions,
+	recordingNoteId,
+	renameInputRef,
+	renameValue,
+	sortable,
+	state,
+	workspaceId,
+}: ProjectSidebarItemProps & {
+	dispatch: React.Dispatch<ProjectItemAction>;
+	hasNotes: boolean;
+	ignoreInitialRenameInteractOutsideRef: React.RefObject<boolean>;
+	isMovingNotesToTrash: boolean;
+	isRemoving: boolean;
+	onDeleteProject: () => Promise<void>;
+	onMoveNotesToTrash: () => Promise<void>;
+	onRename: () => Promise<void>;
+	onRenameCancel: () => void;
+	onRenameOpenChange: (open: boolean) => void;
+	onStartRename: () => void;
+	onToggleStar: () => Promise<void>;
+	preventMenuCloseAutoFocusRef: React.RefObject<boolean>;
+	renameInputRef: React.RefObject<HTMLInputElement | null>;
+	renameValue: string;
+	state: ProjectItemState;
+}) {
+	return (
 		<>
 			<Collapsible asChild open={open} onOpenChange={onOpenChange}>
 				<SidebarMenuItem
@@ -1069,9 +1158,9 @@ export function ProjectSidebarItem({
 						}
 						onToggleOpen={() => onOpenChange(!open)}
 						onSelectProject={() => onProjectSelect(project._id)}
-						onRenameOpenChange={handleRenameOpenChange}
-						onStartRename={handleStartRename}
-						onToggleStar={handleToggleStar}
+						onRenameOpenChange={onRenameOpenChange}
+						onStartRename={onStartRename}
+						onToggleStar={onToggleStar}
 						onMoveNotesToTrash={() => {
 							dispatch({ type: "setMenuOpen", value: false });
 							dispatch({ type: "setMoveNotesConfirmOpen", value: true });
@@ -1080,9 +1169,9 @@ export function ProjectSidebarItem({
 							dispatch({ type: "setRenameValue", value })
 						}
 						onRenameCommit={() => {
-							void handleRename();
+							void onRename();
 						}}
-						onRenameCancel={handleRenameCancel}
+						onRenameCancel={onRenameCancel}
 						onDeleteSelect={() => {
 							dispatch({ type: "setMenuOpen", value: false });
 							dispatch({ type: "setConfirmOpen", value: true });
@@ -1114,8 +1203,8 @@ export function ProjectSidebarItem({
 				onMoveNotesOpenChange={(nextOpen) =>
 					dispatch({ type: "setMoveNotesConfirmOpen", value: nextOpen })
 				}
-				onDeleteConfirm={handleDeleteProject}
-				onMoveNotesConfirm={handleMoveNotesToTrash}
+				onDeleteConfirm={onDeleteProject}
+				onMoveNotesConfirm={onMoveNotesToTrash}
 			/>
 		</>
 	);

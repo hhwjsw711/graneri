@@ -14,7 +14,7 @@ const getEnvironmentContext = () => ({
 	version: import.meta.env.VITE_APP_VERSION ?? "0.0.1",
 });
 
-export const serializeError = (error: unknown) => {
+const serializeError = (error: unknown) => {
 	if (!(error instanceof Error)) {
 		return { message: String(error), type: "UnknownError" };
 	}
@@ -26,7 +26,7 @@ export const serializeError = (error: unknown) => {
 	};
 };
 
-export const logger = pino({
+const logger = pino({
 	base: getEnvironmentContext(),
 	browser: {
 		asObject: true,

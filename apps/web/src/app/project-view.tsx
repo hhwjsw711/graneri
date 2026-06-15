@@ -61,7 +61,7 @@ export function ProjectView({
 			>
 				<section className="mx-auto w-full min-w-0 space-y-6 md:max-w-xl">
 					<PageTitle isDesktopMac={isDesktopMac}>{project.name}</PageTitle>
-					<ProjectDescriptionEditor project={project} />
+					<ProjectDescriptionEditor key={project._id} project={project} />
 				</section>
 				<section className="flex min-w-0 justify-center py-4">
 					{projectNotes === undefined ? null : projectNotes.length > 0 ? (
@@ -99,7 +99,10 @@ export function ProjectView({
 }
 
 function ProjectDescriptionEditor({ project }: { project: Doc<"projects"> }) {
-	const [description, setDescription] = React.useState(project.description);
+	const [description, setDescription] = React.useReducer(
+		(_current: string, next: string) => next,
+		project.description,
+	);
 	const updateDescription = useMutation(
 		api.projects.updateDescription,
 	).withOptimisticUpdate((localStore, args) => {
@@ -115,10 +118,6 @@ function ProjectDescriptionEditor({ project }: { project: Doc<"projects"> }) {
 			),
 		);
 	});
-
-	React.useEffect(() => {
-		setDescription(project.description);
-	}, [project.description]);
 
 	const handleDescriptionChange = React.useCallback(
 		(event: React.ChangeEvent<HTMLTextAreaElement>) => {
