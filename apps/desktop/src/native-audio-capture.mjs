@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
+import { logError, logInfo } from "./logger.mjs";
 
 const captureHealthTimeoutMs = 3_000;
 
@@ -122,7 +123,10 @@ export const createNativeAudioCapture = ({
 			throw new Error("The macOS microphone helper is missing.");
 		}
 
-		console.info("[microphone] starting macOS helper", { helperPath });
+		logInfo({
+			message: "[microphone] starting macOS helper",
+			details: { helperPath },
+		});
 
 		const requestId = ++microphoneCaptureStartRequestId;
 		await stopMicrophoneCapture();
@@ -140,18 +144,21 @@ export const createNativeAudioCapture = ({
 
 			const rejectStart = (error) => {
 				if (requestId !== microphoneCaptureStartRequestId) {
-					console.info("[microphone] ignoring stale helper start failure", {
-						requestId,
-						currentRequestId: microphoneCaptureStartRequestId,
-						message: error instanceof Error ? error.message : String(error),
+					logInfo({
+						message: "[microphone] ignoring stale helper start failure",
+						details: {
+							requestId,
+							currentRequestId: microphoneCaptureStartRequestId,
+							message: error instanceof Error ? error.message : String(error),
+						},
 					});
 					return;
 				}
 
-				console.error(
-					"[microphone] helper failed to start",
-					error instanceof Error ? error.message : error,
-				);
+				logError({
+					error: error instanceof Error ? error.message : error,
+					message: "[microphone] helper failed to start",
+				});
 				if (didResolve) {
 					emitMicrophoneCaptureEvent({
 						type: "error",
@@ -166,9 +173,12 @@ export const createNativeAudioCapture = ({
 
 			const resolveStart = (payload) => {
 				if (requestId !== microphoneCaptureStartRequestId) {
-					console.info("[microphone] ignoring stale helper ready event", {
-						requestId,
-						currentRequestId: microphoneCaptureStartRequestId,
+					logInfo({
+						message: "[microphone] ignoring stale helper ready event",
+						details: {
+							requestId,
+							currentRequestId: microphoneCaptureStartRequestId,
+						},
 					});
 					return;
 				}
@@ -177,7 +187,10 @@ export const createNativeAudioCapture = ({
 					return;
 				}
 
-				console.info("[microphone] helper reported ready", payload);
+				logInfo({
+					message: "[microphone] helper reported ready",
+					details: payload,
+				});
 				logDesktopTurnDebug("microphone.helper_ready", {
 					channels: payload?.channels ?? null,
 					route:
@@ -195,14 +208,21 @@ export const createNativeAudioCapture = ({
 
 			const cleanupTimeout = setTimeout(() => {
 				if (requestId !== microphoneCaptureStartRequestId) {
-					console.info("[microphone] cleared stale helper startup timeout", {
-						requestId,
-						currentRequestId: microphoneCaptureStartRequestId,
+					logInfo({
+						message: "[microphone] cleared stale helper startup timeout",
+						details: {
+							requestId,
+							currentRequestId: microphoneCaptureStartRequestId,
+						},
 					});
 					return;
 				}
 
-				console.error("[microphone] helper startup timed out after 5000ms");
+				logError({
+					event: "microphone.helper_startup_timeout",
+					message: "[microphone] helper startup timed out after 5000ms",
+					startup_timeout_ms: 5_000,
+				});
 				rejectStart(
 					new Error("Timed out while starting macOS microphone capture."),
 				);
@@ -223,7 +243,10 @@ export const createNativeAudioCapture = ({
 					const timeoutError = new Error(
 						"Timed out while receiving macOS microphone audio frames.",
 					);
-					console.error("[microphone] helper stopped producing audio frames");
+					logError({
+						event: "microphone.helper_audio_timeout",
+						message: "[microphone] helper stopped producing audio frames",
+					});
 
 					if (didResolve) {
 						emitMicrophoneCaptureEvent({
@@ -253,7 +276,10 @@ export const createNativeAudioCapture = ({
 			child.stderr.on("data", (chunk) => {
 				const message = String(chunk).trim();
 				if (message) {
-					console.error("[microphone-helper]", message);
+					logError({
+						error: message,
+						message: "[microphone-helper]",
+					});
 				}
 			});
 
@@ -263,12 +289,19 @@ export const createNativeAudioCapture = ({
 				try {
 					event = JSON.parse(line);
 				} catch (error) {
-					console.error("Failed to parse microphone helper event", error, line);
+					logError({
+						error: error,
+						message: "Failed to parse microphone helper event",
+						details: line,
+					});
 					return;
 				}
 
 				if (event?.type !== "chunk") {
-					console.info("[microphone] helper event", event?.type ?? "unknown");
+					logInfo({
+						message: "[microphone] helper event",
+						details: event?.type ?? "unknown",
+					});
 				}
 
 				if (event?.type === "ready") {
@@ -317,7 +350,10 @@ export const createNativeAudioCapture = ({
 				if (microphoneCaptureSession === session) {
 					microphoneCaptureSession = null;
 				}
-				console.error("[microphone] helper process error", error);
+				logError({
+					error: error,
+					message: "[microphone] helper process error",
+				});
 				rejectStart(error);
 			});
 
@@ -329,11 +365,14 @@ export const createNativeAudioCapture = ({
 					microphoneCaptureSession = null;
 				}
 
-				console.info("[microphone] helper exited", {
-					code,
-					signal,
-					didResolve,
-					isStopping: session.isStopping,
+				logInfo({
+					message: "[microphone] helper exited",
+					details: {
+						code,
+						signal,
+						didResolve,
+						isStopping: session.isStopping,
+					},
 				});
 
 				if (!session.isStopping && !didResolve) {
@@ -364,7 +403,10 @@ export const createNativeAudioCapture = ({
 			throw new Error("The macOS system-audio helper is missing.");
 		}
 
-		console.info("[system-audio] starting macOS helper", { helperPath });
+		logInfo({
+			message: "[system-audio] starting macOS helper",
+			details: { helperPath },
+		});
 
 		const requestId = ++systemAudioCaptureStartRequestId;
 		await stopSystemAudioCapture();
@@ -382,10 +424,13 @@ export const createNativeAudioCapture = ({
 
 			const rejectStart = (error) => {
 				if (requestId !== systemAudioCaptureStartRequestId) {
-					console.info("[system-audio] ignoring stale helper start failure", {
-						requestId,
-						currentRequestId: systemAudioCaptureStartRequestId,
-						message: error instanceof Error ? error.message : String(error),
+					logInfo({
+						message: "[system-audio] ignoring stale helper start failure",
+						details: {
+							requestId,
+							currentRequestId: systemAudioCaptureStartRequestId,
+							message: error instanceof Error ? error.message : String(error),
+						},
 					});
 					return;
 				}
@@ -396,10 +441,10 @@ export const createNativeAudioCapture = ({
 					markSystemAudioPermissionPrompt();
 				}
 
-				console.error(
-					"[system-audio] helper failed to start",
-					error instanceof Error ? error.message : error,
-				);
+				logError({
+					error: error instanceof Error ? error.message : error,
+					message: "[system-audio] helper failed to start",
+				});
 				if (didResolve) {
 					emitSystemAudioCaptureEvent({
 						type: "error",
@@ -414,9 +459,12 @@ export const createNativeAudioCapture = ({
 
 			const resolveStart = (payload) => {
 				if (requestId !== systemAudioCaptureStartRequestId) {
-					console.info("[system-audio] ignoring stale helper ready event", {
-						requestId,
-						currentRequestId: systemAudioCaptureStartRequestId,
+					logInfo({
+						message: "[system-audio] ignoring stale helper ready event",
+						details: {
+							requestId,
+							currentRequestId: systemAudioCaptureStartRequestId,
+						},
 					});
 					return;
 				}
@@ -425,7 +473,10 @@ export const createNativeAudioCapture = ({
 					return;
 				}
 
-				console.info("[system-audio] helper reported ready", payload);
+				logInfo({
+					message: "[system-audio] helper reported ready",
+					details: payload,
+				});
 				markSystemAudioPermissionGranted();
 				didResolve = true;
 				resolvePromise(payload);
@@ -433,14 +484,21 @@ export const createNativeAudioCapture = ({
 
 			const cleanupTimeout = setTimeout(() => {
 				if (requestId !== systemAudioCaptureStartRequestId) {
-					console.info("[system-audio] cleared stale helper startup timeout", {
-						requestId,
-						currentRequestId: systemAudioCaptureStartRequestId,
+					logInfo({
+						message: "[system-audio] cleared stale helper startup timeout",
+						details: {
+							requestId,
+							currentRequestId: systemAudioCaptureStartRequestId,
+						},
 					});
 					return;
 				}
 
-				console.error("[system-audio] helper startup timed out after 5000ms");
+				logError({
+					event: "system_audio.helper_startup_timeout",
+					message: "[system-audio] helper startup timed out after 5000ms",
+					startup_timeout_ms: 5_000,
+				});
 				rejectStart(
 					new Error("Timed out while starting macOS system audio capture."),
 				);
@@ -461,7 +519,10 @@ export const createNativeAudioCapture = ({
 					const timeoutError = new Error(
 						"Timed out while receiving macOS system audio frames.",
 					);
-					console.error("[system-audio] helper stopped producing audio frames");
+					logError({
+						event: "system_audio.helper_audio_timeout",
+						message: "[system-audio] helper stopped producing audio frames",
+					});
 
 					if (didResolve) {
 						emitSystemAudioCaptureEvent({
@@ -491,7 +552,10 @@ export const createNativeAudioCapture = ({
 			child.stderr.on("data", (chunk) => {
 				const message = String(chunk).trim();
 				if (message) {
-					console.error("[system-audio-helper]", message);
+					logError({
+						error: message,
+						message: "[system-audio-helper]",
+					});
 				}
 			});
 
@@ -501,16 +565,19 @@ export const createNativeAudioCapture = ({
 				try {
 					event = JSON.parse(line);
 				} catch (error) {
-					console.error(
-						"Failed to parse system audio helper event",
-						error,
-						line,
-					);
+					logError({
+						error: error,
+						message: "Failed to parse system audio helper event",
+						details: line,
+					});
 					return;
 				}
 
 				if (event?.type !== "chunk") {
-					console.info("[system-audio] helper event", event?.type ?? "unknown");
+					logInfo({
+						message: "[system-audio] helper event",
+						details: event?.type ?? "unknown",
+					});
 				}
 
 				if (event?.type === "ready") {
@@ -552,7 +619,10 @@ export const createNativeAudioCapture = ({
 				if (systemAudioCaptureSession === session) {
 					systemAudioCaptureSession = null;
 				}
-				console.error("[system-audio] helper process error", error);
+				logError({
+					error: error,
+					message: "[system-audio] helper process error",
+				});
 				rejectStart(error);
 			});
 
@@ -564,11 +634,14 @@ export const createNativeAudioCapture = ({
 					systemAudioCaptureSession = null;
 				}
 
-				console.info("[system-audio] helper exited", {
-					code,
-					signal,
-					didResolve,
-					isStopping: session.isStopping,
+				logInfo({
+					message: "[system-audio] helper exited",
+					details: {
+						code,
+						signal,
+						didResolve,
+						isStopping: session.isStopping,
+					},
 				});
 
 				if (!session.isStopping && !didResolve) {

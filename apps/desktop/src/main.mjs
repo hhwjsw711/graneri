@@ -52,6 +52,7 @@ import {
 import { loadRootEnv } from "./env.mjs";
 import { createGlobalDictation } from "./global-dictation.mjs";
 import { startLocalServer } from "./local-server.mjs";
+import { logError, logInfo } from "./logger.mjs";
 import { createMeetingDetection } from "./meeting-detection.mjs";
 import { createNativeAudioCapture } from "./native-audio-capture.mjs";
 import { toErrorLogDetails } from "./network.mjs";
@@ -619,7 +620,10 @@ const logDesktopTurnDebug = (event, details = {}) => {
 		...details,
 	};
 
-	console.info("[desktop-turn]", payload);
+	logInfo({
+		message: "[desktop-turn]",
+		details: payload,
+	});
 
 	if (!hasLoggedDesktopTurnDebugSessionHeader) {
 		hasLoggedDesktopTurnDebugSessionHeader = true;
@@ -1036,10 +1040,10 @@ const verifyDesktopOneTimeToken = async (oneTimeToken) => {
 			return;
 		} catch (error) {
 			lastError = error;
-			console.warn(
-				"Desktop auth callback verification failed.",
-				error instanceof Error ? error.message : error,
-			);
+			logError({
+				error: error instanceof Error ? error.message : error,
+				message: "Desktop auth callback verification failed.",
+			});
 		}
 	}
 
@@ -1482,10 +1486,13 @@ const scheduleAutomaticSystemAudioAttachRetry = ({
 		systemAudioAttachRetryBackoffMs[attempt] ??
 		systemAudioAttachRetryBackoffMs[systemAudioAttachRetryBackoffMs.length - 1];
 
-	console.warn("[transcription] scheduling automatic system audio retry", {
-		attempt: systemAudioAttachRetryAttempt,
-		delay,
-		message,
+	logError({
+		error: {
+			attempt: systemAudioAttachRetryAttempt,
+			delay,
+			message,
+		},
+		message: "[transcription] scheduling automatic system audio retry",
 	});
 
 	systemAudioAttachRetryTimeoutId = setTimeout(() => {
@@ -1553,10 +1560,13 @@ const attachDesktopSystemAudio = async ({
 			return true;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			console.warn("[transcription] system audio attach failed", {
-				automatic,
-				attempt,
-				message,
+			logError({
+				error: {
+					automatic,
+					attempt,
+					message,
+				},
+				message: "[transcription] system audio attach failed",
 			});
 			patchTranscriptionSessionState({
 				systemAudioStatus: resolveCurrentSystemAudioStatus(policy),
@@ -1732,12 +1742,15 @@ async function handleDesktopTransportInterrupted({
 	planned = false,
 	speaker,
 }) {
-	console.warn("[transcription] transport interrupted", {
-		message,
-		phase: latestTranscriptionSessionState.phase,
-		speaker,
-		themActive: transcriptionSpeakers.them.transportActive,
-		youActive: transcriptionSpeakers.you.transportActive,
+	logError({
+		error: {
+			message,
+			phase: latestTranscriptionSessionState.phase,
+			speaker,
+			themActive: transcriptionSpeakers.them.transportActive,
+			youActive: transcriptionSpeakers.you.transportActive,
+		},
+		message: "[transcription] transport interrupted",
 	});
 
 	if (latestTranscriptionSessionState.phase === "stopping") {
@@ -2910,7 +2923,10 @@ const handleDesktopSignOut = async () => {
 		);
 	} catch (error) {
 		const errorDetails = toErrorLogDetails(error);
-		console.error("Failed to sign out from desktop menu.", errorDetails);
+		logError({
+			error: errorDetails,
+			message: "Failed to sign out from desktop menu.",
+		});
 		await showUpdateMessageBox({
 			type: "error",
 			title: "Sign Out Failed",

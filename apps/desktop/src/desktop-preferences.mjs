@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { logError } from "./logger.mjs";
 
 const createDefaultDesktopAppPreferences = () => ({
 	keepDictationBarVisible: true,
@@ -31,7 +32,10 @@ export const createDesktopPreferencesStore = ({ filePath }) => {
 				);
 			} catch (error) {
 				if (error?.code !== "ENOENT") {
-					console.warn("Failed to read desktop preferences.", error);
+					logError({
+						error: error,
+						message: "Failed to read desktop preferences.",
+					});
 				}
 
 				preferences = createDefaultDesktopAppPreferences();

@@ -1,3 +1,4 @@
+import { logError } from "./logger.mjs";
 export const isDesktopUpdaterAvailable = ({
 	hasReleaseUpdateConfig,
 	isDisabled,
@@ -103,7 +104,10 @@ export const createDesktopUpdater = ({
 			isCheckingForUpdates = false;
 			setTrayStatusLabel("Update check failed");
 			setNativeProgress(-1);
-			console.error("Auto updater failed", error);
+			logError({
+				error: error,
+				message: "Auto updater failed",
+			});
 
 			if (!shouldShowUpdateResultDialogs) {
 				return;

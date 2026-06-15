@@ -5,6 +5,7 @@ import {
 	getUpcomingTrayEventsForDay,
 	isTrayEventLive,
 } from "./desktop-tray-calendar.mjs";
+import { logError } from "./logger.mjs";
 
 const trayCalendarMenuEventLimit = 5;
 
@@ -107,7 +108,10 @@ export const createDesktopTray = ({
 				"utf8",
 			);
 		} catch (error) {
-			console.warn("Failed to save tray settings.", error);
+			logError({
+				error: error,
+				message: "Failed to save tray settings.",
+			});
 		}
 	};
 
@@ -131,7 +135,10 @@ export const createDesktopTray = ({
 				return;
 			}
 
-			console.warn("Failed to read tray settings.", error);
+			logError({
+				error: error,
+				message: "Failed to read tray settings.",
+			});
 			traySettings = { ...defaultTraySettings };
 		}
 	};
@@ -336,7 +343,9 @@ export const createDesktopTray = ({
 
 		const icon = nativeImage.createFromPath(trayIconPath);
 		if (icon.isEmpty()) {
-			console.warn(`Tray icon is missing or invalid at ${trayIconPath}.`);
+			logError({
+				error: `Tray icon is missing or invalid at ${trayIconPath}.`,
+			});
 			return;
 		}
 

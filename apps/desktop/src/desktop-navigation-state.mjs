@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { logError } from "./logger.mjs";
 
 const defaultLastNavigation = {
 	hash: "",
@@ -78,7 +79,10 @@ export const createDesktopNavigationState = ({
 				return;
 			}
 
-			console.warn("Failed to read last navigation.", error);
+			logError({
+				error: error,
+				message: "Failed to read last navigation.",
+			});
 			lastNavigation = { ...defaultLastNavigation };
 		}
 	};
@@ -92,7 +96,10 @@ export const createDesktopNavigationState = ({
 				"utf8",
 			);
 		} catch (error) {
-			console.warn("Failed to save last navigation.", error);
+			logError({
+				error: error,
+				message: "Failed to save last navigation.",
+			});
 		}
 	};
 
@@ -126,7 +133,10 @@ export const createDesktopNavigationState = ({
 			lastNavigation = normalizedNavigation;
 			await save();
 		} catch (error) {
-			console.warn("Failed to remember renderer navigation.", error);
+			logError({
+				error: error,
+				message: "Failed to remember renderer navigation.",
+			});
 		}
 	};
 

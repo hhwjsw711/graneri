@@ -3,6 +3,7 @@ import {
 	createDesktopRealtimeTranscriptionSession,
 	normalizeTranscriptionLanguage,
 } from "../../../packages/ai/src/transcription.mjs";
+import { logInfo } from "./logger.mjs";
 
 export class DesktopRealtimeClientSecretError extends Error {
 	constructor(message, { statusCode = 500 } = {}) {
@@ -16,12 +17,15 @@ const logOpenAiResponseMetadata = ({ context, requestId, response }) => {
 	const openAiRequestId = response.headers.get("x-request-id");
 	const processingMs = response.headers.get("openai-processing-ms");
 
-	console.info("[openai]", {
-		context,
-		openAiRequestId,
-		processingMs,
-		requestId,
-		status: response.status,
+	logInfo({
+		message: "[openai]",
+		details: {
+			context,
+			openAiRequestId,
+			processingMs,
+			requestId,
+			status: response.status,
+		},
 	});
 };
 

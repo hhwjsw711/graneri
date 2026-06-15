@@ -1,4 +1,5 @@
 import { BrowserWindow, desktopCapturer } from "electron";
+import { logError } from "./logger.mjs";
 
 const minimumWindowSize = {
 	width: 420,
@@ -123,7 +124,10 @@ export const createDesktopWindow = ({
 		shell.ensureDockVisible();
 		mainWindow.show();
 		void mainWindow.loadURL(navigationUrl).catch((error) => {
-			console.error("Failed to load desktop renderer", error);
+			logError({
+				error: error,
+				message: "Failed to load desktop renderer",
+			});
 		});
 		return mainWindow;
 	};

@@ -1,3 +1,5 @@
+import { logError } from "./logger.mjs";
+
 const activeTranscriptionPhases = new Set([
 	"starting",
 	"listening",
@@ -87,13 +89,19 @@ export const createDesktopBootOrchestrator = ({
 			configureUpdater();
 			startGlobalDictation();
 			void startMeetingDetectionMonitors().catch((error) => {
-				console.error("Failed to start meeting detection", error);
+				logError({
+					error: error,
+					message: "Failed to start meeting detection",
+				});
 			});
 
 			if (isUpdaterAvailable()) {
 				setTrayStatusLabel("Checking for updates...");
 				void checkForUpdatesQuietly().catch((error) => {
-					console.error("Initial update check failed", error);
+					logError({
+						error: error,
+						message: "Initial update check failed",
+					});
 				});
 			}
 

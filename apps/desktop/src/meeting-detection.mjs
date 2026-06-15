@@ -5,6 +5,7 @@ import {
 	startLineEventHelperSession,
 	stopLineEventHelperSession,
 } from "./line-event-helper-session.mjs";
+import { logError } from "./logger.mjs";
 import {
 	createMeetingSignal,
 	createMeetingSignalStatePatch,
@@ -515,7 +516,10 @@ export const createMeetingDetection = ({
 
 		const helperPath = resolveMicrophoneActivityHelperPath();
 		if (!helperPath) {
-			console.warn("[meeting-detection] microphone activity helper is missing");
+			logError({
+				event: "meeting_detection.microphone_activity_helper_missing",
+				message: "[meeting-detection] microphone activity helper is missing",
+			});
 			return false;
 		}
 
@@ -575,9 +579,12 @@ export const createMeetingDetection = ({
 					microphoneSourceName = null;
 				}
 
-				console.error("[meeting-detection] microphone activity helper exited", {
-					code,
-					signal,
+				logError({
+					error: {
+						code,
+						signal,
+					},
+					message: "[meeting-detection] microphone activity helper exited",
 				});
 				syncMeetingDetectionState(
 					createClearedMeetingSignalPatch({
@@ -616,7 +623,10 @@ export const createMeetingDetection = ({
 
 		const helperPath = resolveMeetingWindowHelperPath();
 		if (!helperPath) {
-			console.warn("[meeting-detection] meeting window helper is missing");
+			logError({
+				event: "meeting_detection.meeting_window_helper_missing",
+				message: "[meeting-detection] meeting window helper is missing",
+			});
 			return false;
 		}
 
@@ -657,9 +667,12 @@ export const createMeetingDetection = ({
 					meetingWindowSession = null;
 				}
 
-				console.error("[meeting-detection] meeting window helper exited", {
-					code,
-					signal,
+				logError({
+					error: {
+						code,
+						signal,
+					},
+					message: "[meeting-detection] meeting window helper exited",
 				});
 				setNativeMeetingWindowState(createUnavailableMeetingWindowState());
 				syncMeetingDetectionState();
@@ -691,7 +704,10 @@ export const createMeetingDetection = ({
 				try {
 					return await start();
 				} catch (error) {
-					console.error(`Failed to start ${label}`, error);
+					logError({
+						error: error,
+						message: `Failed to start ${label}`,
+					});
 					return false;
 				}
 			}),

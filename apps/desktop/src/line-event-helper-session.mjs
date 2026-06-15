@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { logError } from "./logger.mjs";
 
 export const stopLineEventHelperSession = async (session) => {
 	if (!session) {
@@ -63,7 +64,10 @@ export const startLineEventHelperSession = async ({
 		let session;
 		const failStart = (error) => {
 			if (didResolve) {
-				console.error(`[meeting-detection] ${label} failed after start`, error);
+				logError({
+					error: error,
+					message: `[meeting-detection] ${label} failed after start`,
+				});
 				return;
 			}
 
@@ -96,7 +100,10 @@ export const startLineEventHelperSession = async ({
 		child.stderr.on("data", (chunk) => {
 			const message = String(chunk).trim();
 			if (message) {
-				console.error(`[${label}]`, message);
+				logError({
+					error: message,
+					message: `[${label}]`,
+				});
 			}
 		});
 
@@ -106,11 +113,11 @@ export const startLineEventHelperSession = async ({
 			try {
 				event = JSON.parse(line);
 			} catch (error) {
-				console.error(
-					`[meeting-detection] failed to parse ${label} event`,
-					error,
-					line,
-				);
+				logError({
+					error: error,
+					message: `[meeting-detection] failed to parse ${label} event`,
+					details: line,
+				});
 				return;
 			}
 
@@ -121,10 +128,10 @@ export const startLineEventHelperSession = async ({
 			void Promise.resolve(
 				onEvent({ event, failStart, resolveReady, session }),
 			).catch((error) => {
-				console.error(
-					`[meeting-detection] failed to handle ${label} event`,
-					error,
-				);
+				logError({
+					error: error,
+					message: `[meeting-detection] failed to handle ${label} event`,
+				});
 				if (event?.type === "ready" && !didResolve) {
 					failStart(error);
 				}

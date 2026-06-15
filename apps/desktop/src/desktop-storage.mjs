@@ -9,6 +9,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { logError } from "./logger.mjs";
 
 const transcriptDraftStorageVersion = 1;
 const transcriptDraftMaxAgeMs = 72 * 60 * 60 * 1000;
@@ -77,7 +78,10 @@ const pruneDrafts = async ({ draftsDirPath, maxAgeMs, label }) => {
 			}),
 		);
 	} catch (error) {
-		console.warn(`Failed to prune ${label} drafts.`, error);
+		logError({
+			error: error,
+			message: `Failed to prune ${label} drafts.`,
+		});
 	}
 };
 

@@ -1,4 +1,5 @@
 import { nativeImage } from "electron";
+import { logError } from "./logger.mjs";
 
 export const createDesktopShell = ({ app, dockIconPath, getMainWindow }) => {
 	let cachedDockIconImage;
@@ -10,7 +11,9 @@ export const createDesktopShell = ({ app, dockIconPath, getMainWindow }) => {
 
 		const icon = nativeImage.createFromPath(dockIconPath);
 		if (icon.isEmpty()) {
-			console.warn(`Dock icon is missing or invalid at ${dockIconPath}.`);
+			logError({
+				error: `Dock icon is missing or invalid at ${dockIconPath}.`,
+			});
 			cachedDockIconImage = null;
 			return cachedDockIconImage;
 		}

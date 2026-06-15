@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import "./build-system-audio-helper.mjs";
+import { logInfo } from "../src/logger.mjs";
 import { forwardElectronOutput } from "./forward-electron-output.mjs";
 
 const require = createRequire(import.meta.url);
@@ -34,7 +35,10 @@ const waitForUrl = async (targetUrl) => {
 await waitForUrl(rendererUrl);
 
 if (process.platform === "darwin") {
-	console.warn("[desktop:dev] Running the raw Electron bundle in development.");
+	logInfo({
+		event: "desktop.dev.raw_electron_bundle",
+		message: "[desktop:dev] Running the raw Electron bundle in development.",
+	});
 }
 
 const child = spawn(electronBinary, [".", ...electronArgs], {

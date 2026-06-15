@@ -1,4 +1,5 @@
 import { detectActiveBrowserMeetingWindowState } from "./browser-meeting-source.mjs";
+import { logError } from "./logger.mjs";
 import { createInactiveBrowserMeetingWindowState } from "./meeting-window-state.mjs";
 
 const browserMeetingWindowPollMs = 2_000;
@@ -26,10 +27,10 @@ export const createBrowserMeetingWindowMonitor = ({ onState }) => {
 			consecutiveUnavailablePolls =
 				state.permissionGranted === false ? consecutiveUnavailablePolls + 1 : 0;
 		} catch (error) {
-			console.error(
-				"[meeting-detection] failed to detect browser meeting window",
-				error,
-			);
+			logError({
+				error: error,
+				message: "[meeting-detection] failed to detect browser meeting window",
+			});
 			consecutiveUnavailablePolls += 1;
 		} finally {
 			if (isRunning) {

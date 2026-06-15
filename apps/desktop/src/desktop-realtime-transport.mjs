@@ -6,6 +6,7 @@ import {
 } from "../../../packages/ai/src/transcription.mjs";
 import { createDesktopRealtimeClientSecret } from "./desktop-realtime-client-secret.mjs";
 import { parseDesktopRealtimeTransportEvent } from "./desktop-realtime-events.mjs";
+import { logError, logInfo } from "./logger.mjs";
 
 const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
@@ -84,11 +85,14 @@ export const createDesktopRealtimeTransport = ({
 			return;
 		}
 
-		console.info("[desktop-realtime] flushing transport before stop", {
-			profile: session.profile,
-			source: session.source,
-			speaker: session.speaker,
-			targetItemId,
+		logInfo({
+			message: "[desktop-realtime] flushing transport before stop",
+			details: {
+				profile: session.profile,
+				source: session.source,
+				speaker: session.speaker,
+				targetItemId,
+			},
 		});
 
 		await new Promise((resolvePromise) => {
@@ -109,11 +113,14 @@ export const createDesktopRealtimeTransport = ({
 				);
 				settleStopFlush(session);
 			} catch (error) {
-				console.warn("[desktop-realtime] failed to flush transport on stop", {
-					message: error instanceof Error ? error.message : String(error),
-					profile: session.profile,
-					source: session.source,
-					speaker: session.speaker,
+				logError({
+					error: {
+						message: error instanceof Error ? error.message : String(error),
+						profile: session.profile,
+						source: session.source,
+						speaker: session.speaker,
+					},
+					message: "[desktop-realtime] failed to flush transport on stop",
 				});
 				resolveStopFlush(session);
 			}
@@ -238,11 +245,14 @@ export const createDesktopRealtimeTransport = ({
 				speaker,
 			});
 
-			console.info("[desktop-realtime] starting transport", {
-				language,
-				profile,
-				source,
-				speaker,
+			logInfo({
+				message: "[desktop-realtime] starting transport",
+				details: {
+					language,
+					profile,
+					source,
+					speaker,
+				},
 			});
 
 			const flushPendingAudio = () => {
@@ -261,12 +271,15 @@ export const createDesktopRealtimeTransport = ({
 
 			const finalizeStartError = (error) => {
 				session.startFailed = true;
-				console.warn("[desktop-realtime] transport start failed", {
-					didResolve,
-					message: error instanceof Error ? error.message : String(error),
-					profile,
-					source,
-					speaker,
+				logError({
+					error: {
+						didResolve,
+						message: error instanceof Error ? error.message : String(error),
+						profile,
+						source,
+						speaker,
+					},
+					message: "[desktop-realtime] transport start failed",
 				});
 
 				if (didResolve) {
@@ -326,11 +339,14 @@ export const createDesktopRealtimeTransport = ({
 					source,
 					speaker,
 				});
-				console.info("[desktop-realtime] transport open", {
-					language,
-					profile,
-					source,
-					speaker,
+				logInfo({
+					message: "[desktop-realtime] transport open",
+					details: {
+						language,
+						profile,
+						source,
+						speaker,
+					},
 				});
 				clearTimeout(session.openTimeout);
 				flushPendingAudio();
@@ -367,23 +383,26 @@ export const createDesktopRealtimeTransport = ({
 						void handleTransportEvent(transportEvent);
 					}
 				} catch (error) {
-					console.error(
-						"[desktop-realtime] failed to parse websocket event",
-						error,
-					);
+					logError({
+						error: error,
+						message: "[desktop-realtime] failed to parse websocket event",
+					});
 				}
 			});
 
 			socket.on("error", (error) => {
 				clearTimeout(session.openTimeout);
-				console.warn("[desktop-realtime] socket error", {
-					didResolve,
-					isClosing: session.isClosing,
-					message: error instanceof Error ? error.message : String(error),
-					profile,
-					socketState: socket.readyState,
-					source,
-					speaker,
+				logError({
+					error: {
+						didResolve,
+						isClosing: session.isClosing,
+						message: error instanceof Error ? error.message : String(error),
+						profile,
+						socketState: socket.readyState,
+						source,
+						speaker,
+					},
+					message: "[desktop-realtime] socket error",
 				});
 				finalizeStartError(error);
 			});
@@ -397,15 +416,18 @@ export const createDesktopRealtimeTransport = ({
 					? reasonBuffer.toString("utf8")
 					: String(reasonBuffer ?? "");
 
-				console.warn("[desktop-realtime] socket close", {
-					code,
-					didResolve,
-					isClosing: session.isClosing,
-					profile,
-					reason,
-					socketState: socket.readyState,
-					source,
-					speaker,
+				logError({
+					error: {
+						code,
+						didResolve,
+						isClosing: session.isClosing,
+						profile,
+						reason,
+						socketState: socket.readyState,
+						source,
+						speaker,
+					},
+					message: "[desktop-realtime] socket close",
 				});
 
 				if (sessions.get(speaker) === session) {

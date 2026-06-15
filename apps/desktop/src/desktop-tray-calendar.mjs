@@ -5,6 +5,7 @@ import {
 	getDetectedMeetingCalendarEventFromEvents,
 	scheduledMeetingNotificationLeadTimeMs,
 } from "./desktop-tray-calendar-detection.mjs";
+import { logError } from "./logger.mjs";
 import { toErrorLogDetails } from "./network.mjs";
 
 export { getUpcomingTrayEventsForDay } from "./desktop-tray-calendar-detection.mjs";
@@ -129,10 +130,10 @@ export const createDesktopTrayCalendar = ({
 		try {
 			onStateChange();
 		} catch (error) {
-			console.warn(
-				"Failed to rebuild tray calendar menu.",
-				toErrorLogDetails(error),
-			);
+			logError({
+				error: toErrorLogDetails(error),
+				message: "Failed to rebuild tray calendar menu.",
+			});
 		}
 	};
 
@@ -314,7 +315,10 @@ export const createDesktopTrayCalendar = ({
 				});
 				notification.show();
 			} catch (error) {
-				console.warn("Failed to show scheduled meeting notification.", error);
+				logError({
+					error: error,
+					message: "Failed to show scheduled meeting notification.",
+				});
 			}
 		}
 	};
@@ -393,10 +397,10 @@ export const createDesktopTrayCalendar = ({
 					syncShownScheduledMeetingNotifications([]);
 				}
 			} catch (error) {
-				console.warn(
-					"Failed to refresh tray calendar.",
-					toErrorLogDetails(error),
-				);
+				logError({
+					error: toErrorLogDetails(error),
+					message: "Failed to refresh tray calendar.",
+				});
 				state = {
 					...createInitialTrayCalendarState(),
 					status: "error",

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { app, BrowserWindow } from "electron";
+import { logError } from "../src/logger.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const assetsDir = resolve(packageRoot, "src/assets");
@@ -105,7 +106,10 @@ app.whenReady().then(async () => {
 		});
 		app.exit(0);
 	} catch (error) {
-		console.error(error);
+		logError({
+			error,
+			message: "Failed to generate desktop tray icons.",
+		});
 		app.exit(1);
 	} finally {
 		app.quit();

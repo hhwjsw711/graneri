@@ -61,6 +61,7 @@ import {
 	handleEnhanceNoteRequest,
 } from "./local-server-note-routes.mjs";
 import { handleRealtimeTranscriptionSessionRequest } from "./local-server-realtime-route.mjs";
+import { logError } from "./logger.mjs";
 
 const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
 const activeChatStreamControllers = new Map();
@@ -364,10 +365,10 @@ const handleChatRequest = async ({
 				messageId: preparedBranch.truncateMessageId,
 			});
 		} catch (error) {
-			console.error(
-				"Failed to truncate regenerated chat message branch",
-				error,
-			);
+			logError({
+				error: error,
+				message: "Failed to truncate regenerated chat message branch",
+			});
 		}
 	}
 	logLatency("chat.branch_ready", {
@@ -419,7 +420,10 @@ const handleChatRequest = async ({
 				}),
 			);
 		} catch (error) {
-			console.error("Failed to persist user chat message", error);
+			logError({
+				error: error,
+				message: "Failed to persist user chat message",
+			});
 		}
 	}
 	logLatency("convex.user_message_saved", {
@@ -615,7 +619,10 @@ const handleChatRequest = async ({
 						);
 						assistantRunTerminalization = { status: "completed" };
 					} catch (error) {
-						console.error("Failed to persist assistant chat message", error);
+						logError({
+							error: error,
+							message: "Failed to persist assistant chat message",
+						});
 						assistantRunTerminalization = {
 							status: "failed",
 							errorText:

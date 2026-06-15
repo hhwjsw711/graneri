@@ -4,6 +4,7 @@ import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs
 import { createDictationAudioBuffer } from "./dictation-audio-buffer.mjs";
 import { pasteTextToFocusedInput } from "./dictation-paste.mjs";
 import { createGlobalDictationHotkeyMonitor } from "./global-dictation-hotkey-monitor.mjs";
+import { logError, logInfo } from "./logger.mjs";
 
 const idleOverlayStatus = {
 	status: "idle",
@@ -623,7 +624,10 @@ export const createGlobalDictation = ({
 		session.disposeCaptureEvents?.();
 		dictationSession = null;
 		await stopMicrophoneCapture().catch((error) => {
-			console.error("[dictation] failed to stop microphone capture", error);
+			logError({
+				error: error,
+				message: "[dictation] failed to stop microphone capture",
+			});
 		});
 
 		if (session.audio.getByteLength() === 0) {
@@ -636,7 +640,10 @@ export const createGlobalDictation = ({
 			try {
 				await transcribeAndPasteWav(wav);
 			} catch (error) {
-				console.error("[dictation] failed to retry dictation", error);
+				logError({
+					error: error,
+					message: "[dictation] failed to retry dictation",
+				});
 				showDictationError();
 			}
 		};
@@ -644,7 +651,10 @@ export const createGlobalDictation = ({
 		try {
 			await transcribeAndPasteWav(wav);
 		} catch (error) {
-			console.error("[dictation] failed to transcribe or paste", error);
+			logError({
+				error: error,
+				message: "[dictation] failed to transcribe or paste",
+			});
 			showDictationError();
 		}
 	};
@@ -678,7 +688,10 @@ export const createGlobalDictation = ({
 				}
 
 				if (event.type === "error") {
-					console.error("[dictation] microphone capture error", event.message);
+					logError({
+						error: event.message,
+						message: "[dictation] microphone capture error",
+					});
 					void stopCurrentRecording();
 				}
 			},
@@ -697,7 +710,10 @@ export const createGlobalDictation = ({
 			if (dictationSession === session) {
 				dictationSession = null;
 			}
-			console.error("[dictation] failed to start microphone capture", error);
+			logError({
+				error: error,
+				message: "[dictation] failed to start microphone capture",
+			});
 			showDictationError();
 		}
 	};
@@ -715,7 +731,10 @@ export const createGlobalDictation = ({
 		}
 
 		if (event?.type === "error") {
-			console.error("[dictation] hotkey helper error", event.message);
+			logError({
+				error: event.message,
+				message: "[dictation] hotkey helper error",
+			});
 			showDictationError();
 		}
 	};
@@ -731,7 +750,10 @@ export const createGlobalDictation = ({
 
 		const helperPath = resolveGlobalDictationHotkeyHelperPath({ runtimeDir });
 		if (!helperPath) {
-			console.error("[dictation] global hotkey helper is missing");
+			logError({
+				event: "dictation.global_hotkey_helper_missing",
+				message: "[dictation] global hotkey helper is missing",
+			});
 			return;
 		}
 
@@ -739,12 +761,18 @@ export const createGlobalDictation = ({
 			helperPath,
 			onEvent: handleHotkeyEvent,
 			onExit: ({ code, signal }) => {
-				console.info("[dictation] hotkey helper exited", { code, signal });
+				logInfo({
+					message: "[dictation] hotkey helper exited",
+					details: { code, signal },
+				});
 				hotkeyMonitor = null;
 				void stopCurrentRecording();
 			},
 			onLog: (message) => {
-				console.error("[dictation-hotkey-helper]", message);
+				logError({
+					error: message,
+					message: "[dictation-hotkey-helper]",
+				});
 			},
 		});
 		void overlay.show(idleOverlayStatus);
