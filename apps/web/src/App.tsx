@@ -1101,6 +1101,7 @@ function AuthBootstrapScreen({
 				<GraneriMark
 					className="app-loading-mark block size-[42px] text-foreground"
 					data-app-region={isDesktopMac ? "no-drag" : undefined}
+					shimmer
 				/>
 			) : null}
 		</output>
