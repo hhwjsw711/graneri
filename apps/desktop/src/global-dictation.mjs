@@ -614,7 +614,6 @@ export const createGlobalDictation = ({
 		const startedAt = Date.now();
 		const result = await transcribeDictationAudio({
 			audio: wav,
-			mediaType: "audio/wav",
 			prompt:
 				"Transcribe this short dictation for insertion into the focused text field. Preserve the user's spoken words.",
 		});

@@ -11,16 +11,6 @@ const MAX_DICTATION_PROMPT_LENGTH = 1_000;
 
 const trim = (value) => (typeof value === "string" ? value.trim() : "");
 
-const normalizeMediaType = (value) => {
-	const mediaType = trim(value).toLowerCase();
-
-	if (!mediaType || mediaType.length > 120) {
-		return "audio/webm";
-	}
-
-	return mediaType;
-};
-
 const buildOpenAIOptions = ({ language, prompt }) => {
 	const options = {};
 	const normalizedLanguage = normalizeTranscriptionLanguage(language);
@@ -34,29 +24,12 @@ const buildOpenAIOptions = ({ language, prompt }) => {
 		options.prompt = normalizedPrompt;
 	}
 
-	if (Object.keys(options).length > 0) {
-		options.timestampGranularities = [];
-	}
-
 	return options;
-};
-
-const createDictationTranscriptionModel = (mediaType) => {
-	const model = openai.transcription(DICTATION_TRANSCRIPTION_MODEL);
-
-	return Object.assign(Object.create(model), {
-		doGenerate: (options) =>
-			model.doGenerate({
-				...options,
-				mediaType,
-			}),
-	});
 };
 
 export const transcribeDictationAudio = async ({
 	audio,
 	language = null,
-	mediaType = "audio/webm",
 	prompt = null,
 } = {}) => {
 	if (!(audio instanceof Uint8Array) || audio.byteLength === 0) {
@@ -69,7 +42,7 @@ export const transcribeDictationAudio = async ({
 
 	const openaiOptions = buildOpenAIOptions({ language, prompt });
 	const result = await transcribe({
-		model: createDictationTranscriptionModel(normalizeMediaType(mediaType)),
+		model: openai.transcription(DICTATION_TRANSCRIPTION_MODEL),
 		audio,
 		providerOptions:
 			Object.keys(openaiOptions).length > 0

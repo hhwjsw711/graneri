@@ -9,6 +9,5 @@ export type DictationTranscriptionResult = {
 export function transcribeDictationAudio(options?: {
 	audio?: Uint8Array;
 	language?: string | null;
-	mediaType?: string;
 	prompt?: string | null;
 }): Promise<DictationTranscriptionResult>;
