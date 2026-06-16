@@ -543,7 +543,7 @@ test("cleanupExpiredAssistantRuns fails stale running runs and deletes snapshots
 
 	const result = await t.mutation(
 		internal.assistantRuns.cleanupExpiredAssistantRuns,
-		{},
+		{ scheduleContinuation: false },
 	);
 
 	expect(result.expired).toBe(1);
@@ -567,6 +567,55 @@ test("cleanupExpiredAssistantRuns fails stale running runs and deletes snapshots
 	expect(await listRunEventTypes({ asOwner, runId: run._id })).toContain(
 		"run.failed",
 	);
+});
+
+test("cleanupExpiredAssistantRuns processes stale runs in bounded batches", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	const runs: Array<Id<"assistantRuns">> = [];
+
+	for (let index = 0; index < 9; index += 1) {
+		const chatId = `chat-expired-batch-${index}`;
+		await createChat({ asOwner, chatId, workspaceId });
+		const run = await startRunWithSnapshots({ asOwner, chatId, workspaceId });
+		runs.push(run._id);
+	}
+
+	await t.run(async (ctx) => {
+		for (const runId of runs) {
+			await ctx.db.patch(runId, {
+				updatedAt: 1,
+			});
+			const stream = await ctx.db
+				.query("chatActiveStreams")
+				.withIndex("by_runId", (q) => q.eq("runId", runId))
+				.unique();
+
+			if (!stream) {
+				throw new Error("Expected active stream snapshot.");
+			}
+
+			await ctx.db.patch(stream._id, {
+				updatedAt: 1,
+			});
+		}
+	});
+
+	const firstResult = await t.mutation(
+		internal.assistantRuns.cleanupExpiredAssistantRuns,
+		{ scheduleContinuation: false },
+	);
+
+	expect(firstResult.checked).toBe(8);
+	expect(firstResult.expired).toBe(8);
+	expect(firstResult.hasMore).toBe(true);
+
+	const secondResult = await t.mutation(
+		internal.assistantRuns.cleanupExpiredAssistantRuns,
+		{ scheduleContinuation: false },
+	);
+
+	expect(secondResult.checked).toBeLessThanOrEqual(1);
+	expect(secondResult.hasMore).toBe(false);
 });
 
 test("cleanupExpiredAssistantRuns keeps stale runs with fresh active stream snapshots", async () => {
@@ -599,7 +648,7 @@ test("cleanupExpiredAssistantRuns keeps stale runs with fresh active stream snap
 
 	const result = await t.mutation(
 		internal.assistantRuns.cleanupExpiredAssistantRuns,
-		{},
+		{ scheduleContinuation: false },
 	);
 
 	expect(result.refreshed).toBe(1);
@@ -640,7 +689,7 @@ test("cleanupExpiredAssistantRuns preserves waiting-for-user runs", async () => 
 
 	const result = await t.mutation(
 		internal.assistantRuns.cleanupExpiredAssistantRuns,
-		{},
+		{ scheduleContinuation: false },
 	);
 
 	expect(result.expired).toBe(0);

@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -77,7 +78,7 @@ const nonTerminalRunStatuses = [
 
 const expirableRunStatuses = ["queued", "running", "stopping"] as const;
 const ASSISTANT_RUN_EXPIRATION_MS = 20 * 60 * 1000;
-const ASSISTANT_RUN_CLEANUP_BATCH_SIZE = 64;
+const ASSISTANT_RUN_CLEANUP_BATCH_SIZE = 8;
 
 const getOwnedActiveChatById = async (
 	ctx: QueryCtx | MutationCtx,
@@ -364,26 +365,42 @@ export const startAssistantRun = mutation({
 });
 
 export const cleanupExpiredAssistantRuns = internalMutation({
-	args: {},
+	args: {
+		scheduleContinuation: v.optional(v.boolean()),
+	},
 	returns: v.object({
 		checked: v.number(),
 		expired: v.number(),
 		refreshed: v.number(),
+		hasMore: v.boolean(),
 	}),
-	handler: async (ctx) => {
+	handler: async (ctx, args) => {
 		const now = Date.now();
 		const expiresBefore = now - ASSISTANT_RUN_EXPIRATION_MS;
 		let checked = 0;
 		let expired = 0;
 		let refreshed = 0;
+		let hasMore = false;
 
 		for (const status of expirableRunStatuses) {
-			const runs = await ctx.db
+			const remainingBatchSize = ASSISTANT_RUN_CLEANUP_BATCH_SIZE - checked;
+			if (remainingBatchSize <= 0) {
+				hasMore = true;
+				break;
+			}
+
+			const runsWithProbe = await ctx.db
 				.query("assistantRuns")
 				.withIndex("by_status_and_updatedAt", (q) =>
 					q.eq("status", status).lt("updatedAt", expiresBefore),
 				)
-				.take(ASSISTANT_RUN_CLEANUP_BATCH_SIZE);
+				.take(remainingBatchSize + 1);
+
+			if (runsWithProbe.length > remainingBatchSize) {
+				hasMore = true;
+			}
+
+			const runs = runsWithProbe.slice(0, remainingBatchSize);
 
 			for (const run of runs) {
 				checked += 1;
@@ -405,7 +422,15 @@ export const cleanupExpiredAssistantRuns = internalMutation({
 			}
 		}
 
-		return { checked, expired, refreshed };
+		if (hasMore && args.scheduleContinuation !== false) {
+			await ctx.scheduler.runAfter(
+				0,
+				internal.assistantRuns.cleanupExpiredAssistantRuns,
+				{},
+			);
+		}
+
+		return { checked, expired, refreshed, hasMore };
 	},
 });
 
