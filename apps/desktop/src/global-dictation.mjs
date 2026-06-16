@@ -234,10 +234,6 @@ const createOverlayHtml = () => `<!doctype html>
 			}
 
 			.error-pill {
-				position: absolute;
-				bottom: 0;
-				left: 50%;
-				transform: translateX(-50%);
 				display: inline-flex;
 				align-items: center;
 				justify-content: center;
@@ -256,6 +252,7 @@ const createOverlayHtml = () => `<!doctype html>
 			}
 
 			.error-label {
+				min-width: 0;
 				color: hsl(0 84.2% 70.2%);
 				font-size: 12px;
 				font-weight: 500;
@@ -269,6 +266,7 @@ const createOverlayHtml = () => `<!doctype html>
 			.error-actions {
 				display: inline-flex;
 				align-items: center;
+				flex: 0 0 auto;
 				gap: 8px;
 			}
 
@@ -345,7 +343,7 @@ const createOverlayHtml = () => `<!doctype html>
 	<body data-status="idle">
 		<div class="hint">
 			<span>Hold</span>
-			<span class="kbd"><span>⌘</span><span>M</span></span>
+			<span class="kbd"><span>⌃</span><span>⌥</span><span>M</span></span>
 			<span>to dictate</span>
 		</div>
 		<div class="dictation-target">

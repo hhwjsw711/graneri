@@ -4,18 +4,20 @@ import Foundation
 
 private let emitter = LineEventStdoutEmitter(label: "com.graneri.global-dictation-hotkey")
 private let logger = LineEventStderrLogger(label: "com.graneri.global-dictation-hotkey")
-private let commandFlag = CGEventFlags.maskCommand
+private let controlFlag = CGEventFlags.maskControl
+private let optionFlag = CGEventFlags.maskAlternate
 private let mKeyCode: CGKeyCode = 46
+private let shortcutLabel = "Control+Option+M"
 private var isHoldingShortcut = false
 
-private func hasCommandModifier(_ flags: CGEventFlags) -> Bool {
-	return flags.contains(commandFlag)
+private func hasDictationShortcutModifiers(_ flags: CGEventFlags) -> Bool {
+	return flags.contains(controlFlag) && flags.contains(optionFlag)
 }
 
 private func emit(_ type: String) {
 	emitter.send(event: [
 		"type": type,
-		"shortcut": "Command+M",
+		"shortcut": shortcutLabel,
 	])
 }
 
@@ -25,7 +27,7 @@ private let callback: CGEventTapCallBack = { _, type, event, _ in
 
 	switch type {
 	case .keyDown:
-		if keyCode == mKeyCode && hasCommandModifier(flags) && !isHoldingShortcut {
+		if keyCode == mKeyCode && hasDictationShortcutModifiers(flags) && !isHoldingShortcut {
 			isHoldingShortcut = true
 			emit("start")
 			return nil
@@ -37,7 +39,7 @@ private let callback: CGEventTapCallBack = { _, type, event, _ in
 			return nil
 		}
 	case .flagsChanged:
-		if isHoldingShortcut && !hasCommandModifier(flags) {
+		if isHoldingShortcut && !hasDictationShortcutModifiers(flags) {
 			isHoldingShortcut = false
 			emit("stop")
 		}
@@ -77,7 +79,7 @@ struct GlobalDictationHotkeyCLI {
 		CGEvent.tapEnable(tap: eventTap, enable: true)
 		emitter.send(event: [
 			"type": "ready",
-			"shortcut": "Command+M",
+			"shortcut": shortcutLabel,
 		])
 		CFRunLoopRun()
 	}
