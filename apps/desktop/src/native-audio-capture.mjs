@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
+import { isHelperStderrError } from "./line-event-helper-session.mjs";
 import { logError, logInfo } from "./logger.mjs";
 
 const captureHealthTimeoutMs = 3_000;
@@ -20,6 +21,22 @@ const clearCaptureHealthTimeout = (session) => {
 		clearTimeout(session.healthTimeout);
 		session.healthTimeout = null;
 	}
+};
+
+const logNativeAudioHelperStderr = ({ label, message }) => {
+	if (isHelperStderrError(message)) {
+		logError({
+			error: message,
+			message: `[${label}]`,
+		});
+		return;
+	}
+
+	logInfo({
+		details: message,
+		event: "native_audio.helper_stderr",
+		message: `[${label}]`,
+	});
 };
 
 export const resolveSystemAudioHelperPath = ({ runtimeDir }) => {
@@ -276,9 +293,9 @@ export const createNativeAudioCapture = ({
 			child.stderr.on("data", (chunk) => {
 				const message = String(chunk).trim();
 				if (message) {
-					logError({
-						error: message,
-						message: "[microphone-helper]",
+					logNativeAudioHelperStderr({
+						label: "microphone-helper",
+						message,
 					});
 				}
 			});
@@ -552,9 +569,9 @@ export const createNativeAudioCapture = ({
 			child.stderr.on("data", (chunk) => {
 				const message = String(chunk).trim();
 				if (message) {
-					logError({
-						error: message,
-						message: "[system-audio-helper]",
+					logNativeAudioHelperStderr({
+						label: "system-audio-helper",
+						message,
 					});
 				}
 			});

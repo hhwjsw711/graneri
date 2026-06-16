@@ -251,7 +251,7 @@ export const buildHostedChatRuntimePrompt = ({
 		selectedAppSourceInstructions ? `\n\n${selectedAppSourceInstructions}` : ""
 	}${
 		localFolderContext
-			? "\n\nLocal folder priority: if the user's request is about a local path, shared folder, local file, local audio, local video, local transcript, or local recording, use the local folder tools first and do not use connected app tools unless the user explicitly asks for connected app data."
+			? "\n\nLocal folder priority: if the user's request is about a local path, shared folder, local file, local text transcript file, screenshot, or image, use the local folder tools first and do not use connected app tools unless the user explicitly asks for connected app data."
 			: ""
 	}\n\nTool recovery policy: when a tool call fails, returns an unavailable result, or does not provide enough information, inspect the error and continue with another relevant available tool or source if that can still satisfy the request. Do not repeat the same failing tool call with the same arguments. If no reliable path remains, explain the specific blocker and the next action needed.`;
 

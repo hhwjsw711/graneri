@@ -48,6 +48,7 @@ export const createDictationAudioBuffer = ({
 				sampleRate: currentSampleRate,
 			}),
 		getByteLength: () => byteLength,
+		getSampleRate: () => currentSampleRate,
 		setSampleRate: (value) => {
 			currentSampleRate = Number(value) || sampleRate;
 		},

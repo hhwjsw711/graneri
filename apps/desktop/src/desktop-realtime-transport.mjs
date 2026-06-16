@@ -10,8 +10,49 @@ import { logError, logInfo } from "./logger.mjs";
 
 const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
+const desktopRealtimeManualCommitIntervalMs = 1_500;
+const desktopRealtimeMicrophoneSpeechRmsThreshold = 0.01;
+const desktopRealtimeSystemAudioSpeechRmsThreshold = 0.003;
 const desktopRealtimeStopFlushTimeoutMs = 1_500;
 const desktopRealtimeStopFlushSettleTimeoutMs = 750;
+
+const getPcm16Rms = (base64Pcm16) => {
+	const buffer = Buffer.from(base64Pcm16, "base64");
+
+	if (buffer.byteLength < Int16Array.BYTES_PER_ELEMENT) {
+		return 0;
+	}
+
+	const samples = new Int16Array(
+		buffer.buffer,
+		buffer.byteOffset,
+		Math.floor(buffer.byteLength / Int16Array.BYTES_PER_ELEMENT),
+	);
+	let sumOfSquares = 0;
+
+	for (const sample of samples) {
+		const normalizedSample = sample / 32768;
+		sumOfSquares += normalizedSample * normalizedSample;
+	}
+
+	return Math.sqrt(sumOfSquares / samples.length);
+};
+
+const resolveSpeechRmsThreshold = (source) => {
+	if (source === "microphone") {
+		return desktopRealtimeMicrophoneSpeechRmsThreshold;
+	}
+
+	if (source === "systemAudio") {
+		return desktopRealtimeSystemAudioSpeechRmsThreshold;
+	}
+
+	throw new Error(`Unsupported realtime transcription source: ${source}`);
+};
+
+const hasSpeechEnergy = ({ audio, source }) => {
+	return getPcm16Rms(audio) >= resolveSpeechRmsThreshold(source);
+};
 
 export const createDesktopRealtimeTransport = ({
 	canUseHostedDesktopAi,
@@ -52,6 +93,51 @@ export const createDesktopRealtimeTransport = ({
 		}, desktopRealtimeStopFlushSettleTimeoutMs);
 	};
 
+	const clearManualCommitTimer = (session) => {
+		if (!session.manualCommitTimeoutId) {
+			return;
+		}
+
+		clearTimeout(session.manualCommitTimeoutId);
+		session.manualCommitTimeoutId = null;
+	};
+
+	const commitAudioBuffer = (session) => {
+		if (
+			session.isClosing ||
+			session.socket.readyState !== WebSocketImpl.OPEN ||
+			!session.hasPendingAudioCommit
+		) {
+			return false;
+		}
+
+		session.socket.send(
+			JSON.stringify({
+				type: "input_audio_buffer.commit",
+			}),
+		);
+		session.hasPendingAudioCommit = false;
+		clearManualCommitTimer(session);
+
+		return true;
+	};
+
+	const scheduleManualCommit = (session) => {
+		if (
+			session.isClosing ||
+			session.manualCommitTimeoutId ||
+			session.socket.readyState !== WebSocketImpl.OPEN ||
+			!session.hasPendingAudioCommit
+		) {
+			return;
+		}
+
+		session.manualCommitTimeoutId = setTimeout(() => {
+			session.manualCommitTimeoutId = null;
+			commitAudioBuffer(session);
+		}, desktopRealtimeManualCommitIntervalMs);
+	};
+
 	const notifyStopFlushEvent = (session, transportEvent) => {
 		const stopFlush = session?.stopFlush;
 
@@ -81,7 +167,7 @@ export const createDesktopRealtimeTransport = ({
 		}
 
 		const targetItemId = getLiveItemId(session.speaker);
-		if (!targetItemId) {
+		if (!session.hasPendingAudioCommit) {
 			return;
 		}
 
@@ -99,7 +185,7 @@ export const createDesktopRealtimeTransport = ({
 			session.stopFlush = {
 				resolve: resolvePromise,
 				settleTimeoutId: null,
-				targetItemId,
+				targetItemId: null,
 				timeoutId: setTimeout(() => {
 					resolveStopFlush(session);
 				}, desktopRealtimeStopFlushTimeoutMs),
@@ -111,6 +197,8 @@ export const createDesktopRealtimeTransport = ({
 						type: "input_audio_buffer.commit",
 					}),
 				);
+				session.hasPendingAudioCommit = false;
+				clearManualCommitTimer(session);
 				settleStopFlush(session);
 			} catch (error) {
 				logError({
@@ -138,6 +226,7 @@ export const createDesktopRealtimeTransport = ({
 		session.isClosing = true;
 		session.unsubscribeCapture?.();
 		session.unsubscribeCapture = null;
+		clearManualCommitTimer(session);
 		clearTimeout(session.openTimeout);
 		await flushOnStop(session, getLiveItemId);
 
@@ -215,7 +304,9 @@ export const createDesktopRealtimeTransport = ({
 				},
 			);
 			const session = {
+				hasPendingAudioCommit: false,
 				isClosing: false,
+				manualCommitTimeoutId: null,
 				openTimeout: setTimeout(() => {
 					if (didResolve) {
 						return;
@@ -265,8 +356,10 @@ export const createDesktopRealtimeTransport = ({
 						audio: pendingAudio,
 						socket,
 					});
+					session.hasPendingAudioCommit = true;
 				}
 				session.pendingAudio = [];
+				scheduleManualCommit(session);
 			};
 
 			const finalizeStartError = (error) => {
@@ -302,6 +395,10 @@ export const createDesktopRealtimeTransport = ({
 						return;
 					}
 
+					if (!hasSpeechEnergy({ audio, source })) {
+						return;
+					}
+
 					if (socket.readyState !== WebSocketImpl.OPEN) {
 						session.pendingAudio.push(audio);
 						if (
@@ -317,6 +414,8 @@ export const createDesktopRealtimeTransport = ({
 						audio,
 						socket,
 					});
+					session.hasPendingAudioCommit = true;
+					scheduleManualCommit(session);
 					return;
 				}
 
@@ -411,24 +510,35 @@ export const createDesktopRealtimeTransport = ({
 				clearTimeout(session.openTimeout);
 				session.unsubscribeCapture?.();
 				session.unsubscribeCapture = null;
+				clearManualCommitTimer(session);
 
 				const reason = Buffer.isBuffer(reasonBuffer)
 					? reasonBuffer.toString("utf8")
 					: String(reasonBuffer ?? "");
 
-				logError({
-					error: {
-						code,
-						didResolve,
-						isClosing: session.isClosing,
-						profile,
-						reason,
-						socketState: socket.readyState,
-						source,
-						speaker,
-					},
-					message: "[desktop-realtime] socket close",
-				});
+				const closeDetails = {
+					code,
+					didResolve,
+					isClosing: session.isClosing,
+					profile,
+					reason,
+					socketState: socket.readyState,
+					source,
+					speaker,
+				};
+
+				if (session.isClosing) {
+					logInfo({
+						details: closeDetails,
+						event: "socket_close",
+						message: "[desktop-realtime] socket close",
+					});
+				} else {
+					logError({
+						error: closeDetails,
+						message: "[desktop-realtime] socket close",
+					});
+				}
 
 				if (sessions.get(speaker) === session) {
 					sessions.delete(speaker);

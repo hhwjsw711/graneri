@@ -11,6 +11,13 @@ test("classifies benign helper stderr as info-level output", () => {
 		isHelperStderrError("[helper] meeting window monitor starting"),
 		false,
 	);
+	assert.equal(isHelperStderrError("[helper] microphone start() entered"), false);
+	assert.equal(
+		isHelperStderrError(
+			'[helper] microphone route ["inputDevice": ["name": "MacBook Air Microphone"]]',
+		),
+		false,
+	);
 });
 
 test("classifies helper stderr permission and failure messages as errors", () => {

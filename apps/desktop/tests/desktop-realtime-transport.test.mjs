@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { createDesktopRealtimeTransport } from "../src/desktop-realtime-transport.mjs";
 
 const originalPlatform = process.platform;
@@ -15,8 +16,17 @@ const createFetch = () => async () =>
 		status: 200,
 	});
 
+const createPcm16Base64 = (samples) => {
+	const pcm16 = new Int16Array(samples);
+
+	return Buffer.from(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength).toString(
+		"base64",
+	);
+};
+
 const createTransport = ({
 	handleTransportEvent = async () => {},
+	subscribeToCaptureEvents = () => () => {},
 	WebSocketImpl,
 }) =>
 	createDesktopRealtimeTransport({
@@ -27,7 +37,7 @@ const createTransport = ({
 		getOpenAIApiKey: () => "",
 		handleTransportEvent,
 		logDesktopTurnDebug: () => {},
-		subscribeToCaptureEvents: () => () => {},
+		subscribeToCaptureEvents,
 		WebSocketImpl,
 	});
 
@@ -153,9 +163,14 @@ test("desktop realtime transport skips stop flush without a live item", async ()
 	});
 });
 
-test("desktop realtime transport commits stop flush for the live item", async () => {
+test("desktop realtime transport manually commits live audio", async () => {
 	await withDarwinPlatform(async () => {
+		let captureListener = null;
 		const transport = createTransport({
+			subscribeToCaptureEvents: (_source, listener) => {
+				captureListener = listener;
+				return () => {};
+			},
 			WebSocketImpl: MockWebSocket,
 		});
 
@@ -164,6 +179,109 @@ test("desktop realtime transport commits stop flush for the live item", async ()
 			source: "microphone",
 			speaker: "you",
 		});
+
+		captureListener({
+			type: "chunk",
+			pcm16: createPcm16Base64([12_000, 12_000, 12_000, 12_000]),
+		});
+		await sleep(1_600);
+		await transport.stop("you", {
+			getLiveItemId: () => null,
+		});
+
+		assert.equal(MockWebSocket.instances.length, 1);
+		assert.deepEqual(
+			MockWebSocket.instances[0].sent.map((value) => JSON.parse(value).type),
+			["input_audio_buffer.append", "input_audio_buffer.commit"],
+		);
+	});
+});
+
+test("desktop realtime transport drops silent audio chunks", async () => {
+	await withDarwinPlatform(async () => {
+		let captureListener = null;
+		const transport = createTransport({
+			subscribeToCaptureEvents: (_source, listener) => {
+				captureListener = listener;
+				return () => {};
+			},
+			WebSocketImpl: MockWebSocket,
+		});
+
+		await transport.start({
+			lang: "en",
+			source: "microphone",
+			speaker: "you",
+		});
+
+		captureListener({
+			type: "chunk",
+			pcm16: createPcm16Base64([0, 0, 0, 0]),
+		});
+		await sleep(1_600);
+		await transport.stop("you", {
+			getLiveItemId: () => null,
+		});
+
+		assert.equal(MockWebSocket.instances.length, 1);
+		assert.deepEqual(MockWebSocket.instances[0].sent, []);
+	});
+});
+
+test("desktop realtime transport applies a separate system audio energy threshold", async () => {
+	await withDarwinPlatform(async () => {
+		let captureListener = null;
+		const transport = createTransport({
+			subscribeToCaptureEvents: (_source, listener) => {
+				captureListener = listener;
+				return () => {};
+			},
+			WebSocketImpl: MockWebSocket,
+		});
+
+		await transport.start({
+			lang: "en",
+			source: "systemAudio",
+			speaker: "them",
+		});
+
+		captureListener({
+			type: "chunk",
+			pcm16: createPcm16Base64([200, 200, 200, 200]),
+		});
+		await sleep(1_600);
+		await transport.stop("them", {
+			getLiveItemId: () => null,
+		});
+
+		assert.equal(MockWebSocket.instances.length, 1);
+		assert.deepEqual(
+			MockWebSocket.instances[0].sent.map((value) => JSON.parse(value).type),
+			["input_audio_buffer.append", "input_audio_buffer.commit"],
+		);
+	});
+});
+
+test("desktop realtime transport commits pending audio on stop", async () => {
+	await withDarwinPlatform(async () => {
+		let captureListener = null;
+		const transport = createTransport({
+			subscribeToCaptureEvents: (_source, listener) => {
+				captureListener = listener;
+				return () => {};
+			},
+			WebSocketImpl: MockWebSocket,
+		});
+
+		await transport.start({
+			lang: "en",
+			source: "microphone",
+			speaker: "you",
+		});
+		captureListener({
+			type: "chunk",
+			pcm16: createPcm16Base64([12_000, 12_000, 12_000, 12_000]),
+		});
 		await transport.stop("you", {
 			getLiveItemId: () => "item-1",
 		});
@@ -171,7 +289,7 @@ test("desktop realtime transport commits stop flush for the live item", async ()
 		assert.equal(MockWebSocket.instances.length, 1);
 		assert.deepEqual(
 			MockWebSocket.instances[0].sent.map((value) => JSON.parse(value).type),
-			["input_audio_buffer.commit"],
+			["input_audio_buffer.append", "input_audio_buffer.commit"],
 		);
 	});
 });

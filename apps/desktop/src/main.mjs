@@ -918,6 +918,7 @@ const emitTranscriptionOrderedTurns = (speaker) => {
 					})
 				: false;
 		const shouldEmit = !nextTurn.failed && text && !isPlaceholder;
+		const shouldLogOrderedTurn = Boolean(text) || nextTurn.failed;
 
 		if (shouldEmit) {
 			appendTranscriptionUtterance({
@@ -929,26 +930,28 @@ const emitTranscriptionOrderedTurns = (speaker) => {
 			});
 		}
 
-		logDesktopTurnDebug("turn.ordered", {
-			itemId: nextTurn.itemId,
-			outcome: shouldEmit
-				? "emitted"
-				: isPlaceholder
-					? "placeholder"
-					: nextTurn.failed
-						? "failed"
-						: "empty",
-			isLowConfidence,
-			shouldDropForConfidence: false,
-			previousItemId: nextTurn.previousItemId,
-			speaker,
-			...summarizeTranscriptConfidenceForLog({
-				logprobs: nextTurn.logprobs ?? null,
-				source,
-				text,
-			}),
-			...summarizeTranscriptTextForLog(text),
-		});
+		if (shouldLogOrderedTurn) {
+			logDesktopTurnDebug("turn.ordered", {
+				itemId: nextTurn.itemId,
+				outcome: shouldEmit
+					? "emitted"
+					: isPlaceholder
+						? "placeholder"
+						: nextTurn.failed
+							? "failed"
+							: "empty",
+				isLowConfidence,
+				shouldDropForConfidence: false,
+				previousItemId: nextTurn.previousItemId,
+				speaker,
+				...summarizeTranscriptConfidenceForLog({
+					logprobs: nextTurn.logprobs ?? null,
+					source,
+					text,
+				}),
+				...summarizeTranscriptTextForLog(text),
+			});
+		}
 
 		state.emittedItemIds.add(nextTurn.itemId);
 		state.lastCommittedItemId = nextTurn.itemId;
@@ -1344,17 +1347,19 @@ const handleDesktopRealtimeTransportEvent = async (event) => {
 			latestTranscriptionSessionState.liveTranscript[event.speaker].text;
 		const source = event.speaker === "them" ? "systemAudio" : "microphone";
 
-		logDesktopTurnDebug("transport.final", {
-			itemId: event.itemId,
-			liveItemId: state.liveItemId,
-			speaker: event.speaker,
-			...summarizeTranscriptConfidenceForLog({
-				logprobs: event.logprobs ?? existingTurn?.logprobs ?? null,
-				source,
-				text: finalText,
-			}),
-			...summarizeTranscriptTextForLog(finalText),
-		});
+		if (finalText.trim()) {
+			logDesktopTurnDebug("transport.final", {
+				itemId: event.itemId,
+				liveItemId: state.liveItemId,
+				speaker: event.speaker,
+				...summarizeTranscriptConfidenceForLog({
+					logprobs: event.logprobs ?? existingTurn?.logprobs ?? null,
+					source,
+					text: finalText,
+				}),
+				...summarizeTranscriptTextForLog(finalText),
+			});
+		}
 		upsertTranscriptionTurn(event.speaker, event.itemId, {
 			completed: true,
 			failed: false,

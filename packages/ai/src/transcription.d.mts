@@ -1,5 +1,7 @@
-export declare const TRANSCRIPTION_MODEL: "gpt-4o-transcribe";
+export declare const REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper";
+export declare const DICTATION_TRANSCRIPTION_MODEL: "gpt-4o-mini-transcribe";
 export declare const AUDIO_TRANSCRIPTION_SAMPLE_RATE: 24000;
+export declare const REALTIME_TRANSCRIPTION_DELAY: "low";
 
 export declare const REALTIME_TRANSCRIPTION_INCLUDE_FIELDS: readonly [
 	"item.input_audio_transcription.logprobs",
@@ -9,35 +11,14 @@ export declare function resolveRealtimeNoiseReductionType(
 	source?: string | null,
 ): "near_field" | null;
 
-export declare function resolveRealtimeSilenceDurationMs(
-	source?: string | null,
-): number;
-
-export declare function resolveRealtimeTranscriptionPrompt(args?: {
-	language?: string | null;
-	source?: string | null;
-}): string | null;
-
 export declare function createRealtimeTranscriptionSessionOptions(args?: {
 	language?: string | null;
 	source?: string | null;
 	speaker?: string | null;
 }): {
+	delay: "low";
 	language: string | null;
 	noiseReductionType: "near_field" | null;
-	prompt: string | null;
-	silenceDurationMs: number;
-	turnDetection:
-		| {
-				type: "server_vad";
-				threshold: number;
-				prefix_padding_ms: number;
-				silence_duration_ms: number;
-		  }
-		| {
-				type: "semantic_vad";
-				eagerness: "high";
-		  };
 };
 
 export declare function normalizeTranscriptionLanguage(
@@ -55,22 +36,9 @@ export declare function isTranscriptPlaceholderText(
 ): boolean;
 
 export declare function createRealtimeTranscriptionSession(options?: {
+	delay?: "minimal" | "low" | "medium" | "high" | "xhigh";
 	language?: string | null;
 	noiseReductionType?: "near_field" | "far_field" | null;
-	prompt?: string | null;
-	silenceDurationMs?: number;
-	turnDetection?:
-		| {
-				type: "server_vad";
-				threshold: number;
-				prefix_padding_ms: number;
-				silence_duration_ms: number;
-		  }
-		| {
-				type: "semantic_vad";
-				eagerness: "high";
-		  }
-		| null;
 }): {
 	type: "transcription";
 	include: readonly ["item.input_audio_transcription.logprobs"];
@@ -79,20 +47,9 @@ export declare function createRealtimeTranscriptionSession(options?: {
 			noise_reduction: {
 				type: "near_field" | "far_field";
 			} | null;
-			turn_detection:
-				| {
-						type: "server_vad";
-						threshold: number;
-						prefix_padding_ms: number;
-						silence_duration_ms: number;
-				  }
-					| {
-							type: "semantic_vad";
-							eagerness: "high";
-					  };
 			transcription: {
-				model: "gpt-4o-transcribe";
-				prompt?: string;
+				delay: "minimal" | "low" | "medium" | "high" | "xhigh";
+				model: typeof REALTIME_TRANSCRIPTION_MODEL;
 				language?: string;
 			};
 		};
@@ -120,20 +77,9 @@ export declare function createDesktopRealtimeTranscriptionSession(args?: {
 			noise_reduction: {
 				type: "near_field" | "far_field";
 			} | null;
-			turn_detection:
-				| {
-						type: "server_vad";
-						threshold: number;
-						prefix_padding_ms: number;
-						silence_duration_ms: number;
-				  }
-					| {
-							type: "semantic_vad";
-							eagerness: "high";
-					  };
 			transcription: {
-				model: "gpt-4o-transcribe";
-				prompt?: string;
+				delay: "minimal" | "low" | "medium" | "high" | "xhigh";
+				model: typeof REALTIME_TRANSCRIPTION_MODEL;
 				language?: string;
 			};
 		};

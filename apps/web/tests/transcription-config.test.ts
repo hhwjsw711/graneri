@@ -2,17 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
 	createRealtimeTranscriptionSession,
 	createRealtimeTranscriptionSessionOptions,
+	DICTATION_TRANSCRIPTION_MODEL,
 	isLowConfidenceTranscriptLogprobs,
+	REALTIME_TRANSCRIPTION_DELAY,
+	REALTIME_TRANSCRIPTION_MODEL,
 	resolveDesktopRealtimeProfile,
 	resolveRealtimeNoiseReductionType,
-	resolveRealtimeSilenceDurationMs,
-	resolveRealtimeTranscriptionPrompt,
-	TRANSCRIPTION_MODEL,
 } from "../../../packages/ai/src/transcription.mjs";
 
 describe("transcription config", () => {
-	it("uses the current recommended OpenAI transcription model", () => {
-		expect(TRANSCRIPTION_MODEL).toBe("gpt-4o-transcribe");
+	it("keeps dictation and realtime transcription models separate", () => {
+		expect(DICTATION_TRANSCRIPTION_MODEL).toBe("gpt-4o-mini-transcribe");
+		expect(REALTIME_TRANSCRIPTION_MODEL).toBe("gpt-realtime-whisper");
+		expect(REALTIME_TRANSCRIPTION_DELAY).toBe("low");
 	});
 
 	it("does not apply microphone noise reduction to system audio", () => {
@@ -31,16 +33,7 @@ describe("transcription config", () => {
 		).toBeNull();
 	});
 
-	it("uses source-aware prompting and VAD settings for system audio", () => {
-		expect(resolveRealtimeSilenceDurationMs("systemAudio")).toBe(300);
-		expect(resolveRealtimeSilenceDurationMs("microphone")).toBe(200);
-		expect(
-			resolveRealtimeTranscriptionPrompt({
-				language: "en",
-				source: "systemAudio",
-			}),
-		).toContain("The spoken language is English.");
-
+	it("uses realtime-whisper session fields for live transcription", () => {
 		const session = createRealtimeTranscriptionSession(
 			createRealtimeTranscriptionSessionOptions({
 				language: "en",
@@ -48,17 +41,15 @@ describe("transcription config", () => {
 			}),
 		);
 
-		expect(session.audio.input.turn_detection.type).toBe("server_vad");
-		if (session.audio.input.turn_detection.type !== "server_vad") {
-			throw new Error("Expected server_vad turn detection for system audio");
-		}
-		expect(session.audio.input.turn_detection.silence_duration_ms).toBe(300);
-		expect(session.audio.input.transcription.prompt).toContain(
-			"Do not translate, paraphrase, summarize, or complete a thought beyond the audio.",
-		);
+		expect(session.audio.input).not.toHaveProperty("turn_detection");
+		expect(session.audio.input.transcription).toEqual({
+			delay: "low",
+			language: "en",
+			model: "gpt-realtime-whisper",
+		});
 	});
 
-	it("uses standard server vad for them on system audio across realtime sessions", () => {
+	it("uses the default desktop realtime profile across realtime sessions", () => {
 		const session = createRealtimeTranscriptionSession(
 			createRealtimeTranscriptionSessionOptions({
 				language: "en",
@@ -67,12 +58,7 @@ describe("transcription config", () => {
 			}),
 		);
 
-		expect(session.audio.input.turn_detection).toEqual({
-			type: "server_vad",
-			threshold: 0.5,
-			prefix_padding_ms: 300,
-			silence_duration_ms: 300,
-		});
+		expect(session.audio.input).not.toHaveProperty("turn_detection");
 		expect(
 			resolveDesktopRealtimeProfile({
 				source: "systemAudio",

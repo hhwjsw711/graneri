@@ -5,9 +5,9 @@ export const buildLocalFolderSystemContext = (roots) =>
 		? ""
 		: [
 				"The user shared local folders from the desktop app. You can inspect only these shared folders through the local folder tools. Do not claim access to other local paths.",
-				"When the user asks about a shared local path, folder contents, local file, local audio, local video, transcript, recording, or media inside a shared folder, use the local folder tools before answering. Do not use connected app tools such as Notion for local filesystem questions unless the user explicitly asks about those connected apps.",
+				"When the user asks about a shared local path, folder contents, local file, screenshot, image, or text transcript file inside a shared folder, use the local folder tools before answering. Do not use connected app tools such as Notion for local filesystem questions unless the user explicitly asks about those connected apps.",
 				"Do not say you cannot access the folder, and do not ask the user to run terminal commands, unless a local folder tool fails or the needed path is outside the shared folders.",
-				"For broad text exploration, use run_local_bash. It runs only inside a virtual snapshot of text-like files from one shared folder, not on the user's real filesystem. Use structured local tools for direct folder listing, direct file reads, and media transcription.",
+				"For broad text exploration, use run_local_bash. It runs only inside a virtual snapshot of text-like files from one shared folder, not on the user's real filesystem. Use structured local tools for direct folder listing, direct file reads, and image inspection.",
 				"For local images, use inspect_local_image for a specific image and search_local_images when the user asks to find images by visual meaning, OCR text, screenshots, diagrams, or image contents.",
 				"Shared local folders:",
 				...roots.map((root, index) => `${index}: ${root.name} (${root.path})`),
@@ -54,29 +54,6 @@ export const buildLocalFolderToolConfigs = (
 					.string()
 					.min(1)
 					.describe("File path relative to the shared folder root."),
-			}),
-		}),
-		transcribe_local_audio: withProviderOptions({
-			description:
-				"Transcribe an audio or video file inside a local folder explicitly shared by the desktop user. Use this when the user asks what an audio or video recording says or what a meeting recording was about.",
-			inputSchema: z.object({
-				rootIndex: rootSchema.describe(
-					"Shared folder index from the system context.",
-				),
-				relativePath: z
-					.string()
-					.min(1)
-					.describe(
-						"Audio or video file path relative to the shared folder root.",
-					),
-				language: z
-					.string()
-					.optional()
-					.describe("Optional ISO-639-1 language hint, for example en or ru."),
-				prompt: z
-					.string()
-					.optional()
-					.describe("Optional short transcription context or vocabulary hint."),
 			}),
 		}),
 		inspect_local_image: withProviderOptions({

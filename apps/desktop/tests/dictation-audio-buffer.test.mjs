@@ -14,6 +14,7 @@ test("dictation audio buffer limits PCM bytes and creates a WAV payload", () => 
 	assert.equal(buffer.appendBase64Pcm16(Buffer.from([1, 2]).toString("base64")), true);
 	assert.equal(buffer.appendBase64Pcm16(Buffer.from([3, 4, 5]).toString("base64")), false);
 	assert.equal(buffer.getByteLength(), 2);
+	assert.equal(buffer.getSampleRate(), 16_000);
 
 	const wav = buffer.createWav();
 

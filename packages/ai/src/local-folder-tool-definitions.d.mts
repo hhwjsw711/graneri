@@ -25,10 +25,6 @@ export declare const buildLocalFolderToolConfigs: (
 		description: string;
 		inputSchema: z.ZodType;
 	};
-	transcribe_local_audio: {
-		description: string;
-		inputSchema: z.ZodType;
-	};
 	inspect_local_image: {
 		description: string;
 		inputSchema: z.ZodType;

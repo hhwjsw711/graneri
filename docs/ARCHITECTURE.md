@@ -146,10 +146,10 @@ this path.
 
 Desktop realtime transcription is a long-lived native capture session. Starting
 the microphone transport must schedule the realtime session rollover, and
-stopping a transport must only commit the OpenAI input audio buffer when there
-is a known live realtime item to finalize. Empty-buffer commits are not a valid
-stop path; they create recoverable-looking OpenAI errors that can collapse into
-start/stop loops.
+the native transport must explicitly commit non-empty OpenAI input audio
+buffers during live capture. Empty-buffer commits are not a valid path; they
+create recoverable-looking OpenAI errors that can collapse into start/stop
+loops.
 
 Meeting-controlled and idle-controlled automatic stops must be modeled as
 explicit transcription auto-stop state in the renderer, not scattered hook

@@ -162,7 +162,6 @@ const buildDesktopLocalFolderClientTools = (
 	return {
 		list_local_directory: tool(configs.list_local_directory),
 		read_local_file: tool(configs.read_local_file),
-		transcribe_local_audio: tool(configs.transcribe_local_audio),
 		inspect_local_image: tool(configs.inspect_local_image),
 		search_local_images: tool(configs.search_local_images),
 		search_local_files: tool(configs.search_local_files),

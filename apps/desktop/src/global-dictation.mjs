@@ -611,11 +611,23 @@ export const createGlobalDictation = ({
 		await overlay.show({
 			status: "loading",
 		});
+		const startedAt = Date.now();
 		const result = await transcribeDictationAudio({
 			audio: wav,
 			mediaType: "audio/wav",
 			prompt:
 				"Transcribe this short dictation for insertion into the focused text field. Preserve the user's spoken words.",
+		});
+		logInfo({
+			details: {
+				durationInSeconds: result.durationInSeconds ?? null,
+				language: result.language ?? null,
+				textLength: result.text.length,
+				transcriptionDurationMs: Date.now() - startedAt,
+				wavBytes: wav.byteLength,
+			},
+			event: "dictation.transcription_completed",
+			message: "[dictation] transcription completed",
 		});
 
 		if (result.text) {
@@ -646,13 +658,28 @@ export const createGlobalDictation = ({
 			return;
 		}
 
+		const pcmBytes = session.audio.getByteLength();
+		const sampleRate = session.audio.getSampleRate();
 		const wav = session.audio.createWav();
+		const audioDurationMs = Math.round((pcmBytes / 2 / sampleRate) * 1000);
+		const attemptDetails = {
+			audioDurationMs,
+			pcmBytes,
+			sampleRate,
+			wavBytes: wav.byteLength,
+		};
+		logInfo({
+			details: attemptDetails,
+			event: "dictation.recording_completed",
+			message: "[dictation] recording completed",
+		});
 		retryLastDictation = async () => {
 			try {
 				await transcribeAndPasteWav(wav);
 			} catch (error) {
 				logError({
 					error: error,
+					details: attemptDetails,
 					message: "[dictation] failed to retry dictation",
 				});
 				showDictationError();
@@ -664,6 +691,7 @@ export const createGlobalDictation = ({
 		} catch (error) {
 			logError({
 				error: error,
+				details: attemptDetails,
 				message: "[dictation] failed to transcribe or paste",
 			});
 			showDictationError();

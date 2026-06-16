@@ -1,6 +1,7 @@
-export const TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
+export const REALTIME_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
 export const DICTATION_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 export const AUDIO_TRANSCRIPTION_SAMPLE_RATE = 24_000;
+export const REALTIME_TRANSCRIPTION_DELAY = "low";
 
 export const REALTIME_TRANSCRIPTION_INCLUDE_FIELDS = [
 	"item.input_audio_transcription.logprobs",
@@ -11,26 +12,6 @@ const systemAudioSources = new Set([
 	"system-audio",
 	"system_audio",
 ]);
-
-const transcriptionLanguageNames = {
-	de: "German",
-	en: "English",
-	es: "Spanish",
-	fi: "Finnish",
-	fr: "French",
-	hi: "Hindi",
-	it: "Italian",
-	ja: "Japanese",
-	ko: "Korean",
-	nl: "Dutch",
-	pl: "Polish",
-	pt: "Portuguese",
-	ru: "Russian",
-	tr: "Turkish",
-	uk: "Ukrainian",
-	vi: "Vietnamese",
-	zh: "Chinese",
-};
 
 const transcriptPlaceholderPatterns = new Set([
 	"audio unclear",
@@ -78,44 +59,8 @@ export const resolveRealtimeNoiseReductionType = (source) => {
 	return isSystemAudioSource(source) ? null : "near_field";
 };
 
-export const resolveRealtimeSilenceDurationMs = (source) =>
-	isSystemAudioSource(source) ? 300 : 200;
-
 export const normalizeTranscriptionLanguage = (value) =>
 	value?.split("-")[0]?.trim().toLowerCase() || null;
-
-const createServerVadTurnDetection = (silenceDurationMs = 200) => ({
-	type: "server_vad",
-	threshold: 0.5,
-	prefix_padding_ms: 300,
-	silence_duration_ms: silenceDurationMs,
-});
-
-export const resolveRealtimeTranscriptionPrompt = ({
-	language = null,
-	source = null,
-} = {}) => {
-	const normalizedLanguage = normalizeTranscriptionLanguage(language);
-	const languageName =
-		normalizedLanguage && normalizedLanguage in transcriptionLanguageNames
-			? transcriptionLanguageNames[normalizedLanguage]
-			: null;
-	const prompt = [
-		languageName ? `The spoken language is ${languageName}.` : null,
-		"Transcribe the spoken words in this segment as literally as possible.",
-		"Do not translate, paraphrase, summarize, or complete a thought beyond the audio.",
-		"Preserve punctuation and filler words when they are spoken.",
-		"Prefer partial spoken wording over invented wording when the audio is unclear.",
-		isSystemAudioSource(source)
-			? "This audio comes from direct system playback."
-			: null,
-	]
-		.filter(Boolean)
-		.join(" ")
-		.trim();
-
-	return prompt || null;
-};
 
 export const createRealtimeTranscriptionSessionOptions = ({
 	language = null,
@@ -124,22 +69,13 @@ export const createRealtimeTranscriptionSessionOptions = ({
 } = {}) => ({
 	language,
 	noiseReductionType: resolveRealtimeNoiseReductionType(source),
-	prompt: resolveRealtimeTranscriptionPrompt({
-		language,
-		source,
-	}),
-	silenceDurationMs: resolveRealtimeSilenceDurationMs(source),
-	turnDetection: createServerVadTurnDetection(
-		resolveRealtimeSilenceDurationMs(source),
-	),
+	delay: REALTIME_TRANSCRIPTION_DELAY,
 });
 
 export const createRealtimeTranscriptionSession = ({
+	delay = REALTIME_TRANSCRIPTION_DELAY,
 	language = null,
 	noiseReductionType = "near_field",
-	prompt = null,
-	silenceDurationMs = 200,
-	turnDetection = null,
 } = {}) => ({
 	type: "transcription",
 	include: REALTIME_TRANSCRIPTION_INCLUDE_FIELDS,
@@ -150,11 +86,9 @@ export const createRealtimeTranscriptionSession = ({
 						type: noiseReductionType,
 					}
 				: null,
-			turn_detection:
-				turnDetection ?? createServerVadTurnDetection(silenceDurationMs),
 			transcription: {
-				model: TRANSCRIPTION_MODEL,
-				...(prompt ? { prompt } : {}),
+				model: REALTIME_TRANSCRIPTION_MODEL,
+				delay,
 				...(language ? { language } : {}),
 			},
 		},

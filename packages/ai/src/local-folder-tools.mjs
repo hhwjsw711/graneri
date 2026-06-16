@@ -1,14 +1,4 @@
-import { execFile } from "node:child_process";
-import {
-	access,
-	mkdtemp,
-	readdir,
-	readFile,
-	realpath,
-	rm,
-	stat,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import {
 	basename,
 	dirname,
@@ -17,20 +7,12 @@ import {
 	relative,
 	resolve,
 } from "node:path";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { openai } from "@ai-sdk/openai";
-import {
-	embed,
-	generateText,
-	tool,
-	experimental_transcribe as transcribe,
-} from "ai";
+import { embed, generateText, tool } from "ai";
 import { createBashTool } from "bash-tool";
 import { aiLogger } from "./logger.mjs";
 import { buildLocalFolderToolConfigs } from "./local-folder-tool-definitions.mjs";
 import { DEFAULT_CHAT_MODEL_ID } from "./models.mjs";
-import { TRANSCRIPTION_MODEL } from "./transcription.mjs";
 
 export { buildLocalFolderSystemContext } from "./local-folder-tool-definitions.mjs";
 export { extractTextFromUIMessage } from "./local-path-references.mjs";
@@ -49,16 +31,8 @@ const MAX_IMAGE_BYTES = 20_000_000;
 const MAX_IMAGE_ANALYSIS_PROMPT_LENGTH = 1_000;
 const MAX_IMAGE_SEARCH_FILES = 12;
 const MAX_IMAGE_SEARCH_RESULTS = 10;
-const MAX_TRANSCRIPTION_SOURCE_BYTES = 250_000_000;
-const MAX_TRANSCRIPTION_CHUNK_BYTES = 25_000_000;
-const MAX_TRANSCRIPTION_SECONDS = 1_380;
-const TRANSCRIPTION_CHUNK_SECONDS = 1_200;
-const MAX_TRANSCRIPTION_PROMPT_LENGTH = 1_000;
-const transcriptionCache = new Map();
 const bashToolCache = new Map();
 const imageMetadataCache = new Map();
-const execFileAsync = promisify(execFile);
-const aiRuntimeDir = dirname(fileURLToPath(import.meta.url));
 const IGNORED_DIRECTORY_NAMES = new Set([
 	".cache",
 	".git",
@@ -106,16 +80,6 @@ const TEXT_FILE_EXTENSIONS = new Set([
 	".yaml",
 	".yml",
 ]);
-const LOCAL_TRANSCRIPTION_EXTENSIONS = new Set([
-	".m4a",
-	".mov",
-	".mp3",
-	".mp4",
-	".mpeg",
-	".mpga",
-	".wav",
-	".webm",
-]);
 const LOCAL_IMAGE_EXTENSIONS = new Set([
 	".gif",
 	".heic",
@@ -132,59 +96,10 @@ const IMAGE_MEDIA_TYPES = {
 	".png": "image/png",
 	".webp": "image/webp",
 };
-const TRANSCRIPTION_MEDIA_TYPES = {
-	".m4a": "audio/mp4",
-	".mov": "video/quicktime",
-	".mp3": "audio/mpeg",
-	".mp4": "video/mp4",
-	".mpeg": "audio/mpeg",
-	".mpga": "audio/mpeg",
-	".wav": "audio/wav",
-	".webm": "audio/webm",
-};
-const VIDEO_TRANSCRIPTION_EXTENSIONS = new Set([".mov", ".mp4"]);
 const deferredOpenAIToolOptions = {
 	openai: {
 		deferLoading: true,
 	},
-};
-
-const resolveBundledDesktopMediaToolPath = (toolName) =>
-	resolve(
-		aiRuntimeDir,
-		"..",
-		"..",
-		"..",
-		"apps",
-		"desktop",
-		"dist",
-		"bin",
-		toolName,
-	);
-
-const MEDIA_TOOL_CANDIDATES = {
-	ffmpeg: [
-		process.env.GRANERI_FFMPEG_PATH,
-		process.env.GRANERI_MEDIA_TOOLS_DIR
-			? resolve(process.env.GRANERI_MEDIA_TOOLS_DIR, "ffmpeg")
-			: null,
-		resolveBundledDesktopMediaToolPath("ffmpeg"),
-		"ffmpeg",
-		"/opt/homebrew/bin/ffmpeg",
-		"/usr/local/bin/ffmpeg",
-		"/usr/bin/ffmpeg",
-	].filter(Boolean),
-	ffprobe: [
-		process.env.GRANERI_FFPROBE_PATH,
-		process.env.GRANERI_MEDIA_TOOLS_DIR
-			? resolve(process.env.GRANERI_MEDIA_TOOLS_DIR, "ffprobe")
-			: null,
-		resolveBundledDesktopMediaToolPath("ffprobe"),
-		"ffprobe",
-		"/opt/homebrew/bin/ffprobe",
-		"/usr/local/bin/ffprobe",
-		"/usr/bin/ffprobe",
-	].filter(Boolean),
 };
 
 const isIgnoredDirectory = (name) => IGNORED_DIRECTORY_NAMES.has(name);
@@ -205,111 +120,13 @@ const isProbablyTextFile = (path) => {
 	);
 };
 
-const isSupportedTranscriptionFile = (path) =>
-	LOCAL_TRANSCRIPTION_EXTENSIONS.has(getExtension(path));
-
 const isSupportedImageFile = (path) =>
 	LOCAL_IMAGE_EXTENSIONS.has(getExtension(path));
 
 export const getImageMediaType = (path) =>
 	IMAGE_MEDIA_TYPES[getExtension(path)] ?? "image/png";
 
-export const getTranscriptionMediaType = (path) =>
-	TRANSCRIPTION_MEDIA_TYPES[getExtension(path)] ?? "audio/wav";
-
 const imageEmbeddingModel = openai.embedding("text-embedding-3-small");
-
-const createTranscriptionModel = (mediaType) => {
-	const model = openai.transcription(TRANSCRIPTION_MODEL);
-
-	return Object.assign(Object.create(model), {
-		doGenerate: (options) =>
-			model.doGenerate({
-				...options,
-				mediaType,
-			}),
-	});
-};
-
-const findExecutable = async (name) => {
-	for (const candidate of MEDIA_TOOL_CANDIDATES[name] ?? [name]) {
-		try {
-			if (candidate.includes("/")) {
-				await access(candidate);
-				return candidate;
-			}
-
-			await execFileAsync(candidate, ["-version"], {
-				maxBuffer: 16_000,
-			});
-			return candidate;
-		} catch {
-			// Try the next common install location.
-		}
-	}
-
-	throw new Error(
-		`${name} is required to transcribe long local media files. Install ffmpeg or bundle it with the desktop app.`,
-	);
-};
-
-const probeMediaDuration = async (filePath) => {
-	const ffprobe = await findExecutable("ffprobe");
-	const { stdout } = await execFileAsync(
-		ffprobe,
-		[
-			"-v",
-			"error",
-			"-show_entries",
-			"format=duration",
-			"-of",
-			"default=noprint_wrappers=1:nokey=1",
-			filePath,
-		],
-		{
-			maxBuffer: 16_000,
-		},
-	);
-	const duration = Number.parseFloat(stdout.trim());
-
-	return Number.isFinite(duration) && duration > 0 ? duration : null;
-};
-
-const serializeTranscriptionError = (error) => {
-	if (!error || typeof error !== "object") {
-		return {
-			message: String(error),
-		};
-	}
-
-	const dataError =
-		error.data && typeof error.data === "object" ? error.data.error : null;
-	const cause =
-		error.cause && typeof error.cause === "object"
-			? {
-					message: error.cause.message,
-					name: error.cause.name,
-				}
-			: error.cause;
-
-	return {
-		cause,
-		dataError:
-			dataError && typeof dataError === "object"
-				? {
-						code: dataError.code,
-						message: dataError.message,
-						param: dataError.param,
-						type: dataError.type,
-					}
-				: dataError,
-		message: error.message,
-		name: error.name,
-		responseBody: error.responseBody,
-		statusCode: error.statusCode,
-		url: error.url,
-	};
-};
 
 const resolveInsideRoot = ({ relativePath = ".", root }) => {
 	const candidate = resolve(root.path, relativePath);
@@ -820,235 +637,6 @@ const searchLocalImages = async ({
 	};
 };
 
-const buildTranscriptionCacheKey = ({ filePath, fileStat }) =>
-	[filePath, fileStat.size, fileStat.mtimeMs].join(":");
-
-const buildOpenAITranscriptionOptions = ({ language, prompt }) => {
-	const openaiOptions = {};
-	const normalizedLanguage =
-		typeof language === "string" ? language.trim().toLowerCase() : "";
-	const normalizedPrompt =
-		typeof prompt === "string"
-			? prompt.trim().slice(0, MAX_TRANSCRIPTION_PROMPT_LENGTH)
-			: "";
-
-	if (normalizedLanguage) {
-		openaiOptions.language = normalizedLanguage;
-	}
-
-	if (normalizedPrompt) {
-		openaiOptions.prompt = normalizedPrompt;
-	}
-
-	if (Object.keys(openaiOptions).length > 0) {
-		openaiOptions.timestampGranularities = [];
-	}
-
-	return openaiOptions;
-};
-
-const transcribeBuffer = async ({ audio, language, mediaType, prompt }) => {
-	const openaiOptions = buildOpenAITranscriptionOptions({ language, prompt });
-
-	return transcribe({
-		model: createTranscriptionModel(mediaType),
-		audio,
-		providerOptions:
-			Object.keys(openaiOptions).length > 0
-				? {
-						openai: openaiOptions,
-					}
-				: undefined,
-	});
-};
-
-const splitMediaIntoAudioChunks = async ({ durationInSeconds, filePath }) => {
-	const ffmpeg = await findExecutable("ffmpeg");
-	const tempDirectory = await mkdtemp(join(tmpdir(), "graneri-transcribe-"));
-	const chunkCount = Math.ceil(durationInSeconds / TRANSCRIPTION_CHUNK_SECONDS);
-	const chunks = [];
-
-	try {
-		for (let index = 0; index < chunkCount; index += 1) {
-			const startSecond = index * TRANSCRIPTION_CHUNK_SECONDS;
-			const duration = Math.min(
-				TRANSCRIPTION_CHUNK_SECONDS,
-				durationInSeconds - startSecond,
-			);
-			const outputPath = join(
-				tempDirectory,
-				`chunk-${String(index).padStart(4, "0")}.m4a`,
-			);
-
-			await execFileAsync(
-				ffmpeg,
-				[
-					"-hide_banner",
-					"-loglevel",
-					"error",
-					"-y",
-					"-ss",
-					String(startSecond),
-					"-t",
-					String(duration),
-					"-i",
-					filePath,
-					"-vn",
-					"-ac",
-					"1",
-					"-ar",
-					"24000",
-					"-c:a",
-					"aac",
-					"-b:a",
-					"48k",
-					outputPath,
-				],
-				{
-					maxBuffer: 1_000_000,
-				},
-			);
-
-			const outputStat = await stat(outputPath);
-			if (outputStat.size > MAX_TRANSCRIPTION_CHUNK_BYTES) {
-				throw new Error(
-					`Generated transcription chunk is too large (${outputStat.size} bytes).`,
-				);
-			}
-
-			chunks.push({
-				durationInSeconds: duration,
-				path: outputPath,
-				sizeBytes: outputStat.size,
-				startSecond,
-			});
-		}
-
-		return {
-			chunks,
-			cleanup: () => rm(tempDirectory, { force: true, recursive: true }),
-		};
-	} catch (error) {
-		await rm(tempDirectory, { force: true, recursive: true });
-		throw error;
-	}
-};
-
-const transcribeLocalAudio = async ({
-	language,
-	prompt,
-	relativePath,
-	root,
-}) => {
-	const filePath = resolveInsideRoot({ relativePath, root });
-	const fileStat = await stat(filePath);
-
-	if (!fileStat.isFile()) {
-		throw new Error("Path is not a file.");
-	}
-
-	if (!isSupportedTranscriptionFile(filePath)) {
-		throw new Error("Only supported audio or video files can be transcribed.");
-	}
-
-	if (fileStat.size > MAX_TRANSCRIPTION_SOURCE_BYTES) {
-		throw new Error(
-			`Audio file is too large to transcribe directly. Maximum size is ${MAX_TRANSCRIPTION_SOURCE_BYTES} bytes.`,
-		);
-	}
-
-	const cacheKey = buildTranscriptionCacheKey({ filePath, fileStat });
-	const cached = transcriptionCache.get(cacheKey);
-	if (cached) {
-		return {
-			...cached,
-			cached: true,
-		};
-	}
-
-	const durationInSeconds = await probeMediaDuration(filePath).catch(
-		() => null,
-	);
-
-	let result;
-	try {
-		if (
-			durationInSeconds !== null &&
-			(durationInSeconds > MAX_TRANSCRIPTION_SECONDS ||
-				VIDEO_TRANSCRIPTION_EXTENSIONS.has(getExtension(filePath)))
-		) {
-			const { cleanup, chunks } = await splitMediaIntoAudioChunks({
-				durationInSeconds,
-				filePath,
-			});
-
-			try {
-				const transcribedChunks = [];
-				for (const chunk of chunks) {
-					const transcript = await transcribeBuffer({
-						audio: await readFile(chunk.path),
-						language,
-						mediaType: "audio/mp4",
-						prompt,
-					});
-					transcribedChunks.push({
-						text: transcript.text,
-					});
-				}
-				const text = transcribedChunks
-					.map((chunk) => chunk.text?.trim())
-					.filter(Boolean)
-					.join("\n\n");
-
-				result = {
-					path: relative(root.path, filePath),
-					sizeBytes: fileStat.size,
-					cached: false,
-					chunked: true,
-					chunkCount: transcribedChunks.length,
-					durationInSeconds,
-					text,
-					textLength: text.length,
-				};
-			} finally {
-				await cleanup();
-			}
-		} else {
-			const transcript = await transcribeBuffer({
-				audio: await readFile(filePath),
-				language,
-				mediaType: getTranscriptionMediaType(filePath),
-				prompt,
-			});
-			result = {
-				path: relative(root.path, filePath),
-				sizeBytes: fileStat.size,
-				cached: false,
-				chunked: false,
-				text: transcript.text,
-				language: transcript.language,
-				durationInSeconds: transcript.durationInSeconds ?? durationInSeconds,
-				segments: transcript.segments,
-			};
-		}
-	} catch (error) {
-		const serializedError = serializeTranscriptionError(error);
-		const localPath = relative(root.path, filePath);
-		const providerMessage =
-			serializedError.dataError?.message ??
-			serializedError.message ??
-			"Unknown provider error";
-		throw new Error(
-			`Local audio transcription failed for ${localPath}: ${providerMessage}`,
-			{ cause: error },
-		);
-	}
-
-	transcriptionCache.set(cacheKey, result);
-
-	return result;
-};
-
 const walkFiles = async ({ directory, files, root }) => {
 	if (files.length >= MAX_WALK_FILES) {
 		return;
@@ -1365,18 +953,6 @@ export const buildLocalFolderTools = (roots) => {
 			execute: async ({ rootIndex, relativePath }) =>
 				withDuration(() =>
 					readLocalFile({ relativePath, root: getRoot(rootIndex) }),
-				),
-		}),
-		transcribe_local_audio: tool({
-			...configs.transcribe_local_audio,
-			execute: async ({ rootIndex, relativePath, language, prompt }) =>
-				withDuration(() =>
-					transcribeLocalAudio({
-						language,
-						prompt,
-						relativePath,
-						root: getRoot(rootIndex),
-					}),
 				),
 		}),
 		inspect_local_image: tool({

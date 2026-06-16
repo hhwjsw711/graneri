@@ -16,7 +16,6 @@ const localToolNames = new Set([
 	"run_local_bash",
 	"search_local_files",
 	"search_local_images",
-	"transcribe_local_audio",
 ]);
 
 type LocalToolCall = {
