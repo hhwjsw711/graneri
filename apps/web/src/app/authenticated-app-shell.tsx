@@ -724,6 +724,8 @@ const useAppShellState = ({
 		resolvingIds: resolvingPersistedChatIds,
 	});
 	const isResolvingCurrentChat = currentChatRoute.status === "resolving";
+	const isResolvingPendingPersistedChat =
+		currentChatId !== null && resolvingPersistedChatIds.has(currentChatId);
 	const hasMissingCurrentChat = currentChatRoute.status === "missing";
 	const selectedProjectRoute = resolveCollectionRoute({
 		currentView,
@@ -747,7 +749,7 @@ const useAppShellState = ({
 			: currentView;
 	const isResolvingResourceRoute =
 		isResolvingCurrentNote ||
-		isResolvingCurrentChat ||
+		(isResolvingCurrentChat && !isResolvingPendingPersistedChat) ||
 		isResolvingCurrentProject;
 
 	const refreshUpcomingCalendarEvents = React.useEffectEvent(
@@ -1884,7 +1886,7 @@ const useAppShellState = ({
 		activeStreamingChatIds,
 		chatComposerId,
 		currentChat,
-		currentChatId: isResolvingCurrentChat ? null : currentChatId,
+		currentChatId,
 		currentChatNoteId,
 		currentChatTitle,
 		currentDate,

@@ -135,6 +135,26 @@ const hasRenderableAssistantText = (messages: UIMessage[]) =>
 			message.role === "assistant" && getChatText(message).length > 0,
 	);
 
+const createUserMessage = ({
+	files,
+	id,
+	metadata,
+	text,
+}: {
+	files: UIMessage["parts"];
+	id: string;
+	metadata?: UIMessage["metadata"];
+	text: string;
+}): UIMessage => ({
+	id,
+	role: "user",
+	metadata,
+	parts: [
+		...files,
+		...(text.trim().length > 0 ? [{ type: "text" as const, text }] : []),
+	],
+});
+
 const getRegenerationMessages = ({
 	assistantMessageId,
 	messages,
@@ -696,13 +716,30 @@ const useChatPageController = ({
 			return;
 		}
 
+		const readyFiles = getReadyFileParts(attachedFiles);
+		const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
+		const metadata =
+			mentions.length > 0 ? { mentionPositions: mentions } : undefined;
+		const optimisticMessageId = editingMessageId ? null : crypto.randomUUID();
+		const optimisticMessage = optimisticMessageId
+			? createUserMessage({
+					files: readyFiles,
+					id: optimisticMessageId,
+					metadata,
+					text: value,
+				})
+			: null;
+
 		setIsPreparingRequest(true);
 
 		try {
 			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onChatPersisted?.(chatId);
-			const readyFiles = getReadyFileParts(attachedFiles);
-			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
+			if (optimisticMessage && !activeRun) {
+				setMessages((currentMessages) =>
+					normalizeChatMessages([...currentMessages, optimisticMessage]),
+				);
+			}
 			const { mentionIds, requestSelectedSourceIds } =
 				getMentionRequestContext(mentions);
 			const requestBody = await buildWorkspaceChatRequestBody({
@@ -717,8 +754,6 @@ const useChatPageController = ({
 				workspaceId: activeWorkspaceId,
 			});
 			setSharedLocalFolders(requestBody.localFolders);
-			const metadata =
-				mentions.length > 0 ? { mentionPositions: mentions } : undefined;
 			const nextOutgoingMessage = editingMessageId
 				? {
 						messageId: editingMessageId,
@@ -727,6 +762,7 @@ const useChatPageController = ({
 						...filePayload,
 					}
 				: {
+						messageId: optimisticMessageId ?? undefined,
 						text: value,
 						metadata,
 						...filePayload,
@@ -774,6 +810,11 @@ const useChatPageController = ({
 					? error.message
 					: "Failed to prepare chat request",
 			);
+			if (optimisticMessageId) {
+				setMessages((currentMessages) =>
+					removeMessageById(currentMessages, optimisticMessageId),
+				);
+			}
 			setIsPreparingRequest(false);
 		}
 	}, [
@@ -793,6 +834,7 @@ const useChatPageController = ({
 		selectedReasoningEffort,
 		selectedModel.model,
 		sendMessage,
+		setMessages,
 		webSearchEnabled,
 	]);
 
