@@ -1,21 +1,12 @@
 import { getDesktopBridge } from "@workspace/platform/desktop";
 import * as React from "react";
 import type {
+	AuthSession,
 	GraneriAuthClient,
 	JsonWebKeySet,
 } from "@/lib/graneri-auth-client";
 
-type DesktopSessionData = {
-	user: Record<string, unknown> & {
-		email?: string | null;
-		id?: string | null;
-		image?: string | null;
-		name?: string | null;
-	};
-	session: Record<string, unknown> & {
-		token?: string | null;
-	};
-} | null;
+type DesktopSessionData = AuthSession | null;
 
 type SessionState = {
 	data: DesktopSessionData;
@@ -31,13 +22,31 @@ const defaultSessionState: SessionState = {
 	isPending: true,
 	isRefetching: false,
 	refetch: () => {
-		void refreshDesktopSession();
+		void refreshDesktopSession({ force: true });
 	},
 };
 
 const listeners = new Set<() => void>();
 let sessionState: SessionState = { ...defaultSessionState };
-let pendingSessionRefresh: Promise<SessionRefreshResult> | null = null;
+let pendingSessionRefresh: {
+	generation: number;
+	promise: Promise<SessionRefreshResult>;
+	requestBearerToken: string | null;
+} | null = null;
+let sessionRefreshCacheState:
+	| { status: "empty" }
+	| { completedAt: number; status: "fresh" } = { status: "empty" };
+let sessionRefreshGeneration = 0;
+
+const sessionRefreshFreshMs = 2_000;
+
+export const resetDesktopAuthClientForTests = () => {
+	sessionState = { ...defaultSessionState };
+	pendingSessionRefresh = null;
+	sessionRefreshCacheState = { status: "empty" };
+	sessionRefreshGeneration = 0;
+	listeners.clear();
+};
 
 type SessionRefreshResult = {
 	data: DesktopSessionData;
@@ -57,6 +66,7 @@ type DesktopAuthFetchOptions = {
 };
 
 type SessionRefreshOptions = {
+	force?: boolean;
 	headers?: HeadersInit;
 };
 
@@ -107,6 +117,29 @@ const normalizeHeaders = (
 	}
 
 	return Array.isArray(headers) ? Object.fromEntries(headers) : headers;
+};
+
+const getHeaderValue = (headers: HeadersInit | undefined, name: string) => {
+	if (!headers) {
+		return null;
+	}
+
+	if (headers instanceof Headers) {
+		return headers.get(name);
+	}
+
+	const normalizedName = name.toLowerCase();
+	const entries = Array.isArray(headers) ? headers : Object.entries(headers);
+	const match = entries.find(([key]) => key.toLowerCase() === normalizedName);
+
+	return typeof match?.[1] === "string" ? match[1] : null;
+};
+
+const getBearerToken = (headers?: HeadersInit) => {
+	const authorization = getHeaderValue(headers, "authorization")?.trim();
+	const match = authorization?.match(/^bearer\s+(.+)$/iu);
+
+	return match?.[1]?.trim() || null;
 };
 
 const isDesktopSessionData = (
@@ -167,9 +200,86 @@ const createSessionState = ({
 	isPending,
 	isRefetching: false,
 	refetch: () => {
-		void refreshDesktopSession();
+		void refreshDesktopSession({ force: true });
 	},
 });
+
+const getFreshSessionRefreshResult = (): SessionRefreshResult | null => {
+	if (
+		sessionRefreshCacheState.status !== "fresh" ||
+		Date.now() - sessionRefreshCacheState.completedAt > sessionRefreshFreshMs
+	) {
+		return null;
+	}
+
+	return {
+		data: sessionState.data,
+		error: sessionState.error
+			? toDesktopAuthErrorShape(sessionState.error, "Failed to fetch session.")
+			: null,
+	};
+};
+
+const canUseFreshSessionForHeaders = (headers?: HeadersInit) => {
+	const bearerToken = getBearerToken(headers);
+
+	if (!bearerToken) {
+		return !headers;
+	}
+
+	return sessionState.data?.session.token === bearerToken;
+};
+
+const markSessionRefreshFresh = () => {
+	sessionRefreshCacheState = { completedAt: Date.now(), status: "fresh" };
+};
+
+const invalidateSessionRefreshes = () => {
+	sessionRefreshGeneration += 1;
+	pendingSessionRefresh = null;
+	sessionRefreshCacheState = { status: "empty" };
+};
+
+const applySessionData = (data: DesktopSessionData, generation?: number) => {
+	if (generation !== undefined && generation !== sessionRefreshGeneration) {
+		return;
+	}
+
+	markSessionRefreshFresh();
+	setSessionState(
+		createSessionState({
+			data,
+			error: null,
+			isPending: false,
+		}),
+	);
+};
+
+const getPendingSessionRefresh = ({
+	force,
+	headers,
+}: Required<Pick<SessionRefreshOptions, "force">> &
+	Pick<SessionRefreshOptions, "headers">) => {
+	if (!pendingSessionRefresh) {
+		return null;
+	}
+
+	if (pendingSessionRefresh.generation !== sessionRefreshGeneration) {
+		pendingSessionRefresh = null;
+		return null;
+	}
+
+	if (!force) {
+		return pendingSessionRefresh.promise;
+	}
+
+	const bearerToken = getBearerToken(headers);
+	if (bearerToken && pendingSessionRefresh.requestBearerToken === bearerToken) {
+		return pendingSessionRefresh.promise;
+	}
+
+	return null;
+};
 
 const desktopAuthFetch = async ({
 	path,
@@ -194,10 +304,19 @@ const desktopAuthFetch = async ({
 };
 
 const refreshDesktopSession = async ({
+	force = false,
 	headers,
 }: SessionRefreshOptions = {}): Promise<SessionRefreshResult> => {
-	if (pendingSessionRefresh) {
-		return pendingSessionRefresh;
+	const pendingRefresh = getPendingSessionRefresh({ force, headers });
+	if (pendingRefresh) {
+		return pendingRefresh;
+	}
+
+	if (!force || canUseFreshSessionForHeaders(headers)) {
+		const freshSessionRefreshResult = getFreshSessionRefreshResult();
+		if (freshSessionRefreshResult) {
+			return freshSessionRefreshResult;
+		}
 	}
 
 	setSessionState((current) => ({
@@ -206,7 +325,9 @@ const refreshDesktopSession = async ({
 		isPending: true,
 	}));
 
-	pendingSessionRefresh = desktopAuthFetch({
+	const generation = sessionRefreshGeneration;
+	const requestBearerToken = getBearerToken(headers);
+	const sessionRefreshPromise = desktopAuthFetch({
 		path: "/get-session",
 		method: "GET",
 		headers,
@@ -214,13 +335,7 @@ const refreshDesktopSession = async ({
 		.then((data: unknown) => {
 			const nextData = isDesktopSessionData(data) ? data : null;
 
-			setSessionState(
-				createSessionState({
-					data: nextData,
-					error: null,
-					isPending: false,
-				}),
-			);
+			applySessionData(nextData, generation);
 
 			return {
 				data: nextData,
@@ -235,13 +350,16 @@ const refreshDesktopSession = async ({
 				"Failed to fetch session.",
 			);
 
-			setSessionState(
-				createSessionState({
-					data: null,
-					error: nextError,
-					isPending: false,
-				}),
-			);
+			if (generation === sessionRefreshGeneration) {
+				markSessionRefreshFresh();
+				setSessionState(
+					createSessionState({
+						data: null,
+						error: nextError,
+						isPending: false,
+					}),
+				);
+			}
 
 			return {
 				data: null,
@@ -249,10 +367,20 @@ const refreshDesktopSession = async ({
 			};
 		})
 		.finally(() => {
-			pendingSessionRefresh = null;
+			if (
+				pendingSessionRefresh?.generation === generation &&
+				pendingSessionRefresh.promise === sessionRefreshPromise
+			) {
+				pendingSessionRefresh = null;
+			}
 		});
 
-	return pendingSessionRefresh;
+	pendingSessionRefresh = {
+		generation,
+		promise: sessionRefreshPromise,
+		requestBearerToken,
+	};
+	return sessionRefreshPromise;
 };
 
 const fetchConvexEndpoint = async (path: string, headers?: HeadersInit) =>
@@ -287,6 +415,7 @@ export const desktopAuthClient = {
 	useSession: useDesktopSession,
 	getSession: async ({ fetchOptions }: ConvexFetchOptions = {}) =>
 		await refreshDesktopSession({
+			force: Boolean(fetchOptions?.headers),
 			headers: fetchOptions?.headers,
 		}),
 	updateUser: async (body: UpdateUserArgs) => {
@@ -297,7 +426,8 @@ export const desktopAuthClient = {
 				body,
 				throw: true,
 			});
-			await refreshDesktopSession();
+			invalidateSessionRefreshes();
+			await refreshDesktopSession({ force: true });
 
 			return {
 				data,
@@ -317,6 +447,7 @@ export const desktopAuthClient = {
 			body: {},
 			throw: true,
 		});
+		invalidateSessionRefreshes();
 		setSessionState(
 			createSessionState({
 				data: null,
@@ -412,11 +543,8 @@ export const desktopAuthClient = {
 				});
 
 				if (isDesktopSessionData(data)) {
-					void refreshDesktopSession({
-						headers: {
-							Authorization: `Bearer ${String(data.session?.token ?? "")}`,
-						},
-					});
+					invalidateSessionRefreshes();
+					applySessionData(data);
 				}
 
 				return {
