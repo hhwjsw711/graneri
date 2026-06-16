@@ -37,6 +37,15 @@ invariant. `chatActiveStreams` and active `chatToolCalls` are temporary render
 snapshots scoped to a run; terminal runs must leave no stream or active tool
 snapshots behind. These records do not move desktop-local tool execution out of
 the renderer/local-server bridge.
+`assistantRunEvents` is the durable ordered timeline for a run. It records typed
+events such as run start/stop/fail/complete, tool lifecycle changes, completed
+assistant messages, and human-input requests. Events are append-only per run and
+queried by `runId` plus `eventIndex`. High-frequency streamed text belongs in
+the active stream snapshot during the run and in the saved assistant message
+after completion; it should not be duplicated as per-token event rows.
+Snapshots remain the live render surface; historical inspection, future missed
+event replay, and debugging should use run events plus saved messages rather
+than preserved snapshot rows.
 AI SDK stream resume must attach to a non-terminal `assistantRuns` record and a
 live in-process producer. It must not infer lifecycle from partial stream text.
 If Convex has an attachable run but the current process has no matching producer,

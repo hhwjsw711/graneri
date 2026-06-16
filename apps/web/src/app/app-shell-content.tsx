@@ -7,7 +7,6 @@ import {
 	EmptyTitle,
 } from "@workspace/ui/components/empty";
 import { ScrollArea } from "@workspace/ui/components/scroll-area";
-import type { UIMessage } from "ai";
 import * as React from "react";
 import type {
 	AppUser,
@@ -97,7 +96,6 @@ export type AppShellContentView =
 			chatComposerId: string;
 			chats: Array<Doc<"chats">> | undefined;
 			currentChatId: string | null;
-			initialChatMessages: UIMessage[];
 			isDesktopMac: boolean;
 			onChatPersisted?: (chatId: string) => void;
 			onChatRemoved: (chatId: string) => void;
@@ -247,7 +245,6 @@ export const AppShellContent = React.memo(function AppShellContent({
 		<ChatPageEntry
 			key={view.chatComposerId}
 			chatId={view.chatComposerId}
-			initialMessages={view.initialChatMessages}
 			onChatPersisted={view.onChatPersisted}
 			chats={view.chats ?? []}
 			isChatsLoading={view.chats === undefined}

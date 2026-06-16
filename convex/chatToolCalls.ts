@@ -2,6 +2,7 @@ import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
+import { appendAssistantRunEvent } from "./assistantRunEvents";
 import { requireTokenIdentifier } from "./domain";
 
 const chatToolCallStatusValidator = v.union(
@@ -71,7 +72,10 @@ const requireOwnedActiveStream = async (
 		runId: Id<"assistantRuns">;
 	},
 ) => {
-	const ownerTokenIdentifier = await requireTokenIdentifier(ctx, "chatToolCalls");
+	const ownerTokenIdentifier = await requireTokenIdentifier(
+		ctx,
+		"chatToolCalls",
+	);
 	const chat = await getOwnedActiveChatById(
 		ctx,
 		ownerTokenIdentifier,
@@ -140,6 +144,11 @@ export const startActiveStreamToolCall = mutation({
 				errorText: undefined,
 				updatedAt: now,
 			});
+			await appendAssistantRunEvent(ctx, run, {
+				type: "tool.started",
+				toolCallId: args.toolCallId,
+				toolName: args.toolName,
+			});
 
 			return await requireToolCall(ctx, existingToolCall._id);
 		}
@@ -153,6 +162,11 @@ export const startActiveStreamToolCall = mutation({
 			inputJson: args.inputJson,
 			createdAt: now,
 			updatedAt: now,
+		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "tool.started",
+			toolCallId: args.toolCallId,
+			toolName: args.toolName,
 		});
 
 		return await requireToolCall(ctx, toolCallId);
@@ -194,6 +208,11 @@ export const finishActiveStreamToolCall = mutation({
 			outputJson: args.outputJson,
 			errorText: args.errorText,
 			updatedAt: Date.now(),
+		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "tool.completed",
+			toolCallId: args.toolCallId,
+			status: args.status,
 		});
 
 		return await requireToolCall(ctx, toolCall._id);

@@ -1,4 +1,3 @@
-import type { UIMessage } from "ai";
 import type { FunctionReturnType } from "convex/server";
 import * as React from "react";
 import { logError } from "@/lib/logger";
@@ -16,14 +15,12 @@ export const useResumeActiveChatRun = ({
 	chatId,
 	enabled = true,
 	resumeStream,
-	setMessages,
 	workspaceId,
 }: {
 	activeRun: AttachableRun;
 	chatId: string;
 	enabled?: boolean;
 	resumeStream: () => Promise<void>;
-	setMessages: React.Dispatch<React.SetStateAction<UIMessage[]>>;
 	workspaceId: Id<"workspaces"> | null | undefined;
 }) => {
 	const resumedRunKeyRef = React.useRef<string | null>(null);
@@ -48,11 +45,6 @@ export const useResumeActiveChatRun = ({
 		}
 
 		resumedRunKeyRef.current = runKey;
-		setMessages((currentMessages) =>
-			currentMessages.filter(
-				(message) => message.id !== activeRun.assistantMessageId,
-			),
-		);
 		const resumePromise = resumeStream()
 			.catch((error: unknown) => {
 				if (!cancelled && resumedRunKeyRef.current === runKey) {
@@ -74,5 +66,5 @@ export const useResumeActiveChatRun = ({
 		return () => {
 			cancelled = true;
 		};
-	}, [activeRun, chatId, enabled, resumeStream, setMessages, workspaceId]);
+	}, [activeRun, chatId, enabled, resumeStream, workspaceId]);
 };

@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { assistantRunEventValidator } from "./assistantRunEventModel";
 
 const workspaceRoleValidator = v.union(
 	v.literal("startup-generalist"),
@@ -588,7 +589,17 @@ export default defineSchema({
 		.index("by_chatId_and_status", ["chatId", "status"])
 		.index("by_workspaceId_and_chatId", ["workspaceId", "chatId"])
 		.index("by_workspaceId_and_status", ["workspaceId", "status"])
+		.index("by_status_and_updatedAt", ["status", "updatedAt"])
 		.index("by_assistantMessageId", ["assistantMessageId"]),
+	assistantRunEvents: defineTable({
+		ownerTokenIdentifier: v.string(),
+		workspaceId: v.id("workspaces"),
+		chatId: v.id("chats"),
+		runId: v.id("assistantRuns"),
+		eventIndex: v.number(),
+		event: assistantRunEventValidator,
+		createdAt: v.number(),
+	}).index("by_runId_and_eventIndex", ["runId", "eventIndex"]),
 	assistantQueuedMessages: defineTable({
 		ownerTokenIdentifier: v.string(),
 		workspaceId: v.id("workspaces"),

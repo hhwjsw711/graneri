@@ -388,7 +388,7 @@ describe("hosted active chat stream", () => {
 		});
 	});
 
-	it("pipes stream chunks while persisting text deltas and tool lifecycle events", async () => {
+	it("pipes stream chunks while updating text snapshots and tool lifecycle state", async () => {
 		const append = vi.fn();
 		const startToolCall = vi.fn().mockResolvedValue(undefined);
 		const finishToolCall = vi.fn().mockResolvedValue(undefined);

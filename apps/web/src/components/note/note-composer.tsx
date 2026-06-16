@@ -130,6 +130,7 @@ import {
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
+import { normalizeChatMessages } from "@/lib/chat-message-state";
 import { toQueuedUserMessageInput } from "@/lib/chat-queue";
 import {
 	buildNoteChatRequestBody,
@@ -936,6 +937,10 @@ const useNoteComposerController = ({
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
 	addToolOutputRef.current = addToolOutput;
+	const displayChatMessages = React.useMemo(
+		() => normalizeChatMessages(chatMessages),
+		[chatMessages],
+	);
 
 	React.useEffect(() => {
 		if (!activeWorkspaceId) {
@@ -956,7 +961,6 @@ const useNoteComposerController = ({
 		chatId: currentChatId,
 		enabled: hasStoredCurrentChat && !isLocalChatLoading,
 		resumeStream,
-		setMessages,
 		workspaceId: activeWorkspaceId,
 	});
 
@@ -967,10 +971,6 @@ const useNoteComposerController = ({
 	const appliedInitialMessagesSeedKeyRef = React.useRef(initialMessagesSeedKey);
 
 	React.useEffect(() => {
-		if (hasStoredCurrentChat && activeRun !== null) {
-			return;
-		}
-
 		const isLocalRequestRunning =
 			chatStatus === "submitted" ||
 			chatStatus === "streaming" ||
@@ -1000,13 +1000,11 @@ const useNoteComposerController = ({
 				return initialMessages;
 			}
 
-			return currentMessages;
+			return normalizeChatMessages(currentMessages);
 		});
 	}, [
-		activeRun,
 		chatStatus,
 		currentChatId,
-		hasStoredCurrentChat,
 		initialMessages,
 		initialMessagesSeedKey,
 		isPreparingRequest,
@@ -1838,7 +1836,7 @@ const useNoteComposerController = ({
 			}
 
 			setMessages((currentMessages) =>
-				getMessagesBefore(currentMessages, messageId),
+				normalizeChatMessages(getMessagesBefore(currentMessages, messageId)),
 			);
 			setEditingMessageId(null);
 			clearDraft();
@@ -2027,7 +2025,7 @@ const useNoteComposerController = ({
 		currentNoteScopeKey: transcriptSession.currentNoteScopeKey,
 		canGenerateNotes,
 		chatError,
-		chatMessages,
+		chatMessages: displayChatMessages,
 		chatTitle,
 		chatViewportRef,
 		isChatViewportAtBottom,

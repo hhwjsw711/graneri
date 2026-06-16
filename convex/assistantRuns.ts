@@ -1,8 +1,9 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { discardQueuedForRunInternal } from "./assistantQueuedMessages";
+import { appendAssistantRunEvent } from "./assistantRunEvents";
 import { requireOwnedWorkspace, requireTokenIdentifier } from "./domain";
 
 const reasoningEffortValidator = v.union(
@@ -73,6 +74,10 @@ const nonTerminalRunStatuses = [
 	"waiting_for_user",
 	"stopping",
 ] as const;
+
+const expirableRunStatuses = ["queued", "running", "stopping"] as const;
+const ASSISTANT_RUN_EXPIRATION_MS = 20 * 60 * 1000;
+const ASSISTANT_RUN_CLEANUP_BATCH_SIZE = 64;
 
 const getOwnedActiveChatById = async (
 	ctx: QueryCtx | MutationCtx,
@@ -160,6 +165,54 @@ const getNonTerminalRunsForWorkspace = async (
 	return runs;
 };
 
+const getActiveStreamUpdatedAt = async (
+	ctx: MutationCtx,
+	runId: Id<"assistantRuns">,
+) => {
+	const stream = await ctx.db
+		.query("chatActiveStreams")
+		.withIndex("by_runId", (q) => q.eq("runId", runId))
+		.unique();
+
+	return stream?.updatedAt ?? null;
+};
+
+const terminalizeExpiredRun = async (
+	ctx: MutationCtx,
+	run: Doc<"assistantRuns">,
+	now: number,
+) => {
+	if (run.status === "stopping") {
+		await ctx.db.patch(run._id, {
+			status: "stopped",
+			stopReason: run.stopReason ?? "cleanup_failed",
+			pendingDecision: undefined,
+			errorText: undefined,
+			updatedAt: now,
+			finishedAt: now,
+		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "run.stopped",
+			stopReason: run.stopReason ?? "cleanup_failed",
+		});
+	} else {
+		await ctx.db.patch(run._id, {
+			status: "failed",
+			pendingDecision: undefined,
+			errorText: "Assistant run expired after its stream producer stopped.",
+			updatedAt: now,
+			finishedAt: now,
+		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "run.failed",
+			errorText: "Assistant run expired after its stream producer stopped.",
+		});
+	}
+
+	await deleteRunSnapshots(ctx, run._id);
+	await discardQueuedForRunInternal(ctx, run._id);
+};
+
 const requireOwnedRun = async (
 	ctx: QueryCtx | MutationCtx,
 	ownerTokenIdentifier: string,
@@ -171,6 +224,22 @@ const requireOwnedRun = async (
 		throw new ConvexError({
 			code: "ASSISTANT_RUN_NOT_FOUND",
 			message: "Assistant run not found.",
+		});
+	}
+
+	return run;
+};
+
+const requireSavedRun = async (
+	ctx: MutationCtx,
+	runId: Id<"assistantRuns">,
+) => {
+	const run = await ctx.db.get(runId);
+
+	if (!run) {
+		throw new ConvexError({
+			code: "ASSISTANT_RUN_SAVE_FAILED",
+			message: "Failed to save assistant run.",
 		});
 	}
 
@@ -189,6 +258,10 @@ const stopSupersededRun = async (
 		pendingDecision: undefined,
 		updatedAt: now,
 		finishedAt: now,
+	});
+	await appendAssistantRunEvent(ctx, run, {
+		type: "run.stopped",
+		stopReason: "superseded",
 	});
 	await deleteRunSnapshots(ctx, run._id);
 	await discardQueuedForRunInternal(ctx, run._id);
@@ -230,7 +303,14 @@ export const startAssistantRun = mutation({
 		const activeRuns = await getNonTerminalRunsForChat(ctx, chat._id);
 		if (activeRuns.length > 0) {
 			if (args.policy === "return_existing") {
-				return activeRuns[0]!;
+				const activeRun = activeRuns[0];
+				if (!activeRun) {
+					throw new ConvexError({
+						code: "ASSISTANT_RUN_NOT_FOUND",
+						message: "Active assistant run not found.",
+					});
+				}
+				return activeRun;
 			}
 
 			if (args.policy === "reject") {
@@ -272,7 +352,60 @@ export const startAssistantRun = mutation({
 			});
 		}
 
+		await appendAssistantRunEvent(ctx, run, {
+			type: "run.started",
+			assistantMessageId: run.assistantMessageId,
+			model: run.model,
+			reasoningEffort: run.reasoningEffort,
+		});
+
 		return run;
+	},
+});
+
+export const cleanupExpiredAssistantRuns = internalMutation({
+	args: {},
+	returns: v.object({
+		checked: v.number(),
+		expired: v.number(),
+		refreshed: v.number(),
+	}),
+	handler: async (ctx) => {
+		const now = Date.now();
+		const expiresBefore = now - ASSISTANT_RUN_EXPIRATION_MS;
+		let checked = 0;
+		let expired = 0;
+		let refreshed = 0;
+
+		for (const status of expirableRunStatuses) {
+			const runs = await ctx.db
+				.query("assistantRuns")
+				.withIndex("by_status_and_updatedAt", (q) =>
+					q.eq("status", status).lt("updatedAt", expiresBefore),
+				)
+				.take(ASSISTANT_RUN_CLEANUP_BATCH_SIZE);
+
+			for (const run of runs) {
+				checked += 1;
+				const streamUpdatedAt =
+					run.status === "running"
+						? await getActiveStreamUpdatedAt(ctx, run._id)
+						: null;
+
+				if (streamUpdatedAt && streamUpdatedAt >= expiresBefore) {
+					await ctx.db.patch(run._id, {
+						updatedAt: streamUpdatedAt,
+					});
+					refreshed += 1;
+					continue;
+				}
+
+				await terminalizeExpiredRun(ctx, run, now);
+				expired += 1;
+			}
+		}
+
+		return { checked, expired, refreshed };
 	},
 });
 
@@ -302,7 +435,7 @@ export const markAssistantRunRunning = mutation({
 			});
 		}
 
-		return (await ctx.db.get(run._id))!;
+		return await requireSavedRun(ctx, run._id);
 	},
 });
 
@@ -334,8 +467,12 @@ export const waitForUserDecision = mutation({
 			errorText: undefined,
 			updatedAt: Date.now(),
 		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "input.requested",
+			decisionType: args.pendingDecision.type,
+		});
 
-		return (await ctx.db.get(run._id))!;
+		return await requireSavedRun(ctx, run._id);
 	},
 });
 
@@ -366,7 +503,7 @@ export const resumeAssistantRunAfterUserDecision = mutation({
 			updatedAt: Date.now(),
 		});
 
-		return (await ctx.db.get(run._id))!;
+		return await requireSavedRun(ctx, run._id);
 	},
 });
 
@@ -398,9 +535,16 @@ export const finishAssistantRun = mutation({
 			updatedAt: now,
 			finishedAt: now,
 		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "message.completed",
+			assistantMessageId: run.assistantMessageId,
+		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "run.completed",
+		});
 		await deleteRunSnapshots(ctx, run._id);
 
-		return (await ctx.db.get(run._id))!;
+		return await requireSavedRun(ctx, run._id);
 	},
 });
 
@@ -439,11 +583,15 @@ export const failAssistantRun = mutation({
 				updatedAt: now,
 				finishedAt: now,
 			});
+			await appendAssistantRunEvent(ctx, run, {
+				type: "run.failed",
+				errorText: args.errorText,
+			});
 		}
 		await deleteRunSnapshots(ctx, run._id);
 		await discardQueuedForRunInternal(ctx, run._id);
 
-		return (await ctx.db.get(run._id))!;
+		return await requireSavedRun(ctx, run._id);
 	},
 });
 
@@ -478,7 +626,7 @@ export const requestStopAssistantRun = mutation({
 			updatedAt: Date.now(),
 		});
 
-		return (await ctx.db.get(run._id))!;
+		return await requireSavedRun(ctx, run._id);
 	},
 });
 
@@ -512,10 +660,14 @@ export const finishStoppedAssistantRun = mutation({
 			updatedAt: now,
 			finishedAt: now,
 		});
+		await appendAssistantRunEvent(ctx, run, {
+			type: "run.stopped",
+			stopReason: run.stopReason,
+		});
 		await deleteRunSnapshots(ctx, run._id);
 		await discardQueuedForRunInternal(ctx, run._id);
 
-		return (await ctx.db.get(run._id))!;
+		return await requireSavedRun(ctx, run._id);
 	},
 });
 

@@ -38,6 +38,7 @@ import {
 	getChatMessageMetadata,
 	getChatText,
 } from "@/lib/chat-message";
+import { normalizeChatMessages } from "@/lib/chat-message-state";
 import {
 	CHAT_APP_SOURCE_PROVIDERS,
 	type ChatAppSourceProvider,
@@ -96,22 +97,26 @@ export function ChatMessageListContent({
 	renderUserActions?: (context: ChatMessageActionContext) => React.ReactNode;
 	onOpenMention?: (noteId: string) => void;
 }) {
+	const normalizedMessages = React.useMemo(
+		() => normalizeChatMessages(messages),
+		[messages],
+	);
 	const displayMessages = React.useMemo(() => {
-		const lastMessage = messages[messages.length - 1];
+		const lastMessage = normalizedMessages[normalizedMessages.length - 1];
 
 		if (!isLoading || lastMessage?.role === "assistant") {
-			return messages;
+			return normalizedMessages;
 		}
 
 		return [
-			...messages,
+			...normalizedMessages,
 			{
 				id: "pending-assistant-message",
 				role: "assistant" as const,
 				parts: [],
 			},
 		];
-	}, [isLoading, messages]);
+	}, [isLoading, normalizedMessages]);
 	const lastMessage = displayMessages[displayMessages.length - 1];
 	const turns = React.useMemo(
 		() => groupMessagesIntoTurns(displayMessages),

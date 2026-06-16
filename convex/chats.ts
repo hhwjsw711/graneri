@@ -8,6 +8,7 @@ import {
 	mutation,
 	query,
 } from "./_generated/server";
+import { deleteRunSnapshots } from "./assistantRuns";
 import {
 	moveLinkedAutomationToFreshChat,
 	pauseLinkedAutomationForChat,
@@ -17,12 +18,11 @@ import {
 	clampWhitespace,
 	getAuthorName,
 	requireIdentity as requireDomainIdentity,
-	requireOwnedWorkspace,
 	requireTokenIdentifier as requireDomainTokenIdentifier,
+	requireOwnedWorkspace,
 	truncate,
 	uppercaseFirstCharacter,
 } from "./domain";
-import { deleteRunSnapshots } from "./assistantRuns";
 
 const chatRoleValidator = v.union(
 	v.literal("system"),
@@ -1185,14 +1185,23 @@ export const appendActiveStreamText = mutation({
 
 		const stream = await getActiveStreamByRunId(ctx, args.runId);
 
-		if (
-			!stream ||
-			stream.chatId !== chat._id ||
-			stream.runId !== args.runId
-		) {
+		if (!stream || stream.chatId !== chat._id || stream.runId !== args.runId) {
 			throw new ConvexError({
 				code: "ACTIVE_STREAM_NOT_FOUND",
 				message: "Active stream snapshot not found.",
+			});
+		}
+		const run = await ctx.db.get(args.runId);
+		if (
+			!run ||
+			run.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			run.workspaceId !== args.workspaceId ||
+			run.chatId !== chat._id ||
+			run.status !== "running"
+		) {
+			throw new ConvexError({
+				code: "ASSISTANT_RUN_NOT_FOUND",
+				message: "Active assistant run not found.",
 			});
 		}
 

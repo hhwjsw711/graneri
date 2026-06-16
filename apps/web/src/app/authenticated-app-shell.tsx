@@ -100,7 +100,6 @@ import {
 	getSettingsPageFromPath,
 	getSettingsPath,
 	shouldAutoStartNoteCaptureFromUrl,
-	toStoredChatMessages,
 } from "@/app/location";
 import type {
 	AutomationDraft,
@@ -127,10 +126,7 @@ import {
 	ActiveWorkspaceProvider,
 	useActiveWorkspaceId,
 } from "@/hooks/use-active-workspace";
-import {
-	prefetchChatMessagesSnapshot,
-	useChatMessagesSnapshot,
-} from "@/hooks/use-chat-messages-snapshot";
+import { prefetchChatMessagesSnapshot } from "@/hooks/use-chat-messages-snapshot";
 import { applyDesktopAppearancePreferenceAttributes } from "@/lib/appearance-preferences";
 import { type AuthSession, authClient } from "@/lib/auth-client";
 import { getChatId } from "@/lib/chat";
@@ -160,6 +156,79 @@ const currentWeekdayFormatter = new Intl.DateTimeFormat(undefined, {
 	weekday: "short",
 });
 
+const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+const PENDING_PERSISTED_CHAT_ROUTE_LIMIT = 8;
+
+type PendingPersistedChatRoutesStore = {
+	add: (chatId: string) => void;
+	getSnapshot: () => readonly string[];
+	remove: (chatId: string) => void;
+	subscribe: (listener: () => void) => () => void;
+};
+
+const createPendingPersistedChatRoutesStore =
+	(): PendingPersistedChatRoutesStore => {
+		let chatIds: readonly string[] = [];
+		const listeners = new Set<() => void>();
+
+		const emitChange = () => {
+			for (const listener of listeners) {
+				listener();
+			}
+		};
+
+		const updateChatIds = (nextChatIds: readonly string[]) => {
+			if (nextChatIds === chatIds) {
+				return;
+			}
+
+			chatIds = nextChatIds;
+			emitChange();
+		};
+
+		return {
+			add: (chatId) => {
+				if (chatIds.includes(chatId)) {
+					return;
+				}
+
+				updateChatIds(
+					[...chatIds, chatId].slice(-PENDING_PERSISTED_CHAT_ROUTE_LIMIT),
+				);
+			},
+			getSnapshot: () => chatIds,
+			remove: (chatId) => {
+				if (!chatIds.includes(chatId)) {
+					return;
+				}
+
+				updateChatIds(chatIds.filter((currentId) => currentId !== chatId));
+			},
+			subscribe: (listener) => {
+				listeners.add(listener);
+
+				return () => {
+					listeners.delete(listener);
+				};
+			},
+		};
+	};
+
+const usePendingPersistedChatRoutes = () => {
+	const store = React.useMemo(createPendingPersistedChatRoutesStore, []);
+	const pendingPersistedChatRouteIds = React.useSyncExternalStore(
+		store.subscribe,
+		store.getSnapshot,
+		store.getSnapshot,
+	);
+
+	return {
+		addPendingPersistedChatRouteId: store.add,
+		pendingPersistedChatRouteIds,
+		removePendingPersistedChatRouteId: store.remove,
+	};
+};
+
 type ResourceRouteState<T> =
 	| { status: "inactive" }
 	| { status: "ready"; value: T | null }
@@ -173,6 +242,7 @@ const resolveCollectionRoute = <T,>({
 	items,
 	matches,
 	missingWhenIdNull = false,
+	resolvingIds,
 }: {
 	currentView: AppView;
 	expectedView: AppView;
@@ -180,6 +250,7 @@ const resolveCollectionRoute = <T,>({
 	items: T[] | undefined;
 	matches: (item: T, id: string) => boolean;
 	missingWhenIdNull?: boolean;
+	resolvingIds?: ReadonlySet<string>;
 }): ResourceRouteState<T> => {
 	if (currentView !== expectedView) {
 		return { status: "inactive" };
@@ -196,7 +267,13 @@ const resolveCollectionRoute = <T,>({
 	}
 
 	const value = items.find((item) => matches(item, id));
-	return value ? { status: "ready", value } : { status: "missing" };
+	if (value) {
+		return { status: "ready", value };
+	}
+
+	return resolvingIds?.has(id)
+		? { status: "resolving" }
+		: { status: "missing" };
 };
 
 const getDelayUntilNextMinute = (now: Date) => {
@@ -204,6 +281,31 @@ const getDelayUntilNextMinute = (now: Date) => {
 	nextMinute.setSeconds(60, 0);
 
 	return nextMinute.getTime() - now.getTime();
+};
+
+const getResolvingPersistedChatIds = ({
+	chats,
+	pendingPersistedChatRouteIds,
+}: {
+	chats: Array<Doc<"chats">> | undefined;
+	pendingPersistedChatRouteIds: readonly string[];
+}): ReadonlySet<string> => {
+	if (pendingPersistedChatRouteIds.length === 0) {
+		return EMPTY_STRING_SET;
+	}
+
+	if (!chats) {
+		return new Set(pendingPersistedChatRouteIds);
+	}
+
+	const listedChatIds = new Set(chats.map(getChatId));
+	const unresolvedChatIds = pendingPersistedChatRouteIds.filter(
+		(chatId) => !listedChatIds.has(chatId),
+	);
+
+	return unresolvedChatIds.length > 0
+		? new Set(unresolvedChatIds)
+		: EMPTY_STRING_SET;
 };
 
 const useCurrentDate = () => {
@@ -520,6 +622,15 @@ const useAppShellState = ({
 			? { workspaceId: resolvedActiveWorkspaceId }
 			: "skip",
 	);
+	const {
+		addPendingPersistedChatRouteId,
+		pendingPersistedChatRouteIds,
+		removePendingPersistedChatRouteId,
+	} = usePendingPersistedChatRoutes();
+	const resolvingPersistedChatIds = getResolvingPersistedChatIds({
+		chats,
+		pendingPersistedChatRouteIds,
+	});
 	const activeRunChatIds = useQuery(
 		api.assistantRuns.listActiveChatIds,
 		resolvedActiveWorkspaceId
@@ -554,11 +665,6 @@ const useAppShellState = ({
 			? { workspaceId: resolvedActiveWorkspaceId }
 			: "skip",
 	);
-	const { messages: selectedChatMessages } = useChatMessagesSnapshot({
-		chatId: currentView === "chat" ? currentChatId : null,
-		workspaceId: resolvedActiveWorkspaceId,
-		enabled: currentView === "chat",
-	});
 	const normalizedRouteNoteId = useQuery(
 		api.notes.normalizeId,
 		currentView === "note" && currentRouteNoteId && currentNoteId === null
@@ -615,6 +721,7 @@ const useAppShellState = ({
 		id: currentChatId,
 		items: chats,
 		matches: (chat, id) => getChatId(chat) === id,
+		resolvingIds: resolvingPersistedChatIds,
 	});
 	const isResolvingCurrentChat = currentChatRoute.status === "resolving";
 	const hasMissingCurrentChat = currentChatRoute.status === "missing";
@@ -1708,22 +1815,24 @@ const useAppShellState = ({
 
 	const handleChatPersisted = React.useCallback(
 		(chatId: string) => {
-			if (currentChatId === chatId) {
-				return;
-			}
+			addPendingPersistedChatRouteId(chatId);
 
-			setCurrentChatId(chatId);
-			setDraftChatComposerId(crypto.randomUUID());
+			if (currentChatId !== chatId) {
+				setCurrentChatId(chatId);
+				setDraftChatComposerId(crypto.randomUUID());
+			}
 			window.history.replaceState(
 				null,
 				"",
 				`/chat?chatId=${encodeURIComponent(chatId)}`,
 			);
 		},
-		[currentChatId],
+		[addPendingPersistedChatRouteId, currentChatId],
 	);
 	const handleChatRemoved = React.useCallback(
 		(chatId: string) => {
+			removePendingPersistedChatRouteId(chatId);
+
 			if (currentChatId !== chatId) {
 				return;
 			}
@@ -1733,7 +1842,7 @@ const useAppShellState = ({
 			setDraftChatComposerId(nextChatId);
 			window.history.replaceState(null, "", "/chat");
 		},
-		[currentChatId],
+		[currentChatId, removePendingPersistedChatRouteId],
 	);
 	const currentChat =
 		currentChatRoute.status === "ready" ? currentChatRoute.value : null;
@@ -1746,10 +1855,6 @@ const useAppShellState = ({
 		resolvedCurrentView === "note" &&
 		(resolvedSelectedNote?.visibility === "public" ||
 			sharedNotes?.some((note) => note._id === resolvedCurrentNoteId) === true);
-	const initialChatMessages = React.useMemo(
-		() => toStoredChatMessages(selectedChatMessages ?? []),
-		[selectedChatMessages],
-	);
 
 	return {
 		activeWorkspaceId: resolvedActiveWorkspaceId,
@@ -1848,7 +1953,6 @@ const useAppShellState = ({
 		handleViewChange,
 		handleWorkspaceCreate,
 		inboxOpen,
-		initialChatMessages,
 		automationDialogOpen,
 		automations,
 		automationChatTitle,
@@ -2911,7 +3015,6 @@ function createAppShellContentView({
 		chatComposerId: controller.chatComposerId,
 		chats: controller.chats,
 		currentChatId: controller.currentChatId,
-		initialChatMessages: controller.initialChatMessages,
 		isDesktopMac: controller.isDesktopMac,
 		onChatPersisted: controller.handleChatPersisted,
 		onChatRemoved: controller.handleChatRemoved,

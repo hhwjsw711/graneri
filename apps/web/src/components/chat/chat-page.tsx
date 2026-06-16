@@ -66,6 +66,7 @@ import {
 import { getChatId } from "@/lib/chat";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
+import { normalizeChatMessages } from "@/lib/chat-message-state";
 import { toQueuedUserMessageInput } from "@/lib/chat-queue";
 import {
 	buildWorkspaceChatRequestBody,
@@ -90,7 +91,6 @@ import { ChatHistoryList } from "./chat-history-list";
 
 export type ChatPageProps = {
 	chatId: string;
-	initialMessages: UIMessage[];
 	onChatPersisted?: (chatId: string) => void;
 	chats: Array<Doc<"chats">>;
 	isChatsLoading: boolean;
@@ -124,6 +124,41 @@ const getLatestUserMessageText = (messages: UIMessage[]) => {
 	}
 
 	return "";
+};
+
+const removeMessageById = (messages: UIMessage[], messageId: string) =>
+	messages.filter((message) => message.id !== messageId);
+
+const hasRenderableAssistantText = (messages: UIMessage[]) =>
+	messages.some(
+		(message) =>
+			message.role === "assistant" && getChatText(message).length > 0,
+	);
+
+const getRegenerationMessages = ({
+	assistantMessageId,
+	messages,
+}: {
+	assistantMessageId: string;
+	messages: UIMessage[];
+}) => {
+	const assistantMessageIndex = messages.findIndex(
+		(message) => message.id === assistantMessageId,
+	);
+
+	if (assistantMessageIndex < 0) {
+		throw new Error("Cannot regenerate a missing assistant message.");
+	}
+
+	const userMessageIndex = messages
+		.slice(0, assistantMessageIndex)
+		.findLastIndex((message) => message.role === "user");
+
+	if (userMessageIndex < 0) {
+		throw new Error("Cannot regenerate without a previous user message.");
+	}
+
+	return normalizeChatMessages(messages.slice(0, userMessageIndex + 1));
 };
 
 const getStoredChatModel = (model: string | undefined): ChatModel | null =>
@@ -266,7 +301,6 @@ const createTextMatchRanges = ({
 
 const useChatPageController = ({
 	chatId,
-	initialMessages,
 	onChatPersisted,
 	chats,
 	isChatsLoading,
@@ -274,7 +308,6 @@ const useChatPageController = ({
 }: Pick<
 	ChatPageProps,
 	| "chatId"
-	| "initialMessages"
 	| "onChatPersisted"
 	| "chats"
 	| "isChatsLoading"
@@ -402,6 +435,7 @@ const useChatPageController = ({
 			}),
 		[],
 	);
+	const activeAssistantMessageId = activeRun?.assistantMessageId ?? null;
 	const {
 		messages,
 		setMessages,
@@ -414,21 +448,21 @@ const useChatPageController = ({
 		addToolOutput,
 	} = useChat({
 		id: chatId,
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		messages: initialMessages,
 		transport,
 		experimental_throttle: 50,
 		onToolCall: handleToolCall,
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
 	addToolOutputRef.current = addToolOutput;
+	const controllerMessages = React.useMemo(
+		() => normalizeChatMessages(messages),
+		[messages],
+	);
 
 	const persistedMessages = React.useMemo(
 		() =>
-			storedMessages === undefined
-				? initialMessages
-				: toStoredChatMessages(storedMessages),
-		[initialMessages, storedMessages],
+			storedMessages === undefined ? [] : toStoredChatMessages(storedMessages),
+		[storedMessages],
 	);
 
 	React.useEffect(() => {
@@ -439,17 +473,10 @@ const useChatPageController = ({
 		void prefetchConvexToken();
 	}, [activeWorkspaceId]);
 
+	const isControllerRequestActive =
+		status === "submitted" || status === "streaming";
 	const isLocalChatLoading =
-		status === "submitted" || status === "streaming" || isPreparingRequest;
-
-	useResumeActiveChatRun({
-		activeRun,
-		chatId,
-		enabled: !isLocalChatLoading,
-		resumeStream,
-		setMessages,
-		workspaceId: activeWorkspaceId,
-	});
+		isPreparingRequest || (isControllerRequestActive && activeRun !== null);
 
 	const persistedMessagesSeedKey = React.useMemo(
 		() => getUIMessageSeedKey(persistedMessages),
@@ -459,11 +486,15 @@ const useChatPageController = ({
 		persistedMessagesSeedKey,
 	);
 
-	React.useEffect(() => {
-		if (activeWorkspaceId && activeRun !== null) {
-			return;
-		}
+	useResumeActiveChatRun({
+		activeRun,
+		chatId,
+		enabled: !isLocalChatLoading,
+		resumeStream,
+		workspaceId: activeWorkspaceId,
+	});
 
+	React.useEffect(() => {
 		const isLocalRequestRunning =
 			status === "submitted" || status === "streaming" || isPreparingRequest;
 
@@ -474,21 +505,24 @@ const useChatPageController = ({
 		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
+			const nextPersistedMessages = activeAssistantMessageId
+				? removeMessageById(persistedMessages, activeAssistantMessageId)
+				: persistedMessages;
 			const shouldUsePersistedMessages =
 				currentMessages.length === 0 ||
 				currentMessagesSeedKey === appliedPersistedMessagesSeedKeyRef.current ||
-				persistedMessages.length > currentMessages.length;
+				(!activeRun && nextPersistedMessages.length > currentMessages.length);
 
 			if (shouldUsePersistedMessages) {
 				appliedPersistedMessagesSeedKeyRef.current = persistedMessagesSeedKey;
-				return persistedMessages;
+				return nextPersistedMessages;
 			}
 
-			return currentMessages;
+			return normalizeChatMessages(currentMessages);
 		});
 	}, [
 		activeRun,
-		activeWorkspaceId,
+		activeAssistantMessageId,
 		isPreparingRequest,
 		persistedMessages,
 		persistedMessagesSeedKey,
@@ -500,7 +534,40 @@ const useChatPageController = ({
 	const isAutomationRunning = Boolean(runningAutomationRun);
 	const isLoading =
 		isLocalChatLoading || isPersistedChatStreaming || isAutomationRunning;
-	const hasMessages = messages.length > 0 || isAutomationRunning;
+	const displayMessages = React.useMemo(() => {
+		if (!activeAssistantMessageId || !activeRun) {
+			return controllerMessages.length > 0
+				? controllerMessages
+				: persistedMessages;
+		}
+
+		const controllerMessagesWithoutSnapshot = removeMessageById(
+			controllerMessages,
+			activeAssistantMessageId,
+		);
+
+		if (hasRenderableAssistantText(controllerMessagesWithoutSnapshot)) {
+			return controllerMessagesWithoutSnapshot;
+		}
+
+		const activeSnapshotMessage = persistedMessages.find(
+			(message) =>
+				message.id === activeAssistantMessageId && message.role === "assistant",
+		);
+
+		return activeSnapshotMessage
+			? normalizeChatMessages([
+					...controllerMessagesWithoutSnapshot,
+					activeSnapshotMessage,
+				])
+			: controllerMessagesWithoutSnapshot;
+	}, [
+		activeAssistantMessageId,
+		activeRun,
+		controllerMessages,
+		persistedMessages,
+	]);
+	const hasMessages = displayMessages.length > 0 || isAutomationRunning;
 	useQueuedChatDrain({
 		activeRun,
 		chatId,
@@ -831,7 +898,7 @@ const useChatPageController = ({
 			}
 
 			setMessages((currentMessages) =>
-				getMessagesBefore(currentMessages, messageId),
+				normalizeChatMessages(getMessagesBefore(currentMessages, messageId)),
 			);
 			setEditingMessageId(null);
 			clearDraft();
@@ -874,9 +941,14 @@ const useChatPageController = ({
 
 			try {
 				const requestBody = await buildRequestBody();
+				const regenerationMessages = getRegenerationMessages({
+					assistantMessageId,
+					messages: persistedMessages,
+				});
 				latestRequestBodyRef.current = requestBody;
 				setEditingMessageId(null);
 				clearDraft();
+				setMessages(regenerationMessages);
 				void Promise.resolve(
 					regenerate({
 						messageId: assistantMessageId,
@@ -894,7 +966,15 @@ const useChatPageController = ({
 				setIsPreparingRequest(false);
 			}
 		},
-		[buildRequestBody, clearDraft, isLoading, regenerate, stopCurrentStream],
+		[
+			buildRequestBody,
+			clearDraft,
+			isLoading,
+			persistedMessages,
+			regenerate,
+			setMessages,
+			stopCurrentStream,
+		],
 	);
 	const handleOpenMention = React.useCallback((sourceId: string) => {
 		setSummaryOpen(true);
@@ -920,7 +1000,7 @@ const useChatPageController = ({
 		activeStreamingChatIds,
 		isLoading,
 		isNotesLoading,
-		messages,
+		messages: displayMessages,
 		modelPopoverOpen,
 		selectedModel: isModelResolving ? null : selectedModel,
 		reasoningEffort: selectedReasoningEffort,
@@ -950,7 +1030,6 @@ const useChatPageController = ({
 // oxlint-disable-next-line react-doctor/no-giant-component -- Page-level orchestrator wires chat state, search, history, and summary surfaces.
 export function ChatPage({
 	chatId,
-	initialMessages,
 	onChatPersisted,
 	chats,
 	isChatsLoading,
@@ -968,8 +1047,6 @@ export function ChatPage({
 	const controller = useChatPageController({
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		chatId,
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		initialMessages,
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		onChatPersisted,
 		// react-doctor-disable-next-line react-doctor/no-event-handler

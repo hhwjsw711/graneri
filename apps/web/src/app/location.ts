@@ -1,4 +1,3 @@
-import type { UIMessage } from "ai";
 import type { AppLocationState, UpcomingCalendarEvent } from "@/app/app-types";
 import type { SettingsPage } from "@/components/settings/settings-types";
 
@@ -514,22 +513,3 @@ export const getSharedNoteShareId = (pathname: string) => {
 	const nextValue = pathname.slice(sharedPrefix.length).trim();
 	return nextValue ? decodeURIComponent(nextValue) : null;
 };
-
-export const toStoredChatMessages = (
-	messages: Array<{
-		id: string;
-		role: "system" | "user" | "assistant";
-		partsJson: string;
-		metadataJson?: string;
-		createdAt?: number;
-	}>,
-): UIMessage[] =>
-	messages.map((message) => ({
-		id: message.id,
-		role: message.role,
-		metadata: message.metadataJson
-			? (JSON.parse(message.metadataJson) as UIMessage["metadata"])
-			: undefined,
-		parts: JSON.parse(message.partsJson) as UIMessage["parts"],
-		createdAt: message.createdAt,
-	}));

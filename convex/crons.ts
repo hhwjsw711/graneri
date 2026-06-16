@@ -17,4 +17,11 @@ crons.interval(
 	{},
 );
 
+crons.interval(
+	"cleanup expired assistant runs",
+	{ minutes: 1 },
+	internal.assistantRuns.cleanupExpiredAssistantRuns,
+	{},
+);
+
 export default crons;
