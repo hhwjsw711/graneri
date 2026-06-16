@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { Menu, nativeImage, Tray } from "electron";
+import { createDesktopSyncedCalendar } from "./desktop-synced-calendar.mjs";
 import {
 	createDesktopTrayCalendar,
 	getUpcomingTrayEventsForDay,
@@ -77,8 +78,6 @@ export const createDesktopTray = ({
 	app,
 	confirmAndQuitCompletely,
 	dockIconPath,
-	getConvexUrl,
-	getDesktopConvexToken,
 	getNotificationPreferences,
 	onCheckForUpdates,
 	onOpenMainWindow,
@@ -90,10 +89,10 @@ export const createDesktopTray = ({
 	let tray = null;
 	let traySettings = { ...defaultTraySettings };
 	let trayStatusLabel = "Updates are unavailable in development builds";
+	const calendarSource = createDesktopSyncedCalendar();
 	const calendar = createDesktopTrayCalendar({
+		calendarSource,
 		dockIconPath,
-		getConvexUrl,
-		getDesktopConvexToken,
 		getNotificationPreferences,
 		onOpenMainWindow,
 		onStateChange: () => refreshMenu(),
@@ -368,14 +367,17 @@ export const createDesktopTray = ({
 				keepOpenInMenuBar: traySettings.keepOpenInMenuBar,
 			}),
 		refreshMenu,
+		setCalendarState: (payload) => {
+			calendarSource.setState(payload);
+			void calendar.refresh({
+				keepOpenInMenuBar: traySettings.keepOpenInMenuBar,
+			});
+		},
 		scheduleCalendarRefresh: (delayMs) => {
 			calendar.scheduleRefresh({
 				delayMs,
 				keepOpenInMenuBar: traySettings.keepOpenInMenuBar,
 			});
-		},
-		setActiveWorkspaceId: (workspaceId) => {
-			calendar.setWorkspaceId(workspaceId);
 		},
 		setStatusLabel: (value) => {
 			trayStatusLabel = value;

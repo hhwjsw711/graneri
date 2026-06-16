@@ -3,7 +3,6 @@ import {
 	getDesktopPreferences,
 	isDesktopRuntime,
 	openDesktopExternalUrl,
-	refreshDesktopTrayCalendar,
 	setDesktopKeepDictationBarVisible,
 	setDesktopLaunchAtLogin,
 } from "@workspace/platform/desktop";
@@ -2294,9 +2293,6 @@ function useConnectionsSettingsController() {
 	const yandexCalendarDialog = useYandexCalendarConnectionDialog({
 		activeWorkspaceId,
 		defaultEmail: session?.user?.email,
-		onConnected: async () => {
-			await refreshDesktopTrayCalendar();
-		},
 		yandexCalendarConnection,
 	});
 

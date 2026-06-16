@@ -41,6 +41,8 @@ const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 			payload,
 		),
 	refreshTrayCalendar: () => ipcRenderer.invoke("app:refresh-tray-calendar"),
+	setTrayCalendarState: (payload) =>
+		ipcRenderer.invoke("app:set-tray-calendar-state", payload),
 	openExternalUrl: (url) => ipcRenderer.invoke("app:open-external-url", url),
 	requestPermission: (permissionId) =>
 		ipcRenderer.invoke("app:request-permission", permissionId),

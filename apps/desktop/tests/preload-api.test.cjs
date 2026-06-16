@@ -60,6 +60,11 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 		notifyForScheduledMeetings: true,
 		workspaceId: "workspace_1",
 	};
+	const trayCalendarState = {
+		connectedCalendarCount: 1,
+		events: [],
+		status: "ready",
+	};
 	const transcriptDraft = {
 		liveTranscript: {
 			them: { speaker: "them", startedAt: null, text: "" },
@@ -78,6 +83,7 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 	await api.getMeta();
 	await api.authFetch(request);
 	await api.setActiveWorkspaceNotificationPreferences(preferences);
+	await api.setTrayCalendarState(trayCalendarState);
 	await api.configureTranscriptionSession({
 		autoStartKey: "meeting_1",
 		lang: "en",
@@ -96,6 +102,10 @@ test("maps invoke bridge calls to their IPC channels and arguments", async () =>
 		{
 			args: [preferences],
 			channel: "app:set-active-workspace-notification-preferences",
+		},
+		{
+			args: [trayCalendarState],
+			channel: "app:set-tray-calendar-state",
 		},
 		{
 			args: [{ autoStartKey: "meeting_1", lang: "en", scopeKey: "note_1" }],

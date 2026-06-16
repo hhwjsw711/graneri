@@ -4,6 +4,7 @@ import type {
 	DesktopPermissionId,
 	DesktopPlatform,
 	DesktopThemeSource,
+	DesktopTrayCalendarState,
 	GraneriDesktopBridge,
 } from "./desktop-bridge";
 
@@ -198,6 +199,19 @@ export const refreshDesktopTrayCalendar = async () => {
 	}
 
 	await bridge.refreshTrayCalendar();
+	return true;
+};
+
+export const setDesktopTrayCalendarState = async (
+	payload: DesktopTrayCalendarState,
+) => {
+	const bridge = getDesktopBridge();
+
+	if (!bridge?.setTrayCalendarState) {
+		return false;
+	}
+
+	await bridge.setTrayCalendarState(payload);
 	return true;
 };
 

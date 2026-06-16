@@ -2,7 +2,6 @@ import {
 	getDesktopMeta,
 	isDesktopRuntime,
 	onDesktopNavigate,
-	refreshDesktopTrayCalendar,
 	setDesktopActiveWorkspaceId,
 	setDesktopActiveWorkspaceNotificationPreferences,
 } from "@workspace/platform/desktop";
@@ -85,6 +84,11 @@ import type {
 	UpcomingCalendarEvent,
 	UpcomingCalendarState,
 } from "@/app/app-types";
+import {
+	syncDisconnectedDesktopTrayCalendar,
+	syncErrorDesktopTrayCalendar,
+	syncReadyDesktopTrayCalendar,
+} from "@/app/desktop-tray-calendar-sync";
 import {
 	buildCalendarEventNoteDocument,
 	buildCalendarEventSearchableText,
@@ -660,11 +664,13 @@ const useAppShellState = ({
 				}
 
 				setUpcomingCalendar({ status: "not_connected", events: [] });
+				syncDisconnectedDesktopTrayCalendar();
 				return;
 			}
 
 			if (shouldResetState) {
 				setUpcomingCalendar({ status: "checking", events: [] });
+				syncDisconnectedDesktopTrayCalendar();
 			}
 
 			try {
@@ -680,10 +686,15 @@ const useAppShellState = ({
 
 				if (result.status === "not_connected") {
 					setUpcomingCalendar({ status: "not_connected", events: [] });
+					syncDisconnectedDesktopTrayCalendar();
 					return;
 				}
 
 				setUpcomingCalendar({ status: "ready", events: result.events });
+				syncReadyDesktopTrayCalendar({
+					connectedCalendarCount: result.connectedCalendarCount,
+					events: result.events,
+				});
 			} catch (error) {
 				if (upcomingCalendarRequestIdRef.current !== requestId) {
 					return;
@@ -695,6 +706,7 @@ const useAppShellState = ({
 					message: "Failed to load upcoming calendar events",
 				});
 				setUpcomingCalendar({ status: "error", events: [] });
+				syncErrorDesktopTrayCalendar();
 			}
 		},
 	);
@@ -717,32 +729,29 @@ const useAppShellState = ({
 	]);
 
 	React.useEffect(() => {
-		void calendarVisibilityKey;
-		void yandexCalendarConnectionKey;
+		let isCancelled = false;
 
-		if (upcomingCalendarLoadKey === "anonymous") {
-			return;
-		}
+		const syncDesktopWorkspacePreferences = async () => {
+			await setDesktopActiveWorkspaceId(resolvedActiveWorkspaceId);
 
-		void refreshDesktopTrayCalendar();
-	}, [
-		calendarVisibilityKey,
-		upcomingCalendarLoadKey,
-		yandexCalendarConnectionKey,
-	]);
+			if (isCancelled) {
+				return;
+			}
 
-	React.useEffect(() => {
-		void setDesktopActiveWorkspaceId(resolvedActiveWorkspaceId);
-	}, [resolvedActiveWorkspaceId]);
+			await setDesktopActiveWorkspaceNotificationPreferences({
+				workspaceId: resolvedActiveWorkspaceId,
+				notifyForScheduledMeetings:
+					notificationPreferences?.notifyForScheduledMeetings ?? false,
+				notifyForAutoDetectedMeetings:
+					notificationPreferences?.notifyForAutoDetectedMeetings ?? true,
+			});
+		};
 
-	React.useEffect(() => {
-		void setDesktopActiveWorkspaceNotificationPreferences({
-			workspaceId: resolvedActiveWorkspaceId,
-			notifyForScheduledMeetings:
-				notificationPreferences?.notifyForScheduledMeetings ?? false,
-			notifyForAutoDetectedMeetings:
-				notificationPreferences?.notifyForAutoDetectedMeetings ?? true,
-		});
+		void syncDesktopWorkspacePreferences();
+
+		return () => {
+			isCancelled = true;
+		};
 	}, [
 		notificationPreferences?.notifyForAutoDetectedMeetings,
 		notificationPreferences?.notifyForScheduledMeetings,

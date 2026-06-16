@@ -288,31 +288,6 @@ const hideApp = (options) => {
 	requireDesktopService(desktopShell, "desktopShell").hideApp(options);
 };
 
-const getConvexUrl = () => {
-	const value = process.env.CONVEX_URL ?? process.env.VITE_CONVEX_URL;
-
-	if (!value) {
-		throw new Error("CONVEX_URL is not configured.");
-	}
-
-	return value;
-};
-
-const getDesktopConvexToken = async () => {
-	const desktopAuthClient = getDesktopAuthClient();
-	const result = await desktopAuthClient.$fetch("/convex/token", {
-		method: "GET",
-	});
-
-	return result &&
-		typeof result === "object" &&
-		"token" in result &&
-		typeof result.token === "string" &&
-		result.token.trim()
-		? result.token
-		: null;
-};
-
 function createTranscriptionSpeakerRuntime(speaker) {
 	return {
 		speaker,
@@ -2054,8 +2029,6 @@ desktopTray = createDesktopTray({
 	app,
 	confirmAndQuitCompletely: () => confirmAndQuitCompletely(),
 	dockIconPath,
-	getConvexUrl,
-	getDesktopConvexToken,
 	getNotificationPreferences: () => activeWorkspaceNotificationPreferences,
 	onCheckForUpdates: () => handleCheckForUpdates(),
 	onOpenMainWindow: (options) => showMainWindow(options),
@@ -2606,9 +2579,6 @@ ipcMain.handle("app:set-active-workspace-id", async (_event, workspaceId) => {
 	}
 
 	activeWorkspaceId = workspaceId;
-	requireDesktopService(desktopTray, "desktopTray").setActiveWorkspaceId(
-		workspaceId,
-	);
 	activeWorkspaceNotificationPreferences =
 		createInitialNotificationPreferences();
 	reevaluateMeetingDetection();
@@ -2656,6 +2626,11 @@ ipcMain.handle(
 
 ipcMain.handle("app:refresh-tray-calendar", async () => {
 	await refreshTrayCalendar();
+	return { ok: true };
+});
+
+ipcMain.handle("app:set-tray-calendar-state", async (_event, payload) => {
+	requireDesktopService(desktopTray, "desktopTray").setCalendarState(payload);
 	return { ok: true };
 });
 

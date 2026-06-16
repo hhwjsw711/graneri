@@ -89,6 +89,32 @@ export type DesktopMeetingDetectionState = {
 	status: "idle" | "monitoring" | "prompting";
 };
 
+export type DesktopTrayCalendarEvent = {
+	calendarId: string;
+	calendarName: string;
+	endAt: string;
+	htmlLink: string | null;
+	id: string;
+	isAllDay: boolean;
+	isMeeting: boolean;
+	location: string | null;
+	meetingUrl: string | null;
+	startAt: string;
+	title: string;
+};
+
+export type DesktopTrayCalendarState =
+	| {
+			status: "ready";
+			connectedCalendarCount: number;
+			events: DesktopTrayCalendarEvent[];
+	  }
+	| {
+			status: "not_connected" | "error";
+			connectedCalendarCount?: number;
+			events?: [];
+	  };
+
 export type DesktopNavigation = {
 	hash: string;
 	pathname: string;
@@ -229,6 +255,9 @@ export interface GraneriDesktopBridge {
 		notifyForAutoDetectedMeetings: boolean;
 	}) => Promise<{ ok: boolean }>;
 	refreshTrayCalendar: () => Promise<{ ok: boolean }>;
+	setTrayCalendarState: (
+		payload: DesktopTrayCalendarState,
+	) => Promise<{ ok: boolean }>;
 	openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
 	requestPermission: (
 		permissionId: DesktopPermissionId,

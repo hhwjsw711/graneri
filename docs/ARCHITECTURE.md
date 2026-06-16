@@ -171,9 +171,16 @@ must emit fresh body headers and must not forward stale `content-encoding`,
 
 ## Desktop Runtime
 
-Desktop tray state belongs to Electron, but it must mirror the renderer's active
-account, workspace, calendar connection state, and calendar display preferences.
-Renderer changes to calendar state should notify Electron to refresh the tray.
+Desktop tray state belongs to Electron. It may mirror renderer-owned account,
+workspace, and preference state for actions such as notification policy and note
+creation, but tray event discovery itself is a desktop-native responsibility.
+Renderer changes that affect desktop-owned tray behavior should notify Electron
+to refresh the tray.
+Tray calendar events come from the authenticated renderer's connected-calendar
+query result and are pushed into Electron through the desktop bridge. Electron
+must own tray state, menu rendering, notifications, and meeting-signal
+selection from that synced data. The tray must not fetch Convex directly or
+depend on a separate desktop auth-token refresh path to show upcoming meetings.
 
 Desktop app lifecycle sequencing is owned by
 `apps/desktop/src/desktop-boot-orchestrator.mjs`. The Electron main module may

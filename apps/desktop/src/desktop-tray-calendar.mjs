@@ -1,6 +1,4 @@
-import { ConvexHttpClient } from "convex/browser";
 import { Notification, shell } from "electron";
-import { api } from "../../../convex/_generated/api.js";
 import {
 	createInitialTrayCalendarState,
 	createLoadingTrayCalendarState,
@@ -23,7 +21,6 @@ const trayCalendarActiveRefreshMs = 60 * 1000;
 const trayCalendarIdleRefreshMs = 5 * 60 * 1000;
 const trayCalendarUnavailableRefreshMs = 15 * 60 * 1000;
 const trayCalendarUpcomingRefreshWindowMs = 30 * 60 * 1000;
-const trayCalendarRefreshTimeoutMs = 15 * 1000;
 
 export const isTrayEventLive = (event, currentDate) => {
 	const startAt = new Date(event.startAt).getTime();
@@ -33,38 +30,8 @@ export const isTrayEventLive = (event, currentDate) => {
 	return now >= startAt && now <= endAt;
 };
 
-const getCurrentDayWindow = () => {
-	const now = new Date();
-	const timeMin = new Date(now);
-	timeMin.setHours(0, 0, 0, 0);
-	const timeMax = new Date(now);
-	timeMax.setHours(23, 59, 59, 999);
-
-	return {
-		timeMin: timeMin.toISOString(),
-		timeMax: timeMax.toISOString(),
-	};
-};
-
-const withTimeout = async (promise, timeoutMs, message) => {
-	let timeoutId = null;
-	const timeoutPromise = new Promise((_, reject) => {
-		timeoutId = setTimeout(() => {
-			reject(new Error(message));
-		}, timeoutMs);
-	});
-
-	try {
-		return await Promise.race([promise, timeoutPromise]);
-	} finally {
-		if (timeoutId != null) {
-			clearTimeout(timeoutId);
-		}
-	}
-};
-
-const createScheduledMeetingNotificationKey = (workspaceId, event) =>
-	`${workspaceId}:${event.id}:${event.startAt}`;
+const createScheduledMeetingNotificationKey = (event) =>
+	`${event.id}:${event.startAt}`;
 
 const formatScheduledMeetingNotificationTime = (value) =>
 	new Intl.DateTimeFormat(undefined, {
@@ -110,21 +77,16 @@ const createCalendarEventNoteSearch = (event, options = {}) => {
 };
 
 export const createDesktopTrayCalendar = ({
-	createConvexClient = ({ convexToken, convexUrl }) =>
-		new ConvexHttpClient(convexUrl, {
-			auth: convexToken,
-		}),
+	calendarSource,
 	dockIconPath,
-	getConvexUrl,
-	getDesktopConvexToken,
 	getNotificationPreferences,
 	onOpenMainWindow,
 	onStateChange,
 }) => {
 	let state = createInitialTrayCalendarState();
-	let workspaceId = null;
 	let refreshTimeoutId = null;
 	let refreshPromise = null;
+	let queuedRefreshOptions = null;
 	const shownScheduledMeetingNotificationKeys = new Set();
 
 	const notifyStateChange = () => {
@@ -183,7 +145,7 @@ export const createDesktopTrayCalendar = ({
 		}
 	};
 
-	const shouldMaintainCalendar = () => Boolean(workspaceId);
+	const shouldMaintainCalendar = () => process.platform === "darwin";
 
 	const shouldUseActiveRefresh = (events) => {
 		const now = Date.now();
@@ -239,19 +201,12 @@ export const createDesktopTrayCalendar = ({
 	};
 
 	const syncShownScheduledMeetingNotifications = (events) => {
-		if (!workspaceId) {
-			shownScheduledMeetingNotificationKeys.clear();
-			return;
-		}
-
 		const activeEventKeys = new Set(
-			events.map((event) =>
-				createScheduledMeetingNotificationKey(workspaceId, event),
-			),
+			events.map((event) => createScheduledMeetingNotificationKey(event)),
 		);
 
 		for (const key of shownScheduledMeetingNotificationKeys) {
-			if (key.startsWith(`${workspaceId}:`) && !activeEventKeys.has(key)) {
+			if (!activeEventKeys.has(key)) {
 				shownScheduledMeetingNotificationKeys.delete(key);
 			}
 		}
@@ -259,7 +214,6 @@ export const createDesktopTrayCalendar = ({
 
 	const maybeShowScheduledMeetingNotifications = (events) => {
 		if (
-			!workspaceId ||
 			!getNotificationPreferences().notifyForScheduledMeetings ||
 			!Notification.isSupported()
 		) {
@@ -286,10 +240,7 @@ export const createDesktopTrayCalendar = ({
 				continue;
 			}
 
-			const notificationKey = createScheduledMeetingNotificationKey(
-				workspaceId,
-				event,
-			);
+			const notificationKey = createScheduledMeetingNotificationKey(event);
 
 			if (shownScheduledMeetingNotificationKeys.has(notificationKey)) {
 				continue;
@@ -326,59 +277,27 @@ export const createDesktopTrayCalendar = ({
 		}
 	};
 
-	const refresh = async ({ keepOpenInMenuBar } = {}) => {
-		if (refreshPromise) {
-			if (state.status === "loading") {
-				return await refreshPromise;
+	const queueRefresh = ({ keepOpenInMenuBar } = {}) => {
+		queuedRefreshOptions = {
+			keepOpenInMenuBar:
+				keepOpenInMenuBar ?? queuedRefreshOptions?.keepOpenInMenuBar,
+		};
+	};
+
+	const runRefresh = async ({ keepOpenInMenuBar } = {}) => {
+		try {
+			if (!shouldMaintainCalendar()) {
+				state = createInitialTrayCalendarState();
+				return;
 			}
 
-			refreshPromise = null;
-		}
+			if (!hasReadyCalendarState()) {
+				state = createLoadingTrayCalendarState({ previousState: state });
+				notifyStateChange();
+			}
 
-		refreshPromise = (async () => {
 			try {
-				if (!shouldMaintainCalendar()) {
-					state = createInitialTrayCalendarState();
-					return;
-				}
-
-				if (!workspaceId) {
-					state = createUnavailableTrayCalendarState({
-						status: "not_connected",
-					});
-					return;
-				}
-
-				if (!hasReadyCalendarState()) {
-					state = createLoadingTrayCalendarState({ previousState: state });
-					notifyStateChange();
-				}
-
-				const convexToken = await withTimeout(
-					getDesktopConvexToken(),
-					trayCalendarRefreshTimeoutMs,
-					"Timed out loading desktop auth token for tray calendar.",
-				);
-
-				if (!convexToken) {
-					state = createUnavailableTrayCalendarState({
-						status: "not_connected",
-					});
-					return;
-				}
-
-				const convexClient = createConvexClient({
-					convexToken,
-					convexUrl: getConvexUrl(),
-				});
-				const result = await withTimeout(
-					convexClient.action(api.calendar.listUpcomingGoogleEvents, {
-						workspaceId,
-						...getCurrentDayWindow(),
-					}),
-					trayCalendarRefreshTimeoutMs,
-					"Timed out loading tray calendar events.",
-				);
+				const result = await calendarSource.listCurrentDayEvents();
 
 				state =
 					result && typeof result === "object" && result.status === "ready"
@@ -410,14 +329,34 @@ export const createDesktopTrayCalendar = ({
 						status: "error",
 					});
 				}
-			} finally {
-				refreshPromise = null;
-				notifyStateChange();
-				scheduleRefresh({ keepOpenInMenuBar });
+			}
+		} finally {
+			notifyStateChange();
+			scheduleRefresh({ keepOpenInMenuBar });
+		}
+	};
+
+	const refresh = async ({ keepOpenInMenuBar } = {}) => {
+		if (refreshPromise) {
+			queueRefresh({ keepOpenInMenuBar });
+			return await refreshPromise;
+		}
+
+		refreshPromise = (async () => {
+			let refreshOptions = { keepOpenInMenuBar };
+
+			while (refreshOptions) {
+				queuedRefreshOptions = null;
+				await runRefresh(refreshOptions);
+				refreshOptions = queuedRefreshOptions;
 			}
 		})();
 
-		return await refreshPromise;
+		try {
+			return await refreshPromise;
+		} finally {
+			refreshPromise = null;
+		}
 	};
 
 	return {
@@ -428,13 +367,9 @@ export const createDesktopTrayCalendar = ({
 			events: state.events.map((event) => ({ ...event })),
 			hasRefreshPromise: Boolean(refreshPromise),
 			hasRefreshTimeout: refreshTimeoutId != null,
-			workspaceId,
 		}),
 		openCalendarEventNote,
 		refresh,
 		scheduleRefresh,
-		setWorkspaceId: (value) => {
-			workspaceId = value;
-		},
 	};
 };
