@@ -11,7 +11,7 @@ import {
 } from "@workspace/ui/components/empty";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
-import { CalendarClock, FileText } from "lucide-react";
+import { CalendarClock, FileText, UsersRound } from "lucide-react";
 import * as React from "react";
 import type {
 	AppUser,
@@ -281,7 +281,7 @@ export function HomeView({
 								</EmptyDescription>
 							</EmptyHeader>
 							<EmptyContent>
-								<Button onClick={onCreateNote}>Quick note</Button>
+								<Button onClick={onCreateNote}>New note</Button>
 							</EmptyContent>
 						</Empty>
 					)}
@@ -349,7 +349,7 @@ export function SharedView({
 						<Empty className="md:max-w-xl">
 							<EmptyHeader>
 								<EmptyMedia variant="icon">
-									<FileText className="size-4" />
+									<UsersRound className="size-4" />
 								</EmptyMedia>
 								<EmptyTitle>No shared notes yet</EmptyTitle>
 								<EmptyDescription>

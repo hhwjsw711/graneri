@@ -2506,7 +2506,7 @@ function AppShellHeaderActions({
 				onClick={onNewAutomation}
 			>
 				<Plus />
-				New automation
+				Add automation
 			</Button>
 		);
 	}
