@@ -1410,11 +1410,7 @@ function PreferencesSettings() {
 	}
 
 	if (isLoadingPreferences && !preferences) {
-		return (
-			<div className="py-4 text-sm text-muted-foreground">
-				Loading desktop preferences…
-			</div>
-		);
+		return <div className="py-4" aria-hidden="true" />;
 	}
 
 	return (

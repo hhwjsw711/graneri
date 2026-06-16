@@ -209,10 +209,6 @@ export const createDesktopTray = ({
 					label: todayLabel,
 					enabled: false,
 				},
-				{
-					label: "Loading calendar…",
-					enabled: false,
-				},
 				{ type: "separator" },
 			];
 		}

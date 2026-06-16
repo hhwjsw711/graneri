@@ -402,6 +402,30 @@ function TrashPopoverContent() {
 	);
 }
 
+function TrashPopoverSkeleton() {
+	return (
+		<div className="space-y-1">
+			{TRASH_NOTE_SKELETON_IDS.map((id) => (
+				<div
+					key={id}
+					className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md px-1.5"
+				>
+					<div className="flex min-w-0 items-center gap-1.5">
+						<div className="flex size-6 shrink-0 items-center justify-center">
+							<Skeleton className="size-4 rounded-sm" />
+						</div>
+						<Skeleton className="h-4 w-32 max-w-full" />
+					</div>
+					<div className="flex shrink-0 items-center gap-1">
+						<Skeleton className="size-5 rounded-md" />
+						<Skeleton className="size-5 rounded-md" />
+					</div>
+				</div>
+			))}
+		</div>
+	);
+}
+
 function TrashSearchInput({
 	search,
 	onSearchChange,
@@ -621,29 +645,5 @@ function DeleteConfirmDialog({
 				</AlertDialogFooter>
 			</AlertDialogContent>
 		</AlertDialog>
-	);
-}
-
-function TrashPopoverSkeleton() {
-	return (
-		<div className="space-y-1">
-			{TRASH_NOTE_SKELETON_IDS.map((id) => (
-				<div
-					key={id}
-					className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md px-1.5"
-				>
-					<div className="flex min-w-0 items-center gap-1.5">
-						<div className="flex size-6 shrink-0 items-center justify-center">
-							<Skeleton className="size-4 rounded-sm" />
-						</div>
-						<Skeleton className="h-4 w-32 max-w-full" />
-					</div>
-					<div className="flex shrink-0 items-center gap-1">
-						<Skeleton className="size-5 rounded-md" />
-						<Skeleton className="size-5 rounded-md" />
-					</div>
-				</div>
-			))}
-		</div>
 	);
 }

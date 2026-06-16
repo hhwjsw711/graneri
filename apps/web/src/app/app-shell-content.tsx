@@ -33,6 +33,9 @@ type NoteListViewProps = {
 };
 
 export type AppShellContentView =
+	| {
+			kind: "resolving";
+	  }
 	| ({
 			kind: "home";
 			currentDate: Date;
@@ -131,6 +134,10 @@ export const AppShellContent = React.memo(function AppShellContent({
 			behavior: "auto",
 		});
 	}, [noteScrollResetKey]);
+
+	if (view.kind === "resolving") {
+		return <div className="flex flex-1" aria-hidden="true" />;
+	}
 
 	if (view.kind === "notFound") {
 		return <NotFoundView onGoHome={view.onGoHome} />;

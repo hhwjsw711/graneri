@@ -5,7 +5,6 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@workspace/ui/components/empty";
-import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Spinner } from "@workspace/ui/components/spinner";
 import { cn } from "@workspace/ui/lib/utils";
 import { Clock, MessageCircle, MoreHorizontal } from "lucide-react";
@@ -53,7 +52,7 @@ export function ChatHistoryList({
 	return (
 		<div className="mx-auto mt-6 w-full max-w-xl">
 			{isChatsLoading ? (
-				<ChatHistorySkeleton />
+				<div className="min-h-[168px]" aria-hidden="true" />
 			) : chats.length > 0 ? (
 				<div className="space-y-1">
 					{chatSections.map((section) => {
@@ -191,24 +190,6 @@ function ChatHistoryItem({
 					<MoreHorizontal className="size-4" />
 				</button>
 			</ChatActionsMenu>
-		</div>
-	);
-}
-
-function ChatHistorySkeleton() {
-	return (
-		<div className="space-y-3">
-			<div className="space-y-2">
-				{["chat-history-1", "chat-history-2", "chat-history-3"].map((id) => (
-					<div key={id} className="flex items-center gap-3 rounded-lg p-2">
-						<Skeleton className="size-8 rounded-lg" />
-						<div className="min-w-0 flex-1 space-y-2">
-							<Skeleton className="h-4 w-40" />
-							<Skeleton className="h-3 w-52" />
-						</div>
-					</div>
-				))}
-			</div>
 		</div>
 	);
 }

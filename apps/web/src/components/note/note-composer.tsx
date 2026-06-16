@@ -3222,11 +3222,7 @@ function NoteRecipeMentionPicker({
 			}}
 		>
 			<div className="max-h-72 overflow-y-auto p-1">
-				{isRecipeLoading ? (
-					<div className="py-6 text-center text-sm text-muted-foreground">
-						Loading recipes…
-					</div>
-				) : null}
+				{isRecipeLoading ? <div className="py-6" aria-hidden="true" /> : null}
 				{!isRecipeLoading && recipes.length === 0 ? (
 					<div className="py-6 text-center text-sm text-muted-foreground">
 						{emptyStateMessage}
@@ -4047,13 +4043,7 @@ function NoteTranscriptPanel({
 		!controller.fullTranscript &&
 		!controller.isSpeechListening
 	) {
-		return (
-			<div className="flex flex-1 items-center justify-center">
-				<p className="text-center text-sm font-medium tracking-tight text-muted-foreground">
-					Loading transcript…
-				</p>
-			</div>
-		);
+		return <div className="flex flex-1" aria-hidden="true" />;
 	}
 
 	if (!controller.fullTranscript) {
@@ -4076,18 +4066,10 @@ function NoteTranscriptPanel({
 				<div className={cn("flex flex-col gap-4")}>
 					{isDeferringTranscriptEntries &&
 					deferredDisplayTranscriptEntries.length === 0 ? (
-						<div className="flex flex-1 items-center justify-center py-12">
-							<p className="text-center text-sm font-medium tracking-tight text-muted-foreground">
-								Loading transcript…
-							</p>
-						</div>
+						<div className="flex flex-1 py-12" aria-hidden="true" />
 					) : null}
 					{isProgressivelyRenderingTranscript ? (
-						<div className="flex justify-center">
-							<p className="text-[11px] font-medium tracking-tight text-muted-foreground">
-								Loading earlier transcript…
-							</p>
-						</div>
+						<div className="h-4" aria-hidden="true" />
 					) : null}
 					{renderedTranscriptEntries.map((utterance) => {
 						const isUserTranscript = utterance.speaker === "you";

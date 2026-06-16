@@ -29,12 +29,6 @@ import { PageTitle } from "@/components/layout/page-title";
 import { useRecordingNoteId } from "@/hooks/use-transcription-session";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 
-const HOME_NOTE_SKELETON_IDS = [
-	"home-note-skeleton-1",
-	"home-note-skeleton-2",
-	"home-note-skeleton-3",
-] as const;
-
 export function HomeView({
 	currentDate,
 	currentDayOfMonth,
@@ -83,7 +77,7 @@ export function HomeView({
 			}
 		}
 	}
-	const shouldShowUpcomingCalendarSkeleton =
+	const isResolvingUpcomingCalendar =
 		upcomingCalendar.status === "checking" &&
 		visibleUpcomingEvents.length === 0;
 	const hasLiveUpcomingMeeting = visibleUpcomingEvents.some((event) =>
@@ -146,7 +140,7 @@ export function HomeView({
 									</div>
 								</div>
 								<div className="flex min-h-[152px] w-full items-start justify-center p-3">
-									{shouldShowUpcomingCalendarSkeleton ? (
+									{isResolvingUpcomingCalendar ? (
 										<Empty className="h-full rounded-none border-0 p-4">
 											<EmptyHeader>
 												<Skeleton className="mb-2 size-8 rounded-lg" />
@@ -261,7 +255,10 @@ export function HomeView({
 
 				<section className="flex min-w-0 justify-center py-8">
 					{notes === undefined ? (
-						<HomeNotesSkeleton />
+						<div
+							className="min-h-[184px] w-full md:max-w-xl"
+							aria-hidden="true"
+						/>
 					) : notes.length > 0 ? (
 						<NotesList
 							notes={notes}
@@ -362,27 +359,6 @@ export function SharedView({
 						</Empty>
 					)}
 				</section>
-			</div>
-		</div>
-	);
-}
-
-function HomeNotesSkeleton() {
-	return (
-		<div className="w-full space-y-3 md:max-w-xl">
-			<div className="flex h-6 shrink-0 items-center rounded-md px-2 text-xs font-medium text-foreground/70">
-				Today
-			</div>
-			<div className="space-y-2">
-				{HOME_NOTE_SKELETON_IDS.map((id) => (
-					<div key={id} className="flex items-center gap-3 rounded-lg p-1">
-						<Skeleton className="size-8 rounded-lg" />
-						<div className="min-w-0 flex-1 space-y-2">
-							<Skeleton className="h-4 w-32" />
-							<Skeleton className="h-3 w-48" />
-						</div>
-					</div>
-				))}
 			</div>
 		</div>
 	);

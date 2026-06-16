@@ -156,6 +156,45 @@ const currentWeekdayFormatter = new Intl.DateTimeFormat(undefined, {
 	weekday: "short",
 });
 
+type ResourceRouteState<T> =
+	| { status: "inactive" }
+	| { status: "ready"; value: T | null }
+	| { status: "resolving" }
+	| { status: "missing" };
+
+const resolveCollectionRoute = <T,>({
+	currentView,
+	expectedView,
+	id,
+	items,
+	matches,
+	missingWhenIdNull = false,
+}: {
+	currentView: AppView;
+	expectedView: AppView;
+	id: string | null;
+	items: T[] | undefined;
+	matches: (item: T, id: string) => boolean;
+	missingWhenIdNull?: boolean;
+}): ResourceRouteState<T> => {
+	if (currentView !== expectedView) {
+		return { status: "inactive" };
+	}
+
+	if (id === null) {
+		return missingWhenIdNull
+			? { status: "missing" }
+			: { status: "ready", value: null };
+	}
+
+	if (items === undefined) {
+		return { status: "resolving" };
+	}
+
+	const value = items.find((item) => matches(item, id));
+	return value ? { status: "ready", value } : { status: "missing" };
+};
+
 const getDelayUntilNextMinute = (now: Date) => {
 	const nextMinute = new Date(now);
 	nextMinute.setSeconds(60, 0);
@@ -565,23 +604,40 @@ const useAppShellState = ({
 		currentView === "note" &&
 		resolvedCurrentNoteId !== null &&
 		resolvedSelectedNote === null;
-	const selectedProject =
-		currentView === "project" && currentProjectIdString
-			? (projects?.find((project) => project._id === currentProjectIdString) ??
-				(projects === undefined ? undefined : null))
-			: undefined;
-	const hasMissingCurrentProject =
-		currentView === "project" &&
+	const currentChatRoute = resolveCollectionRoute({
+		currentView,
+		expectedView: "chat",
 		// react-doctor-disable-next-line react-doctor/no-event-handler
-		(currentProjectIdString === null ||
-			selectedProject === undefined ||
-			selectedProject === null);
+		id: currentChatId,
+		items: chats,
+		matches: (chat, id) => getChatId(chat) === id,
+	});
+	const isResolvingCurrentChat = currentChatRoute.status === "resolving";
+	const hasMissingCurrentChat = currentChatRoute.status === "missing";
+	const selectedProjectRoute = resolveCollectionRoute({
+		currentView,
+		expectedView: "project",
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		id: currentProjectIdString,
+		items: projects,
+		matches: (project, id) => project._id === id,
+		missingWhenIdNull: true,
+	});
+	const selectedProject =
+		selectedProjectRoute.status === "ready" ? selectedProjectRoute.value : null;
+	const isResolvingCurrentProject = selectedProjectRoute.status === "resolving";
+	const hasMissingCurrentProject = selectedProjectRoute.status === "missing";
 	const resolvedCurrentView =
 		hasInvalidCurrentNoteRoute ||
 		hasMissingCurrentNote ||
+		hasMissingCurrentChat ||
 		hasMissingCurrentProject
 			? "notFound"
 			: currentView;
+	const isResolvingResourceRoute =
+		isResolvingCurrentNote ||
+		isResolvingCurrentChat ||
+		isResolvingCurrentProject;
 
 	const refreshUpcomingCalendarEvents = React.useEffectEvent(
 		async (
@@ -1671,7 +1727,7 @@ const useAppShellState = ({
 		[currentChatId],
 	);
 	const currentChat =
-		chats?.find((chat) => getChatId(chat) === currentChatId) ?? null;
+		currentChatRoute.status === "ready" ? currentChatRoute.value : null;
 	const currentChatTitle = currentChat?.title || "New chat";
 	const automationChatTitle = automationChatId
 		? (chats?.find((chat) => getChatId(chat) === automationChatId)?.title ?? "")
@@ -1689,7 +1745,7 @@ const useAppShellState = ({
 	return {
 		activeWorkspaceId: resolvedActiveWorkspaceId,
 		breadcrumbDetailLabel:
-			resolvedCurrentView === "notFound"
+			isResolvingResourceRoute || resolvedCurrentView === "notFound"
 				? null
 				: resolvedCurrentView === "note" && !isResolvingCurrentNote
 					? getNoteDisplayTitle(currentNoteTitle)
@@ -1714,7 +1770,7 @@ const useAppShellState = ({
 		activeStreamingChatIds,
 		chatComposerId,
 		currentChat,
-		currentChatId,
+		currentChatId: isResolvingCurrentChat ? null : currentChatId,
 		currentChatNoteId,
 		currentChatTitle,
 		currentDate,
@@ -1722,12 +1778,13 @@ const useAppShellState = ({
 		currentMonthLabel,
 		currentNoteCommentsOpener,
 		currentNoteEditorActions,
-		currentNoteId: resolvedCurrentNoteId,
+		currentNoteId: isResolvingCurrentNote ? null : resolvedCurrentNoteId,
 		noteCaptureRequestId,
 		currentNoteTemplateSlug: resolvedSelectedNote?.templateSlug ?? null,
 		currentNoteTitle,
 		currentView: resolvedCurrentView,
 		currentWeekdayLabel,
+		isResolvingResourceRoute,
 		handleAutoStartNoteCaptureHandled,
 		handleBreadcrumbSectionClick: () => {
 			if (resolvedCurrentView === "notFound") {
@@ -2732,6 +2789,12 @@ function createAppShellContentView({
 	handleNoteCommentsOpenChange: (opener: (() => void) | null) => void;
 	handleOpenConnectionsSettings: () => void;
 }): AppShellContentView {
+	if (controller.isResolvingResourceRoute) {
+		return {
+			kind: "resolving",
+		};
+	}
+
 	if (controller.currentView === "notFound") {
 		return {
 			kind: "notFound",

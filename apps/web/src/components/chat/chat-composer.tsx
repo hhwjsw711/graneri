@@ -15,7 +15,6 @@ import {
 	InputGroupButton,
 } from "@workspace/ui/components/input-group";
 import { Kbd } from "@workspace/ui/components/kbd";
-import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Switch } from "@workspace/ui/components/switch";
 import {
 	Tooltip,
@@ -1124,7 +1123,7 @@ function MentionPicker({
 						<div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
 							Notes
 						</div>
-						<ChatNoteListSkeleton />
+						<div className="h-20" aria-hidden="true" />
 					</div>
 				) : null}
 				{!isNotesLoading && items.length === 0 && shouldSearchDocuments ? (
@@ -1363,18 +1362,5 @@ function ScopePicker({
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
-	);
-}
-
-function ChatNoteListSkeleton() {
-	return (
-		<div className="space-y-2 p-1">
-			{["primary", "secondary"].map((item) => (
-				<div key={item} className="flex items-center gap-2 rounded-md p-2">
-					<Skeleton className="size-4 rounded-sm" />
-					<Skeleton className="h-4 w-32 max-w-full" />
-				</div>
-			))}
-		</div>
 	);
 }

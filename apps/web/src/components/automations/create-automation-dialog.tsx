@@ -1440,9 +1440,7 @@ function AutomationMentionPicker({
 					</div>
 				) : null}
 				{shouldSearchNotes && isNotesLoading ? (
-					<div className="px-2 py-6 text-center text-sm text-muted-foreground">
-						Loading notes…
-					</div>
+					<div className="px-2 py-6" aria-hidden="true" />
 				) : null}
 				{shouldSearchNotes && !isNotesLoading && items.length === 0 ? (
 					<div>
