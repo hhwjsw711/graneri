@@ -215,28 +215,32 @@ const normalizeRecipePayload = (
 	prompt: normalizeWhitespace(recipe.prompt),
 });
 
-const mergeRecipesWithDefaults = (
-	recipes: Array<{
-		slug: string;
-		name: string;
-		prompt: string;
-	}>,
-) => {
-	const normalizedRecipes = recipes.map(normalizeRecipePayload);
-	const recipesBySlug = new Map(
-		normalizedRecipes.map((recipe) => [recipe.slug, recipe]),
-	);
-	const defaultSlugs = new Set<string>(
-		defaultRecipes.map((recipe) => recipe.slug),
-	);
+export const seedDefaultRecipesForWorkspace = async ({
+	ctx,
+	ownerTokenIdentifier,
+	workspaceId,
+	now,
+}: {
+	ctx: MutationCtx;
+	ownerTokenIdentifier: string;
+	workspaceId: Id<"workspaces">;
+	now: number;
+}) => {
+	await Promise.all(
+		defaultRecipes.map((recipe) => {
+			const normalizedRecipe = normalizeRecipePayload(recipe);
 
-	return [
-		...defaultRecipes.map(
-			(recipe) =>
-				recipesBySlug.get(recipe.slug) ?? normalizeRecipePayload(recipe),
-		),
-		...normalizedRecipes.filter((recipe) => !defaultSlugs.has(recipe.slug)),
-	];
+			return ctx.db.insert("recipes", {
+				ownerTokenIdentifier,
+				workspaceId,
+				slug: normalizedRecipe.slug,
+				name: normalizedRecipe.name,
+				prompt: normalizedRecipe.prompt,
+				createdAt: now,
+				updatedAt: now,
+			});
+		}),
+	);
 };
 
 const deleteRecipeBatch = async (
@@ -301,16 +305,12 @@ export const list = query({
 			)
 			.take(MAX_RECIPES);
 
-		if (recipes.length === 0) {
-			return defaultRecipes.map(normalizeRecipePayload);
-		}
-
-		return mergeRecipesWithDefaults(
-			recipes.map((recipe) => ({
+		return recipes.map((recipe) =>
+			normalizeRecipePayload({
 				slug: recipe.slug,
 				name: recipe.name,
 				prompt: recipe.prompt,
-			})),
+			}),
 		);
 	},
 });
@@ -388,7 +388,7 @@ export const saveAll = mutation({
 			});
 		}
 
-		return mergeRecipesWithDefaults(nextRecipes);
+		return nextRecipes;
 	},
 });
 

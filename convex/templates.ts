@@ -208,6 +208,35 @@ const normalizeTemplatePayload = (
 		})),
 });
 
+export const seedDefaultTemplatesForWorkspace = async ({
+	ctx,
+	ownerTokenIdentifier,
+	workspaceId,
+	now,
+}: {
+	ctx: MutationCtx;
+	ownerTokenIdentifier: string;
+	workspaceId: Id<"workspaces">;
+	now: number;
+}) => {
+	await Promise.all(
+		defaultTemplates.map((template) => {
+			const normalizedTemplate = normalizeTemplatePayload(template);
+
+			return ctx.db.insert("templates", {
+				ownerTokenIdentifier,
+				workspaceId,
+				slug: normalizedTemplate.slug,
+				name: normalizedTemplate.name,
+				meetingContext: normalizedTemplate.meetingContext,
+				sections: normalizedTemplate.sections,
+				createdAt: now,
+				updatedAt: now,
+			});
+		}),
+	);
+};
+
 const deleteTemplateBatch = async (
 	ctx: MutationCtx,
 	ownerTokenIdentifier: string,
@@ -256,7 +285,11 @@ export const list = query({
 	returns: v.array(templatePayloadValidator),
 	handler: async (ctx, args) => {
 		const identity = await requireIdentity(ctx);
-		await requireOwnedWorkspace(ctx, identity.tokenIdentifier, args.workspaceId);
+		await requireOwnedWorkspace(
+			ctx,
+			identity.tokenIdentifier,
+			args.workspaceId,
+		);
 		const templates = await ctx.db
 			.query("templates")
 			.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_createdAt", (q) =>
@@ -265,10 +298,6 @@ export const list = query({
 					.eq("workspaceId", args.workspaceId),
 			)
 			.take(MAX_TEMPLATES);
-
-		if (templates.length === 0) {
-			return defaultTemplates.map(normalizeTemplatePayload);
-		}
 
 		return templates.map((template) =>
 			normalizeTemplatePayload({
@@ -392,10 +421,14 @@ export const removeAllForWorkspace = internalMutation({
 		);
 
 		if (result.hasMore) {
-			await ctx.scheduler.runAfter(0, internal.templates.removeAllForWorkspace, {
-				ownerTokenIdentifier: args.ownerTokenIdentifier,
-				workspaceId: args.workspaceId,
-			});
+			await ctx.scheduler.runAfter(
+				0,
+				internal.templates.removeAllForWorkspace,
+				{
+					ownerTokenIdentifier: args.ownerTokenIdentifier,
+					workspaceId: args.workspaceId,
+				},
+			);
 		}
 
 		return null;

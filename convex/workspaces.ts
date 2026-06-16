@@ -3,6 +3,8 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { seedDefaultRecipesForWorkspace } from "./recipes";
+import { seedDefaultTemplatesForWorkspace } from "./templates";
 
 const workspaceRoleValidator = v.union(
 	v.literal("startup-generalist"),
@@ -188,6 +190,20 @@ export const create = mutation({
 			createdAt: now,
 			updatedAt: now,
 		});
+		await Promise.all([
+			seedDefaultTemplatesForWorkspace({
+				ctx,
+				ownerTokenIdentifier,
+				workspaceId,
+				now,
+			}),
+			seedDefaultRecipesForWorkspace({
+				ctx,
+				ownerTokenIdentifier,
+				workspaceId,
+				now,
+			}),
+		]);
 		const workspace = await ctx.db.get(workspaceId);
 
 		if (!workspace) {
