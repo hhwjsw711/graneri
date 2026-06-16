@@ -58,6 +58,8 @@ import {
 import {
 	getStoredChatReasoningEffort,
 	getStoredReasoningEffort,
+	getStoredReasoningEffortOverride,
+	resolveReasoningEffortPreference,
 	storeChatReasoningEffort,
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
@@ -369,9 +371,11 @@ const useChatPageController = ({
 	}, [localFolderStorageScope]);
 	const truncateFromMessage = useMutation(api.chats.truncateFromMessage);
 	const persistChatSettings = useMutation(api.chats.setChatSettings);
+	const updateUserPreferences = useMutation(api.userPreferences.update);
 	const enqueueQueuedMessage = useMutation(
 		api.assistantQueuedMessages.enqueueForActiveRun,
 	);
+	const userPreferences = useQuery(api.userPreferences.get, {});
 	const storedMessages = useQuery(
 		api.chats.getMessages,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
@@ -514,10 +518,15 @@ const useChatPageController = ({
 		getStoredChatModel(currentChat?.model) ??
 		getStoredLocalChatModel() ??
 		chatModels[0];
-	const selectedReasoningEffort =
-		getStoredChatReasoningEffort(chatId) ??
-		getPersistedChatReasoningEffort(currentChat?.reasoningEffort) ??
-		reasoningEffort;
+	const selectedReasoningEffort = resolveReasoningEffortPreference({
+		persistedChatReasoningEffort: getPersistedChatReasoningEffort(
+			currentChat?.reasoningEffort,
+		),
+		chatReasoningEffortOverride: getStoredChatReasoningEffort(chatId),
+		globalReasoningEffortOverride: getStoredReasoningEffortOverride(),
+		userPreferenceReasoningEffort: userPreferences?.reasoningEffort,
+		fallbackReasoningEffort: reasoningEffort,
+	});
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const isModelResolving = isChatsLoading && !currentChat;
 	const handleSelectedModelChange = React.useCallback(
@@ -550,6 +559,14 @@ const useChatPageController = ({
 			storeReasoningEffort(value);
 			storeChatReasoningEffort(chatId, value);
 
+			void updateUserPreferences({ reasoningEffort: value }).catch((error) => {
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to persist default reasoning effort",
+				});
+			});
+
 			if (!activeWorkspaceId || currentChat?.reasoningEffort === value) {
 				return;
 			}
@@ -572,6 +589,7 @@ const useChatPageController = ({
 			chatId,
 			currentChat?.reasoningEffort,
 			persistChatSettings,
+			updateUserPreferences,
 		],
 	);
 

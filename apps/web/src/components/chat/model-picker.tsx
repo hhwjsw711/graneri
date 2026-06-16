@@ -21,11 +21,12 @@ import {
 } from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 import { chatModels, reasoningEfforts } from "@/lib/ai/models";
+import type { ReasoningEffort } from "@/lib/ai/reasoning-effort";
 
 const CodexLogo = Icons.codexLogo;
 
 export type ChatModel = (typeof chatModels)[number];
-export type ReasoningEffort = (typeof reasoningEfforts)[number]["id"];
+export type { ReasoningEffort };
 
 const getSelectedModelDisplayName = (name: string) => name.replace(/^GPT-/, "");
 

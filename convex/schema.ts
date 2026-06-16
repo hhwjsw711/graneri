@@ -87,6 +87,14 @@ export default defineSchema({
 			v.literal("off"),
 		),
 		translucentSidebar: v.boolean(),
+		reasoningEffort: v.optional(
+			v.union(
+				v.literal("low"),
+				v.literal("medium"),
+				v.literal("high"),
+				v.literal("xhigh"),
+			),
+		),
 		avatarStorageId: v.optional(v.id("_storage")),
 		createdAt: v.number(),
 		updatedAt: v.number(),

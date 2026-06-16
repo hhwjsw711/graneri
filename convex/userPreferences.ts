@@ -9,9 +9,22 @@ const userPreferencesValidator = v.object({
 	fontSmoothing: v.boolean(),
 	reduceMotion: v.union(v.literal("system"), v.literal("on"), v.literal("off")),
 	translucentSidebar: v.boolean(),
+	reasoningEffort: v.union(
+		v.literal("low"),
+		v.literal("medium"),
+		v.literal("high"),
+		v.literal("xhigh"),
+	),
 	avatarStorageId: v.union(v.id("_storage"), v.null()),
 	avatarUrl: v.union(v.string(), v.null()),
 });
+
+const reasoningEffortValidator = v.union(
+	v.literal("low"),
+	v.literal("medium"),
+	v.literal("high"),
+	v.literal("xhigh"),
+);
 
 const reduceMotionValidator = v.union(
 	v.literal("system"),
@@ -22,6 +35,7 @@ const reduceMotionValidator = v.union(
 const DEFAULT_FONT_SMOOTHING = true;
 const DEFAULT_REDUCE_MOTION = "system";
 const DEFAULT_TRANSLUCENT_SIDEBAR = false;
+const DEFAULT_REASONING_EFFORT = "medium";
 
 const userAiProfileContextValidator = v.object({
 	name: v.union(v.string(), v.null()),
@@ -77,6 +91,7 @@ const toUserPreferencesResponse = async (
 	translucentSidebar: preferences
 		? preferences.translucentSidebar
 		: DEFAULT_TRANSLUCENT_SIDEBAR,
+	reasoningEffort: preferences?.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
 	avatarStorageId: preferences?.avatarStorageId ?? null,
 	avatarUrl: preferences?.avatarStorageId
 		? await ctx.storage.getUrl(preferences.avatarStorageId)
@@ -123,6 +138,7 @@ export const update = mutation({
 		fontSmoothing: v.optional(v.boolean()),
 		reduceMotion: v.optional(reduceMotionValidator),
 		translucentSidebar: v.optional(v.boolean()),
+		reasoningEffort: v.optional(reasoningEffortValidator),
 		avatarStorageId: v.optional(v.union(v.id("_storage"), v.null())),
 	},
 	returns: userPreferencesValidator,
@@ -164,6 +180,10 @@ export const update = mutation({
 					: existing
 						? existing.translucentSidebar
 						: DEFAULT_TRANSLUCENT_SIDEBAR,
+			reasoningEffort:
+				args.reasoningEffort !== undefined
+					? args.reasoningEffort
+					: (existing?.reasoningEffort ?? DEFAULT_REASONING_EFFORT),
 			avatarStorageId:
 				args.avatarStorageId !== undefined
 					? args.avatarStorageId
@@ -179,6 +199,8 @@ export const update = mutation({
 				nextPreferences.fontSmoothing === existing.fontSmoothing &&
 				nextPreferences.reduceMotion === existing.reduceMotion &&
 				nextPreferences.translucentSidebar === existing.translucentSidebar &&
+				nextPreferences.reasoningEffort ===
+					(existing.reasoningEffort ?? DEFAULT_REASONING_EFFORT) &&
 				(nextPreferences.avatarStorageId ?? undefined) ===
 					existing.avatarStorageId
 			) {
@@ -199,6 +221,7 @@ export const update = mutation({
 				fontSmoothing: nextPreferences.fontSmoothing,
 				reduceMotion: nextPreferences.reduceMotion,
 				translucentSidebar: nextPreferences.translucentSidebar,
+				reasoningEffort: nextPreferences.reasoningEffort,
 				avatarStorageId: nextPreferences.avatarStorageId ?? undefined,
 				updatedAt: now,
 			});
@@ -211,6 +234,7 @@ export const update = mutation({
 				fontSmoothing: nextPreferences.fontSmoothing,
 				reduceMotion: nextPreferences.reduceMotion,
 				translucentSidebar: nextPreferences.translucentSidebar,
+				reasoningEffort: nextPreferences.reasoningEffort,
 				avatarStorageId: nextPreferences.avatarStorageId ?? undefined,
 				updatedAt: now,
 			});
@@ -224,6 +248,7 @@ export const update = mutation({
 			fontSmoothing: nextPreferences.fontSmoothing,
 			reduceMotion: nextPreferences.reduceMotion,
 			translucentSidebar: nextPreferences.translucentSidebar,
+			reasoningEffort: nextPreferences.reasoningEffort,
 			avatarStorageId: nextPreferences.avatarStorageId ?? undefined,
 			createdAt: now,
 			updatedAt: now,

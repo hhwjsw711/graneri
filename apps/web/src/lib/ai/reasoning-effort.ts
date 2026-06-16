@@ -1,5 +1,18 @@
-import type { ReasoningEffort } from "@/components/chat/model-picker";
-import { DEFAULT_REASONING_EFFORT, findReasoningEffort } from "@/lib/ai/models";
+import {
+	DEFAULT_REASONING_EFFORT,
+	findReasoningEffort,
+	type reasoningEfforts,
+} from "@/lib/ai/models";
+
+export type ReasoningEffort = (typeof reasoningEfforts)[number]["id"];
+
+type ResolveReasoningEffortPreferenceArgs = {
+	persistedChatReasoningEffort?: ReasoningEffort | null;
+	chatReasoningEffortOverride?: ReasoningEffort | null;
+	globalReasoningEffortOverride?: ReasoningEffort | null;
+	userPreferenceReasoningEffort?: ReasoningEffort | null;
+	fallbackReasoningEffort: ReasoningEffort;
+};
 
 const REASONING_EFFORT_STORAGE_KEY = "graneri:chat-reasoning-effort";
 const CHAT_REASONING_EFFORT_STORAGE_KEY_PREFIX =
@@ -20,10 +33,18 @@ export const getStoredReasoningEffort = (): ReasoningEffort => {
 		return DEFAULT_REASONING_EFFORT;
 	}
 
+	return getStoredReasoningEffortOverride() ?? DEFAULT_REASONING_EFFORT;
+};
+
+export const getStoredReasoningEffortOverride = (): ReasoningEffort | null => {
+	if (typeof window === "undefined") {
+		return null;
+	}
+
 	return (
 		findReasoningEffort(
 			window.localStorage.getItem(REASONING_EFFORT_STORAGE_KEY),
-		)?.id ?? DEFAULT_REASONING_EFFORT
+		)?.id ?? null
 	);
 };
 
@@ -61,3 +82,16 @@ export const storeChatReasoningEffort = (
 
 	window.localStorage.setItem(storageKey, value);
 };
+
+export const resolveReasoningEffortPreference = ({
+	persistedChatReasoningEffort,
+	chatReasoningEffortOverride,
+	globalReasoningEffortOverride,
+	userPreferenceReasoningEffort,
+	fallbackReasoningEffort,
+}: ResolveReasoningEffortPreferenceArgs): ReasoningEffort =>
+	persistedChatReasoningEffort ??
+	chatReasoningEffortOverride ??
+	globalReasoningEffortOverride ??
+	userPreferenceReasoningEffort ??
+	fallbackReasoningEffort;

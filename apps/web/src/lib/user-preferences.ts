@@ -1,3 +1,5 @@
+import { DEFAULT_REASONING_EFFORT } from "@/lib/ai/models";
+import type { ReasoningEffort } from "@/lib/ai/reasoning-effort";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import {
 	DEFAULT_FONT_SMOOTHING,
@@ -13,6 +15,7 @@ export type UserPreferencesState = {
 	fontSmoothing: boolean;
 	reduceMotion: ReduceMotionPreference;
 	translucentSidebar: boolean;
+	reasoningEffort: ReasoningEffort;
 	avatarStorageId: Id<"_storage"> | null;
 	avatarUrl: string | null;
 };
@@ -47,6 +50,10 @@ export function mergeUserPreferencesForOptimisticUpdate(
 				? args.translucentSidebar
 				: (currentPreferences?.translucentSidebar ??
 					DEFAULT_TRANSLUCENT_SIDEBAR),
+		reasoningEffort:
+			args.reasoningEffort !== undefined
+				? args.reasoningEffort
+				: (currentPreferences?.reasoningEffort ?? DEFAULT_REASONING_EFFORT),
 		avatarStorageId:
 			args.avatarStorageId !== undefined
 				? args.avatarStorageId

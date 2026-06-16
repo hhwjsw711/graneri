@@ -124,6 +124,8 @@ import { findChatModel, findReasoningEffort } from "@/lib/ai/models";
 import {
 	getStoredChatReasoningEffort,
 	getStoredReasoningEffort,
+	getStoredReasoningEffortOverride,
+	resolveReasoningEffortPreference,
 	storeChatReasoningEffort,
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
@@ -702,6 +704,7 @@ const useNoteComposerController = ({
 				}
 			: "skip",
 	);
+	const userPreferences = useQuery(api.userPreferences.get, {});
 	const selectedNoteChat =
 		(noteChats ?? []).find((chat) => chat.chatId === currentChatId) ?? null;
 	const selectedModel =
@@ -710,12 +713,15 @@ const useNoteComposerController = ({
 			: null) ??
 		getStoredChatModel(selectedNoteChat?.model ?? currentChatSession?.model) ??
 		getStoredLocalChatModel();
-	const selectedReasoningEffort =
-		getStoredChatReasoningEffort(currentChatId) ??
-		getPersistedChatReasoningEffort(
+	const selectedReasoningEffort = resolveReasoningEffortPreference({
+		persistedChatReasoningEffort: getPersistedChatReasoningEffort(
 			selectedNoteChat?.reasoningEffort ?? currentChatSession?.reasoningEffort,
-		) ??
-		reasoningEffort;
+		),
+		chatReasoningEffortOverride: getStoredChatReasoningEffort(currentChatId),
+		globalReasoningEffortOverride: getStoredReasoningEffortOverride(),
+		userPreferenceReasoningEffort: userPreferences?.reasoningEffort,
+		fallbackReasoningEffort: reasoningEffort,
+	});
 	const updateUserPreferences = useMutation(api.userPreferences.update);
 	const truncateFromMessage = useMutation(api.chats.truncateFromMessage);
 	const persistChatSettings = useMutation(api.chats.setChatSettings);
@@ -757,6 +763,14 @@ const useNoteComposerController = ({
 			storeReasoningEffort(value);
 			storeChatReasoningEffort(currentChatId, value);
 
+			void updateUserPreferences({ reasoningEffort: value }).catch((error) => {
+				logError({
+					event: "client.error",
+					error: error,
+					message: "Failed to persist default reasoning effort",
+				});
+			});
+
 			if (!activeWorkspaceId || currentChatSession?.reasoningEffort === value) {
 				return;
 			}
@@ -779,13 +793,13 @@ const useNoteComposerController = ({
 			currentChatId,
 			currentChatSession?.reasoningEffort,
 			persistChatSettings,
+			updateUserPreferences,
 		],
 	);
 	const recipeData = useQuery(
 		api.recipes.list,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
-	const userPreferences = useQuery(api.userPreferences.get, {});
 	const [isSavingTranscriptionLanguage, setIsSavingTranscriptionLanguage] =
 		React.useState(false);
 	const isTranscriptionLanguageReady = userPreferences !== undefined;

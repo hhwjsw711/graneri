@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	getStoredChatReasoningEffort,
+	getStoredReasoningEffort,
+	getStoredReasoningEffortOverride,
+	resolveReasoningEffortPreference,
 	storeChatReasoningEffort,
+	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
 
 describe("chat reasoning effort storage", () => {
@@ -29,5 +33,49 @@ describe("chat reasoning effort storage", () => {
 		window.localStorage.setItem("graneri:chat-reasoning-effort:chat-1", "max");
 
 		expect(getStoredChatReasoningEffort("chat-1")).toBeNull();
+	});
+
+	it("distinguishes missing global effort from an explicit global effort", () => {
+		expect(getStoredReasoningEffortOverride()).toBeNull();
+		expect(getStoredReasoningEffort()).toBe("medium");
+
+		storeReasoningEffort("high");
+
+		expect(getStoredReasoningEffortOverride()).toBe("high");
+		expect(getStoredReasoningEffort()).toBe("high");
+	});
+
+	it("prefers saved chat effort over stale local overrides", () => {
+		expect(
+			resolveReasoningEffortPreference({
+				persistedChatReasoningEffort: "medium",
+				chatReasoningEffortOverride: "low",
+				globalReasoningEffortOverride: "high",
+				userPreferenceReasoningEffort: "xhigh",
+				fallbackReasoningEffort: "medium",
+			}),
+		).toBe("medium");
+	});
+
+	it("uses local and server defaults only when the chat has no saved effort", () => {
+		expect(
+			resolveReasoningEffortPreference({
+				persistedChatReasoningEffort: null,
+				chatReasoningEffortOverride: "low",
+				globalReasoningEffortOverride: "high",
+				userPreferenceReasoningEffort: "xhigh",
+				fallbackReasoningEffort: "medium",
+			}),
+		).toBe("low");
+
+		expect(
+			resolveReasoningEffortPreference({
+				persistedChatReasoningEffort: null,
+				chatReasoningEffortOverride: null,
+				globalReasoningEffortOverride: null,
+				userPreferenceReasoningEffort: "xhigh",
+				fallbackReasoningEffort: "medium",
+			}),
+		).toBe("xhigh");
 	});
 });
