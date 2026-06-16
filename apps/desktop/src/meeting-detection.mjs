@@ -9,7 +9,6 @@ import { logError } from "./logger.mjs";
 import {
 	createMeetingSignal,
 	createMeetingSignalStatePatch,
-	hasMeetingSignal,
 	isMeetingSignalDismissed,
 } from "./meeting-signal.mjs";
 import { resolveNativeMeetingDetectionSourceName } from "./meeting-source.mjs";
@@ -89,10 +88,6 @@ export const createMeetingDetection = ({
 		return createMeetingSignal(createMeetingSignalInput());
 	};
 
-	const hasCurrentMeetingSignal = (state = latestMeetingDetectionState) => {
-		return hasMeetingSignal(createMeetingSignalInput(state));
-	};
-
 	const getAggregateMeetingWindowState = () =>
 		aggregateMeetingWindowState({
 			browserState: browserMeetingWindowState,
@@ -128,10 +123,14 @@ export const createMeetingDetection = ({
 				getMeetingWindowSourceName(aggregateWindowState) ??
 				microphoneSourceName,
 		};
+		const meetingSignal = createMeetingSignal(
+			createMeetingSignalInput(nextMeetingDetectionState),
+		);
 
 		latestMeetingDetectionState = {
 			...nextMeetingDetectionState,
-			hasMeetingSignal: hasCurrentMeetingSignal(nextMeetingDetectionState),
+			...createMeetingSignalStatePatch(meetingSignal),
+			hasMeetingSignal: Boolean(meetingSignal),
 		};
 
 		broadcastState(latestMeetingDetectionState);

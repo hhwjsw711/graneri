@@ -3,7 +3,7 @@ import type { DesktopMeetingDetectionState } from "@workspace/platform/desktop-b
 export const getMeetingWidgetTitle = (
 	state: DesktopMeetingDetectionState | null,
 ) => {
-	if (!state || state.status !== "prompting") {
+	if (!state?.hasMeetingSignal) {
 		return "Listening for calls";
 	}
 
@@ -23,7 +23,7 @@ export const getMeetingWidgetTitle = (
 export const getMeetingWidgetDetail = (
 	state: DesktopMeetingDetectionState | null,
 ) => {
-	if (!state || state.status !== "prompting") {
+	if (!state?.hasMeetingSignal) {
 		return null;
 	}
 

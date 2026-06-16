@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getDetectedMeetingCalendarEventFromEvents } from "../src/desktop-tray-calendar-detection.mjs";
+import {
+	createLoadingTrayCalendarState,
+	createUnavailableTrayCalendarState,
+	getDetectedMeetingCalendarEventFromEvents,
+} from "../src/desktop-tray-calendar-detection.mjs";
 
 const createMeetingEvent = (overrides = {}) => ({
 	calendarId: "calendar-1",
@@ -66,5 +70,45 @@ test("does not use future calendar meetings as detected meeting context", () => 
 			new Date("2026-06-08T09:55:00.000Z"),
 		),
 		null,
+	);
+});
+
+test("keeps the last ready tray events during loading and transient failure states", () => {
+	const event = createMeetingEvent();
+	const readyState = {
+		connectedCalendarCount: 1,
+		events: [event],
+		status: "ready",
+	};
+
+	assert.equal(
+		createLoadingTrayCalendarState({ previousState: readyState }),
+		readyState,
+	);
+	assert.equal(
+		createUnavailableTrayCalendarState({
+			previousState: readyState,
+			status: "error",
+		}),
+		readyState,
+	);
+	assert.deepEqual(
+		createLoadingTrayCalendarState({ previousState: { status: "idle" } }),
+		{
+			connectedCalendarCount: 0,
+			events: [],
+			status: "loading",
+		},
+	);
+	assert.deepEqual(
+		createUnavailableTrayCalendarState({
+			previousState: { status: "loading" },
+			status: "error",
+		}),
+		{
+			connectedCalendarCount: 0,
+			events: [],
+			status: "error",
+		},
 	);
 });

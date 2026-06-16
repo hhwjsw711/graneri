@@ -1,4 +1,4 @@
-import { type SVGProps, useId } from "react";
+import { type CSSProperties, type SVGProps, useId } from "react";
 
 type GraneriMarkProps = SVGProps<SVGSVGElement> & {
 	shimmer?: boolean;
@@ -25,6 +25,16 @@ export function GraneriMark({
 		>
 			{shimmer ? (
 				<defs>
+					<style>{`
+						@keyframes graneri-mark-shimmer {
+							0% {
+								transform: translateX(0);
+							}
+							100% {
+								transform: translateX(60px);
+							}
+						}
+					`}</style>
 					<linearGradient id={shimmerGradientId} x1="0" x2="1" y1="0" y2="0">
 						<stop offset="0%" stopColor="white" stopOpacity="0" />
 						<stop offset="28%" stopColor="white" stopOpacity="0" />
@@ -56,20 +66,18 @@ export function GraneriMark({
 			{shimmer ? (
 				<g mask={`url(#${shimmerMaskId})`}>
 					<rect
-						x="24"
+						x="-36"
 						y="0"
 						width="36"
 						height="24"
 						fill={`url(#${shimmerGradientId})`}
-					>
-						<animate
-							attributeName="x"
-							from="-36"
-							to="24"
-							dur="2s"
-							repeatCount="indefinite"
-						/>
-					</rect>
+						style={
+							{
+								animation: "graneri-mark-shimmer 2s linear infinite",
+								transformBox: "view-box",
+							} as CSSProperties
+						}
+					/>
 				</g>
 			) : null}
 		</svg>

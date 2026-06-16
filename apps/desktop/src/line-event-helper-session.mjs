@@ -1,6 +1,28 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { logError } from "./logger.mjs";
+import { logError, logInfo } from "./logger.mjs";
+
+const helperStderrErrorPattern =
+	/\b(error|failed|failure|denied|unauthorized|not permitted|cannot access|exception|timed out|timeout|fatal)\b/i;
+
+export const isHelperStderrError = (message) =>
+	helperStderrErrorPattern.test(message);
+
+const logHelperStderr = ({ label, message }) => {
+	if (isHelperStderrError(message)) {
+		logError({
+			error: message,
+			message: `[${label}]`,
+		});
+		return;
+	}
+
+	logInfo({
+		details: message,
+		event: "meeting_detection.helper_stderr",
+		message: `[${label}]`,
+	});
+};
 
 export const stopLineEventHelperSession = async (session) => {
 	if (!session) {
@@ -100,10 +122,7 @@ export const startLineEventHelperSession = async ({
 		child.stderr.on("data", (chunk) => {
 			const message = String(chunk).trim();
 			if (message) {
-				logError({
-					error: message,
-					message: `[${label}]`,
-				});
+				logHelperStderr({ label, message });
 			}
 		});
 

@@ -1,6 +1,32 @@
 export const scheduledMeetingNotificationLeadTimeMs = 60 * 1000;
 export const detectedMeetingCalendarPostStartWindowMs = 15 * 60 * 1000;
 
+export const createInitialTrayCalendarState = () => ({
+	status: "idle",
+	events: [],
+	connectedCalendarCount: 0,
+});
+
+export const createLoadingTrayCalendarState = ({ previousState } = {}) =>
+	previousState?.status === "ready"
+		? previousState
+		: {
+				status: "loading",
+				events: [],
+				connectedCalendarCount: 0,
+			};
+
+export const createUnavailableTrayCalendarState = ({
+	previousState,
+	status,
+}) =>
+	previousState?.status === "ready"
+		? previousState
+		: {
+				...createInitialTrayCalendarState(),
+				status,
+			};
+
 const isSameCalendarDay = (left, right) =>
 	left.getFullYear() === right.getFullYear() &&
 	left.getMonth() === right.getMonth() &&

@@ -53,10 +53,54 @@ describe("meeting widget title", () => {
 		);
 	});
 
-	it("does not claim a meeting while monitoring", () => {
+	it("keeps meeting language stable while monitoring an active signal", () => {
 		expect(getMeetingWidgetTitle(createState({ status: "monitoring" }))).toBe(
-			"Listening for calls",
+			"Meeting detected",
 		);
+	});
+
+	it("listens for calls when there is no active meeting signal", () => {
+		expect(
+			getMeetingWidgetTitle(
+				createState({ hasMeetingSignal: false, status: "monitoring" }),
+			),
+		).toBe("Listening for calls");
+		expect(
+			getMeetingWidgetDetail(
+				createState({
+					hasMeetingSignal: false,
+					sourceName: "Google Meet",
+					status: "monitoring",
+				}),
+			),
+		).toBe(null);
+	});
+
+	it("shows source detail while monitoring an active signal", () => {
+		expect(
+			getMeetingWidgetDetail(
+				createState({ sourceName: "Google Meet", status: "monitoring" }),
+			),
+		).toBe("Google Meet");
+		expect(
+			getMeetingWidgetDetail(
+				createState({
+					calendarEvent: {
+						id: "event-1",
+						calendarName: "Work",
+						endAt: "2026-06-05T10:30:00.000Z",
+						startAt: "2026-06-05T10:00:00.000Z",
+						title: "Product review",
+					},
+					status: "monitoring",
+				}),
+			),
+		).toBe("Product review");
+	});
+
+	it("listens for calls without state", () => {
+		expect(getMeetingWidgetTitle(null)).toBe("Listening for calls");
+		expect(getMeetingWidgetDetail(null)).toBe(null);
 	});
 
 	it("explains the source of the prompt", () => {

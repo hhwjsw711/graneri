@@ -154,7 +154,8 @@ export const aggregateMeetingWindowState = ({ browserState, nativeState }) => {
 export const getMeetingWindowSourceName = (meetingWindowState) => {
 	if (
 		meetingWindowState?.status !== "active" ||
-		typeof meetingWindowState.provider !== "string"
+		typeof meetingWindowState.provider !== "string" ||
+		meetingWindowState.source === "browser"
 	) {
 		return null;
 	}

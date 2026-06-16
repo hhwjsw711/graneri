@@ -2,31 +2,28 @@ import { ConvexHttpClient } from "convex/browser";
 import { Notification, shell } from "electron";
 import { api } from "../../../convex/_generated/api.js";
 import {
+	createInitialTrayCalendarState,
+	createLoadingTrayCalendarState,
+	createUnavailableTrayCalendarState,
 	getDetectedMeetingCalendarEventFromEvents,
 	scheduledMeetingNotificationLeadTimeMs,
 } from "./desktop-tray-calendar-detection.mjs";
 import { logError } from "./logger.mjs";
 import { toErrorLogDetails } from "./network.mjs";
 
-export { getUpcomingTrayEventsForDay } from "./desktop-tray-calendar-detection.mjs";
+export {
+	createInitialTrayCalendarState,
+	createLoadingTrayCalendarState,
+	createUnavailableTrayCalendarState,
+	getDetectedMeetingCalendarEventFromEvents,
+	getUpcomingTrayEventsForDay,
+} from "./desktop-tray-calendar-detection.mjs";
 
 const trayCalendarActiveRefreshMs = 60 * 1000;
 const trayCalendarIdleRefreshMs = 5 * 60 * 1000;
 const trayCalendarUnavailableRefreshMs = 15 * 60 * 1000;
 const trayCalendarUpcomingRefreshWindowMs = 30 * 60 * 1000;
 const trayCalendarRefreshTimeoutMs = 15 * 1000;
-
-export const createInitialTrayCalendarState = () => ({
-	status: "idle",
-	events: [],
-	connectedCalendarCount: 0,
-});
-
-const createLoadingTrayCalendarState = () => ({
-	status: "loading",
-	events: [],
-	connectedCalendarCount: 0,
-});
 
 export const isTrayEventLive = (event, currentDate) => {
 	const startAt = new Date(event.startAt).getTime();
@@ -113,6 +110,10 @@ const createCalendarEventNoteSearch = (event, options = {}) => {
 };
 
 export const createDesktopTrayCalendar = ({
+	createConvexClient = ({ convexToken, convexUrl }) =>
+		new ConvexHttpClient(convexUrl, {
+			auth: convexToken,
+		}),
 	dockIconPath,
 	getConvexUrl,
 	getDesktopConvexToken,
@@ -172,6 +173,8 @@ export const createDesktopTrayCalendar = ({
 
 		return getDetectedMeetingCalendarEventFromEvents(state.events, currentDate);
 	};
+
+	const hasReadyCalendarState = () => state.status === "ready";
 
 	const clearRefresh = () => {
 		if (refreshTimeoutId != null) {
@@ -340,15 +343,16 @@ export const createDesktopTrayCalendar = ({
 				}
 
 				if (!workspaceId) {
-					state = {
-						...createInitialTrayCalendarState(),
+					state = createUnavailableTrayCalendarState({
 						status: "not_connected",
-					};
+					});
 					return;
 				}
 
-				state = createLoadingTrayCalendarState();
-				notifyStateChange();
+				if (!hasReadyCalendarState()) {
+					state = createLoadingTrayCalendarState({ previousState: state });
+					notifyStateChange();
+				}
 
 				const convexToken = await withTimeout(
 					getDesktopConvexToken(),
@@ -357,15 +361,15 @@ export const createDesktopTrayCalendar = ({
 				);
 
 				if (!convexToken) {
-					state = {
-						...createInitialTrayCalendarState(),
+					state = createUnavailableTrayCalendarState({
 						status: "not_connected",
-					};
+					});
 					return;
 				}
 
-				const convexClient = new ConvexHttpClient(getConvexUrl(), {
-					auth: convexToken,
+				const convexClient = createConvexClient({
+					convexToken,
+					convexUrl: getConvexUrl(),
 				});
 				const result = await withTimeout(
 					convexClient.action(api.calendar.listUpcomingGoogleEvents, {
@@ -386,10 +390,9 @@ export const createDesktopTrayCalendar = ({
 										? result.connectedCalendarCount
 										: 0,
 							}
-						: {
-								...createInitialTrayCalendarState(),
+						: createUnavailableTrayCalendarState({
 								status: "not_connected",
-							};
+							});
 
 				if (state.status === "ready") {
 					maybeShowScheduledMeetingNotifications(state.events);
@@ -401,10 +404,12 @@ export const createDesktopTrayCalendar = ({
 					error: toErrorLogDetails(error),
 					message: "Failed to refresh tray calendar.",
 				});
-				state = {
-					...createInitialTrayCalendarState(),
-					status: "error",
-				};
+				if (!hasReadyCalendarState()) {
+					state = createUnavailableTrayCalendarState({
+						previousState: state,
+						status: "error",
+					});
+				}
 			} finally {
 				refreshPromise = null;
 				notifyStateChange();

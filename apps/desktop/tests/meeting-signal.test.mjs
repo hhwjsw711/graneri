@@ -213,6 +213,28 @@ test("does not treat browser meeting windows as standalone signals", () => {
 	);
 });
 
+test("uses explicit browser-window signals when browser meetings are corroborated", () => {
+	assert.deepEqual(
+		createMeetingSignal({
+			calendarEvent: null,
+			isMicrophoneActive: true,
+			meetingWindowState: {
+				pid: null,
+				provider: "Google Meet",
+				source: "browser",
+				status: "active",
+				title: "Google Chrome:Google Meet",
+			},
+			sourceName: null,
+		}),
+		{
+			calendarEvent: null,
+			key: "browser-window:Google Meet:Google Chrome:Google Meet",
+			sourceName: "Google Meet",
+		},
+	);
+});
+
 test("serializes calendar event details for the desktop bridge", () => {
 	assert.deepEqual(createMeetingSignalCalendarEvent(calendarEvent), {
 		id: "event-1",

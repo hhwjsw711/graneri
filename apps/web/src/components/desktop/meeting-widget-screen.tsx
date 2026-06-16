@@ -43,15 +43,17 @@ export function MeetingWidgetScreen() {
 		}
 
 		let isMounted = true;
+		let hasReceivedSubscriptionState = false;
 		const unsubscribe = onDesktopMeetingDetectionState((nextState) => {
 			if (isMounted) {
+				hasReceivedSubscriptionState = true;
 				setState(nextState);
 			}
 		});
 
 		void getDesktopMeetingDetectionState()
 			.then((nextState) => {
-				if (isMounted && nextState) {
+				if (isMounted && nextState && !hasReceivedSubscriptionState) {
 					setState(nextState);
 				}
 			})

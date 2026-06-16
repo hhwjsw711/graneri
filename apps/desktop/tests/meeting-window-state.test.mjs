@@ -83,6 +83,17 @@ test("derives source names only from active meeting windows", () => {
 		"Microsoft Teams",
 	);
 	assert.equal(
+		getMeetingWindowSourceName(
+			normalizeMeetingWindowState({
+				active: true,
+				permissionGranted: true,
+				provider: "Google Meet",
+				source: "browser",
+			}),
+		),
+		null,
+	);
+	assert.equal(
 		getMeetingWindowSourceName(createInactiveBrowserMeetingWindowState()),
 		null,
 	);

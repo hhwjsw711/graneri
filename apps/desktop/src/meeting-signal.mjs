@@ -48,11 +48,20 @@ export const createMeetingSignal = ({
 		};
 	}
 
-	if (hasActiveMeetingWindow) {
+	if (hasActiveStandaloneMeetingWindow) {
 		const provider = meetingWindowState.provider ?? "Meeting";
 		return {
 			calendarEvent: null,
 			key: `window:${provider}:${meetingWindowState.pid ?? "unknown"}:${meetingWindowState.title ?? ""}`,
+			sourceName: provider,
+		};
+	}
+
+	if (hasCorroboratedBrowserMeetingWindow) {
+		const provider = meetingWindowState.provider ?? "Meeting";
+		return {
+			calendarEvent: null,
+			key: `browser-window:${provider}:${meetingWindowState.title ?? ""}`,
 			sourceName: provider,
 		};
 	}
