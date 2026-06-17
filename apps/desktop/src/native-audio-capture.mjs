@@ -6,13 +6,15 @@ import { logError, logInfo } from "./logger.mjs";
 
 const captureHealthTimeoutMs = 3_000;
 
-const isLikelySystemAudioPermissionError = (error) => {
+export const isLikelySystemAudioPermissionError = (error) => {
 	const message = error instanceof Error ? error.message : String(error);
+	const normalizedMessage = message.toLowerCase();
 
 	return (
 		message.includes("system-audio tap") ||
-		message.includes("System audio capture exited before it became ready") ||
-		message.includes("Timed out while starting macOS system audio capture")
+		normalizedMessage.includes("permission") ||
+		normalizedMessage.includes("not authorized") ||
+		normalizedMessage.includes("not permitted")
 	);
 };
 

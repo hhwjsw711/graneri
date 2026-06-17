@@ -92,6 +92,11 @@ export const createDesktopRealtimeClientSecret = async ({
 	}
 
 	const requestId = randomUUID();
+	const sessionConfig = createSessionConfig({
+		lang,
+		source,
+		speaker,
+	});
 	const response = await fetchImpl(
 		"https://api.openai.com/v1/realtime/client_secrets",
 		{
@@ -106,11 +111,7 @@ export const createDesktopRealtimeClientSecret = async ({
 					anchor: "created_at",
 					seconds: 600,
 				},
-				session: createSessionConfig({
-					lang,
-					source,
-					speaker,
-				}),
+				session: sessionConfig,
 			}),
 		},
 	);

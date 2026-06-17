@@ -1,7 +1,7 @@
 export const REALTIME_TRANSCRIPTION_MODEL = "gpt-realtime-whisper";
 export const DICTATION_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 export const AUDIO_TRANSCRIPTION_SAMPLE_RATE = 24_000;
-export const REALTIME_TRANSCRIPTION_DELAY = "low";
+export const REALTIME_TRANSCRIPTION_DELAY = "high";
 
 export const REALTIME_TRANSCRIPTION_INCLUDE_FIELDS = [
 	"item.input_audio_transcription.logprobs",
@@ -23,6 +23,18 @@ const transcriptPlaceholderPatterns = new Set([
 	"unintelligible",
 ]);
 
+const TRANSCRIPT_SECTION_GAP_MS = 6_000;
+const TRANSCRIPT_SECTION_SOFT_WORD_LIMIT = 70;
+const TRANSCRIPT_SECTION_HARD_WORD_LIMIT = 110;
+const TRANSCRIPT_SECTION_HARD_CHAR_LIMIT = 720;
+const TRANSCRIPT_SECTION_SENTENCE_MIN_WORDS = 32;
+const TRANSCRIPT_SECTION_SENTENCE_END_PATTERN = /[.!?][)"'\]]*$/;
+
+const DEFAULT_TRANSCRIPT_SPEAKER_LABELS = {
+	them: "Them",
+	you: "You",
+};
+
 const isSystemAudioSource = (source) => {
 	const normalizedSource =
 		typeof source === "string" ? source.trim().toLowerCase() : "";
@@ -41,6 +53,181 @@ export const normalizeTranscriptText = (value) =>
 
 export const getTranscriptWordCount = (value) =>
 	normalizeTranscriptText(value).split(" ").filter(Boolean).length;
+
+const getTranscriptDisplayWordCount = (value) =>
+	typeof value === "string"
+		? value.trim().split(/\s+/).filter(Boolean).length
+		: 0;
+
+const hasTranscriptSentenceEnding = (value) =>
+	TRANSCRIPT_SECTION_SENTENCE_END_PATTERN.test(String(value ?? "").trim());
+
+const getTranscriptUtteranceId = (utterance) => String(utterance.id);
+
+const getTranscriptUtteranceText = (utterance) =>
+	typeof utterance.text === "string" ? utterance.text.trim() : "";
+
+export const compareTranscriptUtteranceOrder = (left, right) => {
+	const leftStartedAt = Number(left.startedAt);
+	const rightStartedAt = Number(right.startedAt);
+
+	if (leftStartedAt !== rightStartedAt) {
+		return leftStartedAt - rightStartedAt;
+	}
+
+	const leftEndedAt = Number(left.endedAt);
+	const rightEndedAt = Number(right.endedAt);
+
+	if (leftEndedAt !== rightEndedAt) {
+		return leftEndedAt - rightEndedAt;
+	}
+
+	return getTranscriptUtteranceId(left).localeCompare(
+		getTranscriptUtteranceId(right),
+	);
+};
+
+const joinTranscriptSectionText = (currentText, nextText) => {
+	const normalizedCurrentText = String(currentText ?? "").trim();
+	const normalizedNextText = String(nextText ?? "").trim();
+
+	if (!normalizedCurrentText) {
+		return normalizedNextText;
+	}
+
+	if (!normalizedNextText) {
+		return normalizedCurrentText;
+	}
+
+	return `${normalizedCurrentText} ${normalizedNextText}`;
+};
+
+const shouldAppendTranscriptUtteranceToSection = ({ section, utterance }) => {
+	if (section.speaker !== utterance.speaker) {
+		return false;
+	}
+
+	if (utterance.startedAt - section.endedAt > TRANSCRIPT_SECTION_GAP_MS) {
+		return false;
+	}
+
+	const sectionWordCount = getTranscriptDisplayWordCount(section.text);
+
+	if (
+		section.text.length >= TRANSCRIPT_SECTION_HARD_CHAR_LIMIT ||
+		sectionWordCount >= TRANSCRIPT_SECTION_HARD_WORD_LIMIT
+	) {
+		return false;
+	}
+
+	if (
+		sectionWordCount >= TRANSCRIPT_SECTION_SENTENCE_MIN_WORDS &&
+		hasTranscriptSentenceEnding(section.text)
+	) {
+		return false;
+	}
+
+	const nextWordCount = getTranscriptDisplayWordCount(utterance.text);
+
+	return sectionWordCount + nextWordCount <= TRANSCRIPT_SECTION_SOFT_WORD_LIMIT;
+};
+
+const getTranscriptSpeakerLabel = (speaker, speakerLabels) => {
+	const normalizedSpeaker = String(speaker ?? "").trim();
+	const configuredLabel = speakerLabels?.[normalizedSpeaker];
+
+	if (typeof configuredLabel === "string" && configuredLabel.trim()) {
+		return configuredLabel.trim();
+	}
+
+	if (!normalizedSpeaker) {
+		return "Speaker";
+	}
+
+	return `${normalizedSpeaker.charAt(0).toUpperCase()}${normalizedSpeaker.slice(1)}`;
+};
+
+export const createTranscriptTextSections = (utterances = []) => {
+	const sections = [];
+
+	for (const rawUtterance of [...utterances].sort(
+		compareTranscriptUtteranceOrder,
+	)) {
+		const text = getTranscriptUtteranceText(rawUtterance);
+
+		if (!text) {
+			continue;
+		}
+
+		const utteranceId = getTranscriptUtteranceId(rawUtterance);
+		const utterance = {
+			endedAt: Number(rawUtterance.endedAt),
+			id: utteranceId,
+			speaker: String(rawUtterance.speaker),
+			startedAt: Number(rawUtterance.startedAt),
+			text,
+		};
+		const previousSection = sections.at(-1);
+
+		if (
+			previousSection &&
+			shouldAppendTranscriptUtteranceToSection({
+				section: previousSection,
+				utterance,
+			})
+		) {
+			previousSection.endedAt = Math.max(
+				previousSection.endedAt,
+				utterance.endedAt,
+			);
+			previousSection.id = previousSection.utteranceIds
+				.concat(utterance.id)
+				.join("|");
+			previousSection.text = joinTranscriptSectionText(
+				previousSection.text,
+				utterance.text,
+			);
+			previousSection.utteranceIds.push(utterance.id);
+			continue;
+		}
+
+		sections.push({
+			endedAt: utterance.endedAt,
+			id: utterance.id,
+			speaker: utterance.speaker,
+			startedAt: utterance.startedAt,
+			text: utterance.text,
+			utteranceIds: [utterance.id],
+		});
+	}
+
+	return sections;
+};
+
+export const createTranscriptBlocksText = (
+	sections = [],
+	{ speakerLabels = DEFAULT_TRANSCRIPT_SPEAKER_LABELS } = {},
+) =>
+	sections
+		.flatMap((section) => {
+			const text = typeof section?.text === "string" ? section.text.trim() : "";
+
+			if (!text) {
+				return [];
+			}
+
+			return [
+				`${getTranscriptSpeakerLabel(section.speaker, speakerLabels)}: ${text}`,
+			];
+		})
+		.join("\n\n")
+		.trim();
+
+export const createTranscriptBlocksTextFromUtterances = (
+	utterances = [],
+	options = {},
+) =>
+	createTranscriptBlocksText(createTranscriptTextSections(utterances), options);
 
 export const isTranscriptPlaceholderText = (value) => {
 	const normalizedValue = normalizeTranscriptText(value);

@@ -14,7 +14,7 @@ describe("transcription config", () => {
 	it("keeps dictation and realtime transcription models separate", () => {
 		expect(DICTATION_TRANSCRIPTION_MODEL).toBe("gpt-4o-mini-transcribe");
 		expect(REALTIME_TRANSCRIPTION_MODEL).toBe("gpt-realtime-whisper");
-		expect(REALTIME_TRANSCRIPTION_DELAY).toBe("low");
+		expect(REALTIME_TRANSCRIPTION_DELAY).toBe("high");
 	});
 
 	it("does not apply microphone noise reduction to system audio", () => {
@@ -43,7 +43,7 @@ describe("transcription config", () => {
 
 		expect(session.audio.input).not.toHaveProperty("turn_detection");
 		expect(session.audio.input.transcription).toEqual({
-			delay: "low",
+			delay: "high",
 			language: "en",
 			model: "gpt-realtime-whisper",
 		});

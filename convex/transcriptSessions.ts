@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import { createTranscriptBlocksTextFromUtterances } from "../packages/ai/src/transcription.mjs";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -250,40 +251,16 @@ const getLatestNoteSession = async (
 	);
 };
 
-const formatTranscriptClockTime = (timestamp: number) => {
-	const date = new Date(timestamp);
-	const hours = String(date.getHours()).padStart(2, "0");
-	const minutes = String(date.getMinutes()).padStart(2, "0");
-	const seconds = String(date.getSeconds()).padStart(2, "0");
-
-	return `${hours}:${minutes}:${seconds}`;
-};
-
 const createTranscriptText = (utterances: Doc<"transcriptUtterances">[]) =>
-	[...utterances]
-		.sort((left, right) => {
-			if (left.startedAt !== right.startedAt) {
-				return left.startedAt - right.startedAt;
-			}
-
-			if (left.endedAt !== right.endedAt) {
-				return left.endedAt - right.endedAt;
-			}
-
-			return left.utteranceId.localeCompare(right.utteranceId);
-		})
-		.map((utterance) => {
-			const text = utterance.text.trim();
-
-			if (!text) {
-				return "";
-			}
-
-			return `[${formatTranscriptClockTime(utterance.startedAt)}] ${utterance.speaker}: ${text}`;
-		})
-		.filter(Boolean)
-		.join("\n\n")
-		.trim();
+	createTranscriptBlocksTextFromUtterances(
+		utterances.map((utterance) => ({
+			endedAt: utterance.endedAt,
+			id: utterance.utteranceId,
+			speaker: utterance.speaker,
+			startedAt: utterance.startedAt,
+			text: utterance.text,
+		})),
+	);
 
 const createMarkGeneratedStatePatch = ({
 	now,
@@ -365,7 +342,11 @@ export const getStoredTranscriptForNote = query({
 	handler: async (ctx, args) => {
 		const ownerTokenIdentifier = await requireTokenIdentifier(ctx);
 		await requireOwnedNote(ctx, ownerTokenIdentifier, args.noteId);
-		const session = await getLatestNoteSession(ctx, ownerTokenIdentifier, args.noteId);
+		const session = await getLatestNoteSession(
+			ctx,
+			ownerTokenIdentifier,
+			args.noteId,
+		);
 
 		if (!session) {
 			return null;

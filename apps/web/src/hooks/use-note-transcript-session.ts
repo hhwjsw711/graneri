@@ -28,6 +28,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 
 const granolaIdleStopMs = 15 * 60 * 1000;
 const granolaIdleCheckIntervalMs = 15 * 1000;
+const emptyTranscriptUtterances: TranscriptUtterance[] = [];
 
 type UseNoteTranscriptSessionArgs = {
 	autoStartTranscription?: boolean;
@@ -139,7 +140,7 @@ export const useNoteTranscriptSession = ({
 	);
 	const scopedSnapshotUtterances = isScopedTranscriptionSession
 		? transcriptionSession.utterances
-		: [];
+		: emptyTranscriptUtterances;
 	const transcriptSessionStopController = useTranscriptSessionStopController({
 		isSpeechListening,
 		repository: captureTranscriptSessionRepository,
@@ -392,10 +393,7 @@ export const useNoteTranscriptSession = ({
 				persistedTranscriptUtteranceIds.add(utterance.id);
 			}
 			setTranscriptUtterances(draft.utterances);
-			setPendingGenerateTranscript(
-				draft.pendingGenerateTranscript.trim() ||
-					createTranscriptText(draft.utterances),
-			);
+			setPendingGenerateTranscript(createTranscriptText(draft.utterances));
 		},
 		[persistedTranscriptUtteranceIds],
 	);

@@ -1,7 +1,7 @@
 export declare const REALTIME_TRANSCRIPTION_MODEL: "gpt-realtime-whisper";
 export declare const DICTATION_TRANSCRIPTION_MODEL: "gpt-4o-mini-transcribe";
 export declare const AUDIO_TRANSCRIPTION_SAMPLE_RATE: 24000;
-export declare const REALTIME_TRANSCRIPTION_DELAY: "low";
+export declare const REALTIME_TRANSCRIPTION_DELAY: "high";
 
 export declare const REALTIME_TRANSCRIPTION_INCLUDE_FIELDS: readonly [
 	"item.input_audio_transcription.logprobs",
@@ -16,7 +16,7 @@ export declare function createRealtimeTranscriptionSessionOptions(args?: {
 	source?: string | null;
 	speaker?: string | null;
 }): {
-	delay: "low";
+	delay: "high";
 	language: string | null;
 	noiseReductionType: "near_field" | null;
 };
@@ -25,11 +25,52 @@ export declare function normalizeTranscriptionLanguage(
 	value?: string | null,
 ): string | null;
 
-export declare function normalizeTranscriptText(
-	value?: string | null,
-): string;
+export declare function normalizeTranscriptText(value?: string | null): string;
 
 export declare function getTranscriptWordCount(value?: string | null): number;
+
+export type TranscriptTextUtterance = {
+	endedAt: number;
+	id: string;
+	speaker: string;
+	startedAt: number;
+	text: string;
+};
+
+export type TranscriptTextSection = {
+	endedAt: number;
+	id: string;
+	speaker: string;
+	startedAt: number;
+	text: string;
+	utteranceIds: string[];
+};
+
+export declare function compareTranscriptUtteranceOrder(
+	left: TranscriptTextUtterance,
+	right: TranscriptTextUtterance,
+): number;
+
+export declare function createTranscriptTextSections(
+	utterances?: TranscriptTextUtterance[],
+): TranscriptTextSection[];
+
+export declare function createTranscriptBlocksText(
+	sections?: Array<{
+		speaker?: string | null;
+		text?: string | null;
+	}>,
+	options?: {
+		speakerLabels?: Record<string, string>;
+	},
+): string;
+
+export declare function createTranscriptBlocksTextFromUtterances(
+	utterances?: TranscriptTextUtterance[],
+	options?: {
+		speakerLabels?: Record<string, string>;
+	},
+): string;
 
 export declare function isTranscriptPlaceholderText(
 	value?: string | null,

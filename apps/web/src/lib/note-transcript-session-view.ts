@@ -18,7 +18,7 @@ type StoredTranscriptSummary = {
 	finalTranscript: string;
 };
 
-export const sortTranscriptUtterances = (
+const sortTranscriptUtterances = (
 	utterances: TranscriptUtterance[],
 ): TranscriptUtterance[] =>
 	utterances.slice().sort((left, right) => {

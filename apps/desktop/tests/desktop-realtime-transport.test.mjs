@@ -184,7 +184,7 @@ test("desktop realtime transport manually commits live audio", async () => {
 			type: "chunk",
 			pcm16: createPcm16Base64([12_000, 12_000, 12_000, 12_000]),
 		});
-		await sleep(1_600);
+		await sleep(2_600);
 		await transport.stop("you", {
 			getLiveItemId: () => null,
 		});
@@ -218,7 +218,7 @@ test("desktop realtime transport drops silent audio chunks", async () => {
 			type: "chunk",
 			pcm16: createPcm16Base64([0, 0, 0, 0]),
 		});
-		await sleep(1_600);
+		await sleep(2_600);
 		await transport.stop("you", {
 			getLiveItemId: () => null,
 		});
@@ -249,7 +249,7 @@ test("desktop realtime transport applies a separate system audio energy threshol
 			type: "chunk",
 			pcm16: createPcm16Base64([200, 200, 200, 200]),
 		});
-		await sleep(1_600);
+		await sleep(2_600);
 		await transport.stop("them", {
 			getLiveItemId: () => null,
 		});

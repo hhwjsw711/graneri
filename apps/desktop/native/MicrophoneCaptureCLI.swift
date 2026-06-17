@@ -153,6 +153,8 @@ final class MicrophoneCapture: @unchecked Sendable {
 	private(set) var voiceProcessingEnabled = false
 	private(set) var voiceProcessingOutputEnabled = false
 	private(set) var routeDebugInfo: [String: Any] = [:]
+	private(set) var outputVolumeBeforeCapture: Float?
+	private(set) var outputVolumeForCapture: Float?
 
 	init(
 		encoder: PcmChunkEncoder,
@@ -172,6 +174,8 @@ final class MicrophoneCapture: @unchecked Sendable {
 		voiceProcessingEnabled = false
 		voiceProcessingOutputEnabled = false
 		routeDebugInfo = [:]
+		outputVolumeBeforeCapture = nil
+		outputVolumeForCapture = nil
 
 		let authorizationStatus = AVCaptureDevice.authorizationStatus(for: .audio)
 		guard authorizationStatus == .authorized else {
@@ -185,10 +189,38 @@ final class MicrophoneCapture: @unchecked Sendable {
 		let initialOutputFormat = outputNode.inputFormat(forBus: 0)
 		let inputDevice = Self.defaultInputDevice()
 		let outputDevice = Self.defaultOutputDevice()
+		outputVolumeBeforeCapture = Self.deviceOutputVolume(outputDevice)
 		routeSignature = Self.routeSignature(
 			inputDevice: inputDevice,
 			outputDevice: outputDevice
 		)
+
+		let shouldEnableVoiceProcessing = Self.shouldEnableVoiceProcessing(
+			inputDevice: inputDevice,
+			outputDevice: outputDevice
+		)
+		if shouldEnableVoiceProcessing, #available(macOS 10.15, *) {
+			do {
+				try inputNode.setVoiceProcessingEnabled(true)
+				inputNode.isVoiceProcessingBypassed = false
+
+				if #available(macOS 14.0, *) {
+					inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+						AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+							enableAdvancedDucking: true,
+							duckingLevel: .min
+						)
+				}
+
+				logger.log(
+					"[helper] microphone voice processing requested for route input=\(inputDevice["uid"] as? String ?? "") output=\(outputDevice["uid"] as? String ?? "")"
+				)
+			} catch {
+				logger.log(
+					"[helper] microphone voice processing unavailable: \(error.localizedDescription)"
+				)
+			}
+		}
 
 		let inputFormat = inputNode.outputFormat(forBus: 0)
 		let outputFormat = outputNode.inputFormat(forBus: 0)
@@ -196,6 +228,7 @@ final class MicrophoneCapture: @unchecked Sendable {
 			voiceProcessingEnabled = inputNode.isVoiceProcessingEnabled
 			voiceProcessingOutputEnabled = outputNode.isVoiceProcessingEnabled
 		}
+		outputVolumeForCapture = Self.deviceOutputVolume(outputDevice)
 		routeDebugInfo = [
 			"devicesMatch": inputDevice["uid"] as? String == outputDevice["uid"] as? String,
 			"inputDevice": inputDevice,
@@ -204,6 +237,9 @@ final class MicrophoneCapture: @unchecked Sendable {
 			"outputDevice": outputDevice,
 			"outputFormatBeforeCapture": Self.describeFormat(initialOutputFormat),
 			"outputFormatForCapture": Self.describeFormat(outputFormat),
+			"outputVolumeBeforeCapture": outputVolumeBeforeCapture ?? NSNull(),
+			"outputVolumeForCapture": outputVolumeForCapture ?? NSNull(),
+			"voiceProcessingRequested": shouldEnableVoiceProcessing,
 		]
 		logger.log("[helper] microphone route \(routeDebugInfo)")
 
@@ -316,6 +352,48 @@ final class MicrophoneCapture: @unchecked Sendable {
 		return "input:\(inputID):\(inputUID)|output:\(outputID):\(outputUID)"
 	}
 
+	private static func deviceOutputVolume(_ device: [String: Any]) -> Float? {
+		guard let deviceID = device["id"] as? Int, deviceID > 0 else {
+			return nil
+		}
+
+		var address = propertyAddress(
+			selector: kAudioDevicePropertyVolumeScalar,
+			scope: kAudioDevicePropertyScopeOutput
+		)
+		var volume = Float32(0)
+		var dataSize = UInt32(MemoryLayout<Float32>.size)
+		let status = AudioObjectGetPropertyData(
+			AudioDeviceID(deviceID),
+			&address,
+			0,
+			nil,
+			&dataSize,
+			&volume
+		)
+
+		guard status == noErr else {
+			return nil
+		}
+
+		return volume
+	}
+
+	private static func shouldEnableVoiceProcessing(
+		inputDevice: [String: Any],
+		outputDevice: [String: Any]
+	) -> Bool {
+		isBuiltInDevice(inputDevice) && isBuiltInDevice(outputDevice)
+	}
+
+	private static func isBuiltInDevice(_ device: [String: Any]) -> Bool {
+		guard let transportType = device["transportType"] as? Int else {
+			return false
+		}
+
+		return transportType == Int(kAudioDeviceTransportTypeBuiltIn)
+	}
+
 	private static func describeDefaultDevice(
 		selector: AudioObjectPropertySelector
 	) -> [String: Any] {
@@ -344,6 +422,7 @@ final class MicrophoneCapture: @unchecked Sendable {
 			"id": Int(deviceID),
 			"lookupStatus": Int(status),
 			"name": deviceName(for: deviceID) ?? NSNull(),
+			"transportType": deviceTransportType(for: deviceID).map { Int($0) } ?? NSNull(),
 			"uid": deviceUID(for: deviceID) ?? NSNull(),
 		]
 	}
@@ -386,6 +465,26 @@ final class MicrophoneCapture: @unchecked Sendable {
 		}
 
 		return unmanagedUID.takeRetainedValue() as String
+	}
+
+	private static func deviceTransportType(for deviceID: AudioDeviceID) -> UInt32? {
+		var address = propertyAddress(selector: kAudioDevicePropertyTransportType)
+		var transportType = UInt32(0)
+		var dataSize = UInt32(MemoryLayout<UInt32>.size)
+		let status = AudioObjectGetPropertyData(
+			deviceID,
+			&address,
+			0,
+			nil,
+			&dataSize,
+			&transportType
+		)
+
+		guard status == noErr else {
+			return nil
+		}
+
+		return transportType
 	}
 
 	private static func describeFormat(_ format: AVAudioFormat) -> [String: Any] {

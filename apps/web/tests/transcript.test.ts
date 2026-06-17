@@ -101,4 +101,79 @@ describe("transcript display entries", () => {
 			},
 		]);
 	});
+
+	it("starts a new same-speaker block after a long pause", () => {
+		expect(
+			createTranscriptDisplayEntries({
+				liveTranscript: createEmptyLiveTranscriptState(),
+				utterances: [
+					{
+						id: "1",
+						speaker: "them",
+						text: "One topic.",
+						startedAt: 1_000,
+						endedAt: 2_000,
+					},
+					{
+						id: "2",
+						speaker: "them",
+						text: "Next topic.",
+						startedAt: 8_500,
+						endedAt: 9_000,
+					},
+				],
+			}).map((entry) => entry.text),
+		).toEqual(["One topic.", "Next topic."]);
+	});
+
+	it("sections long same-speaker explanations at sentence boundaries", () => {
+		const firstExplanation =
+			"Frontier post training has a lot of moving pieces and the recipe quality depends on how data, policy optimization, evaluation, distillation, preference modeling, and inference constraints reinforce each other during a real production rollout.";
+
+		expect(
+			createTranscriptDisplayEntries({
+				liveTranscript: createEmptyLiveTranscriptState(),
+				utterances: [
+					{
+						id: "1",
+						speaker: "them",
+						text: firstExplanation,
+						startedAt: 1_000,
+						endedAt: 2_000,
+					},
+					{
+						id: "2",
+						speaker: "them",
+						text: "The next point is about why the serving cost changes the business model.",
+						startedAt: 2_500,
+						endedAt: 3_000,
+					},
+				],
+			}).map((entry) => entry.text),
+		).toEqual([
+			firstExplanation,
+			"The next point is about why the serving cost changes the business model.",
+		]);
+	});
+
+	it("sections long same-speaker explanations before display blocks become too dense", () => {
+		const utterances = Array.from({ length: 9 }, (_, index) => ({
+			id: String(index + 1),
+			speaker: "them" as const,
+			text: `This is detailed meeting context chunk ${index + 1} with enough words to make the display block grow steadily`,
+			startedAt: 1_000 + index * 1_000,
+			endedAt: 1_500 + index * 1_000,
+		}));
+
+		const entries = createTranscriptDisplayEntries({
+			liveTranscript: createEmptyLiveTranscriptState(),
+			utterances,
+		});
+
+		expect(entries.length).toBeGreaterThan(1);
+		expect(entries.every((entry) => entry.speaker === "them")).toBe(true);
+		expect(entries.flatMap((entry) => entry.utteranceIds)).toEqual(
+			utterances.map((utterance) => utterance.id),
+		);
+	});
 });

@@ -40,6 +40,7 @@ import { createDesktopPreferencesStore } from "./desktop-preferences.mjs";
 import { createDesktopRealtimeTransport } from "./desktop-realtime-transport.mjs";
 import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
+import { createDesktopSystemAudioPolicy as createSystemAudioPolicy } from "./desktop-transcription-policy.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
 import {
 	createDesktopUpdater,
@@ -675,41 +676,13 @@ const appendTranscriptionUtterance = (utterance) => {
 };
 
 const createDesktopSystemAudioPolicy = () => {
-	if (process.platform === "darwin") {
-		const sourceMode =
-			getSystemAudioPermission().state === "granted"
-				? "desktop-native"
-				: "unsupported";
+	const systemAudioPermission = getSystemAudioPermission();
 
-		return {
-			platform: "desktop",
-			systemAudioCapability: {
-				isSupported: sourceMode !== "unsupported",
-				sourceMode,
-				shouldAutoBootstrap: sourceMode === "desktop-native",
-			},
-		};
-	}
-
-	if (process.platform === "win32") {
-		return {
-			platform: "desktop",
-			systemAudioCapability: {
-				isSupported: true,
-				sourceMode: "display-media",
-				shouldAutoBootstrap: false,
-			},
-		};
-	}
-
-	return {
-		platform: "desktop",
-		systemAudioCapability: {
-			isSupported: false,
-			sourceMode: "unsupported",
-			shouldAutoBootstrap: false,
-		},
-	};
+	return createSystemAudioPolicy({
+		helperPath: resolveSystemAudioHelperPath(),
+		permissionState: systemAudioPermission.state,
+		platform: process.platform,
+	});
 };
 
 const createSystemAudioStatusFromPolicy = (policy) => ({

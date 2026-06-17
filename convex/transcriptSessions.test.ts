@@ -61,9 +61,12 @@ const getSessionState = async (
 
 test("requestStopSession records durable stop intent before capture cleanup", async () => {
 	const { asOwner, noteId, t } = await createNoteFixture();
-	const sessionId = await asOwner.mutation(api.transcriptSessions.startSession, {
-		noteId,
-	});
+	const sessionId = await asOwner.mutation(
+		api.transcriptSessions.startSession,
+		{
+			noteId,
+		},
+	);
 
 	await asOwner.mutation(api.transcriptSessions.requestStopSession, {
 		sessionId,
@@ -80,9 +83,12 @@ test("requestStopSession records durable stop intent before capture cleanup", as
 
 test("completeSession terminalizes a stopping transcript session", async () => {
 	const { asOwner, noteId, t } = await createNoteFixture();
-	const sessionId = await asOwner.mutation(api.transcriptSessions.startSession, {
-		noteId,
-	});
+	const sessionId = await asOwner.mutation(
+		api.transcriptSessions.startSession,
+		{
+			noteId,
+		},
+	);
 
 	await asOwner.mutation(api.transcriptSessions.requestStopSession, {
 		sessionId,
@@ -102,9 +108,12 @@ test("completeSession terminalizes a stopping transcript session", async () => {
 
 test("completeSession stores aggregate utterance transcript when no final text is provided", async () => {
 	const { asOwner, noteId, t } = await createNoteFixture();
-	const sessionId = await asOwner.mutation(api.transcriptSessions.startSession, {
-		noteId,
-	});
+	const sessionId = await asOwner.mutation(
+		api.transcriptSessions.startSession,
+		{
+			noteId,
+		},
+	);
 
 	await asOwner.mutation(api.transcriptSessions.appendUtterance, {
 		sessionId,
@@ -134,8 +143,118 @@ test("completeSession stores aggregate utterance transcript when no final text i
 
 	const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
 
-	expect(session?.finalTranscript).toContain("First captured sentence.");
-	expect(session?.finalTranscript).toContain("Second captured sentence.");
+	expect(session?.finalTranscript).toBe(
+		"You: First captured sentence. Second captured sentence.",
+	);
+});
+
+test("completeSession stores readable dynamic transcript sections", async () => {
+	const { asOwner, noteId, t } = await createNoteFixture();
+	const sessionId = await asOwner.mutation(
+		api.transcriptSessions.startSession,
+		{
+			noteId,
+		},
+	);
+	const firstExplanation =
+		"Frontier post training has a lot of moving pieces and the recipe quality depends on how data, policy optimization, evaluation, distillation, preference modeling, and inference constraints reinforce each other during a real production rollout.";
+
+	await asOwner.mutation(api.transcriptSessions.appendUtterance, {
+		sessionId,
+		utterance: {
+			utteranceId: "u1",
+			speaker: "them",
+			source: "live",
+			text: firstExplanation,
+			startedAt: 1_000,
+			endedAt: 2_000,
+		},
+	});
+	await asOwner.mutation(api.transcriptSessions.appendUtterance, {
+		sessionId,
+		utterance: {
+			utteranceId: "u2",
+			speaker: "them",
+			source: "live",
+			text: "The next point is about why the serving cost changes the business model.",
+			startedAt: 2_500,
+			endedAt: 3_000,
+		},
+	});
+	await asOwner.mutation(api.transcriptSessions.completeSession, {
+		sessionId,
+	});
+
+	const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
+
+	expect(session?.finalTranscript).toBe(
+		`Them: ${firstExplanation}\n\nThem: The next point is about why the serving cost changes the business model.`,
+	);
+});
+
+test("completeSession preserves alternating speaker turns in persisted transcript text", async () => {
+	const { asOwner, noteId, t } = await createNoteFixture();
+	const sessionId = await asOwner.mutation(
+		api.transcriptSessions.startSession,
+		{
+			noteId,
+		},
+	);
+
+	for (const utterance of [
+		{
+			utteranceId: "them-1",
+			speaker: "them",
+			source: "live" as const,
+			text: "Can you walk me through the rollout risk?",
+			startedAt: 1_000,
+			endedAt: 2_000,
+		},
+		{
+			utteranceId: "you-1",
+			speaker: "you",
+			source: "live" as const,
+			text: "The main risk is migration timing during active sessions.",
+			startedAt: 2_100,
+			endedAt: 3_000,
+		},
+		{
+			utteranceId: "them-2",
+			speaker: "them",
+			source: "live" as const,
+			text: "What happens if reconnect overlaps with note generation?",
+			startedAt: 3_100,
+			endedAt: 4_000,
+		},
+		{
+			utteranceId: "you-2",
+			speaker: "you",
+			source: "live" as const,
+			text: "We keep the draft append only and regenerate sections from utterances.",
+			startedAt: 4_100,
+			endedAt: 5_000,
+		},
+	]) {
+		await asOwner.mutation(api.transcriptSessions.appendUtterance, {
+			sessionId,
+			utterance,
+		});
+	}
+
+	await asOwner.mutation(api.transcriptSessions.completeSession, {
+		sessionId,
+	});
+
+	const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
+
+	expect(session?.finalTranscript).toBe(
+		[
+			"Them: Can you walk me through the rollout risk?",
+			"You: The main risk is migration timing during active sessions.",
+			"Them: What happens if reconnect overlaps with note generation?",
+			"You: We keep the draft append only and regenerate sections from utterances.",
+		].join("\n\n"),
+	);
 });
 
 test("stored transcript reads utterances from the latest session only", async () => {
@@ -201,9 +320,12 @@ test("stored transcript reads utterances from the latest session only", async ()
 
 test("markGenerated terminalizes a recovered stopping transcript session", async () => {
 	const { asOwner, noteId, t } = await createNoteFixture();
-	const sessionId = await asOwner.mutation(api.transcriptSessions.startSession, {
-		noteId,
-	});
+	const sessionId = await asOwner.mutation(
+		api.transcriptSessions.startSession,
+		{
+			noteId,
+		},
+	);
 
 	await asOwner.mutation(api.transcriptSessions.requestStopSession, {
 		sessionId,
@@ -221,9 +343,12 @@ test("markGenerated terminalizes a recovered stopping transcript session", async
 
 test("completeSession rejects already terminal transcript sessions", async () => {
 	const { asOwner, noteId } = await createNoteFixture();
-	const sessionId = await asOwner.mutation(api.transcriptSessions.startSession, {
-		noteId,
-	});
+	const sessionId = await asOwner.mutation(
+		api.transcriptSessions.startSession,
+		{
+			noteId,
+		},
+	);
 
 	await asOwner.mutation(api.transcriptSessions.completeSession, {
 		sessionId,

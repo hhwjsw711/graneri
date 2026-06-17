@@ -1,3 +1,9 @@
+import {
+	compareTranscriptUtteranceOrder,
+	createTranscriptBlocksText as createSharedTranscriptBlocksText,
+	createTranscriptTextSections,
+} from "../../../../packages/ai/src/transcription.mjs";
+
 type TranscriptLiveSpeaker = "you" | "them";
 export type TranscriptSpeaker = TranscriptLiveSpeaker;
 
@@ -51,15 +57,11 @@ export type LiveTranscriptState = Record<
 	LiveTranscriptEntry
 >;
 
-const TRANSCRIPT_DISPLAY_BLOCK_GAP_MS = 6_000;
-
 const STATIC_TRANSCRIPT_SPEAKER_LABELS: Record<TranscriptLiveSpeaker, string> =
 	{
 		you: "You",
 		them: "Them",
 	};
-const getTranscriptSpeakerLabel = (speaker: TranscriptSpeaker) =>
-	STATIC_TRANSCRIPT_SPEAKER_LABELS[speaker];
 
 export const createSystemAudioCaptureStatus = (
 	overrides: Partial<SystemAudioCaptureStatus> = {},
@@ -95,17 +97,7 @@ export const createEmptyLiveTranscriptState = (): LiveTranscriptState => ({
 export const compareTranscriptUtterances = (
 	left: TranscriptUtterance,
 	right: TranscriptUtterance,
-) => {
-	if (left.startedAt !== right.startedAt) {
-		return left.startedAt - right.startedAt;
-	}
-
-	if (left.endedAt !== right.endedAt) {
-		return left.endedAt - right.endedAt;
-	}
-
-	return left.id.localeCompare(right.id);
-};
+) => compareTranscriptUtteranceOrder(left, right);
 
 const compareTranscriptDisplayEntries = (
 	left: TranscriptDisplayEntry,
@@ -120,21 +112,6 @@ const compareTranscriptDisplayEntries = (
 	}
 
 	return left.id.localeCompare(right.id);
-};
-
-const joinTranscriptBlockText = (currentText: string, nextText: string) => {
-	const normalizedCurrentText = currentText.trim();
-	const normalizedNextText = nextText.trim();
-
-	if (!normalizedCurrentText) {
-		return normalizedNextText;
-	}
-
-	if (!normalizedNextText) {
-		return normalizedCurrentText;
-	}
-
-	return `${normalizedCurrentText} ${normalizedNextText}`;
 };
 
 const transcriptDateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -153,28 +130,12 @@ export const formatTranscriptElapsed = (elapsedMs: number) => {
 	return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 };
 
-const formatTranscriptDisplayEntry = (
-	entry: Pick<TranscriptDisplayEntry, "speaker" | "text">,
-) => {
-	const trimmed = entry.text.trim();
-
-	if (!trimmed) {
-		return "";
-	}
-
-	return `${getTranscriptSpeakerLabel(entry.speaker)}: ${trimmed}`;
-};
-
 export const createTranscriptBlocksText = (
 	entries: Array<Pick<TranscriptDisplayEntry, "speaker" | "text">>,
 ) =>
-	entries
-		.flatMap((entry) => {
-			const text = formatTranscriptDisplayEntry(entry);
-			return text ? [text] : [];
-		})
-		.join("\n\n")
-		.trim();
+	createSharedTranscriptBlocksText(entries, {
+		speakerLabels: STATIC_TRANSCRIPT_SPEAKER_LABELS,
+	});
 
 export const createTranscriptExportText = ({
 	entries,
@@ -233,52 +194,17 @@ export const createTranscriptDisplayEntries = ({
 	liveTranscript: LiveTranscriptState;
 	utterances: TranscriptUtterance[];
 }): TranscriptDisplayEntry[] => {
-	const committedEntries: TranscriptDisplayEntry[] = [];
-
-	for (const utterance of utterances
-		.slice()
-		.sort(compareTranscriptUtterances)) {
-		const trimmedText = utterance.text.trim();
-
-		if (!trimmedText) {
-			continue;
-		}
-
-		const previousEntry = committedEntries.at(-1);
-
-		if (
-			previousEntry &&
-			!previousEntry.isLive &&
-			previousEntry.speaker === utterance.speaker &&
-			utterance.startedAt - previousEntry.endedAt <=
-				TRANSCRIPT_DISPLAY_BLOCK_GAP_MS
-		) {
-			previousEntry.endedAt = Math.max(
-				previousEntry.endedAt,
-				utterance.endedAt,
-			);
-			previousEntry.id = previousEntry.utteranceIds
-				.concat(utterance.id)
-				.join("|");
-			previousEntry.text = joinTranscriptBlockText(
-				previousEntry.text,
-				trimmedText,
-			);
-			previousEntry.utteranceIds.push(utterance.id);
-			continue;
-		}
-
-		committedEntries.push({
-			endedAt: utterance.endedAt,
-			id: utterance.id,
+	const committedEntries: TranscriptDisplayEntry[] =
+		createTranscriptTextSections(utterances).map((section) => ({
+			endedAt: section.endedAt,
+			id: section.id,
 			isLive: false,
 			isProvisional: false,
-			speaker: utterance.speaker,
-			startedAt: utterance.startedAt,
-			text: trimmedText,
-			utteranceIds: [utterance.id],
-		});
-	}
+			speaker: section.speaker as TranscriptSpeaker,
+			startedAt: section.startedAt,
+			text: section.text,
+			utteranceIds: section.utteranceIds,
+		}));
 
 	return [
 		...committedEntries,
