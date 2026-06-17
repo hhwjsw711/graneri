@@ -108,6 +108,10 @@ GRANERI_HOSTED_SITE_URL=https://<hosted-app-origin>
 
 Local development builds stay local. `bun dev` and desktop dev runs load local
 runtime values and connect to the development Convex deployment.
+Production desktop packages default to the `com.graneri.desktop` bundle
+identifier. Local/dev packages keep `dev.graneri.desktop` so installed
+production builds and repo-built verification bundles do not share macOS app
+identity.
 
 ## Desktop AI
 

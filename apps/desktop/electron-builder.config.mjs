@@ -3,6 +3,10 @@ import { desktopPackageContract } from "./scripts/desktop-package-contract.mjs";
 const trimConfigValue = (value) =>
 	typeof value === "string" ? value.trim() : "";
 
+const defaultAppId =
+	process.env.GRANERI_ENV_MODE?.trim() === "production"
+		? "com.graneri.desktop"
+		: "dev.graneri.desktop";
 const githubOwner = trimConfigValue(process.env.VITE_GITHUB_OWNER);
 const githubRepo = trimConfigValue(process.env.VITE_GITHUB_REPO);
 
@@ -19,9 +23,7 @@ const publish =
 		: undefined;
 
 export default {
-	appId:
-		trimConfigValue(process.env.GRANERI_DESKTOP_APP_ID) ||
-		"dev.graneri.desktop",
+	appId: trimConfigValue(process.env.GRANERI_DESKTOP_APP_ID) || defaultAppId,
 	productName:
 		trimConfigValue(process.env.GRANERI_DESKTOP_PRODUCT_NAME) || "Graneri",
 	directories: {
