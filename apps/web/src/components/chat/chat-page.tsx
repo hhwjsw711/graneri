@@ -1379,10 +1379,12 @@ export function ChatPage({
 		},
 		[handleMessageSearchNext, handleMessageSearchPrevious],
 	);
-	// Web chat uses a 4rem shell header, while the native mac shell keeps a
-	// taller md offset. Matching the shell height keeps short-chat docks flush.
+	// The chat page is already rendered inside the shell content below the
+	// desktop header. Short active chats need a full-height surface so the dock
+	// lands at the same viewport position as long chats where sticky positioning
+	// is constrained by real message content.
 	const chatSurfaceMinHeightClass = isDesktopMac
-		? "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-5rem)]"
+		? "min-h-[calc(100dvh-4rem)] md:min-h-[100dvh]"
 		: "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4rem)]";
 	const shouldShowScrollToLatest =
 		controller.hasMessages && !isChatViewportAtBottom;
