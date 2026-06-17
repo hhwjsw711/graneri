@@ -33,6 +33,20 @@ export const sortTranscriptUtterances = (
 		return left.id.localeCompare(right.id);
 	});
 
+export const mergeTranscriptUtterances = (
+	...utteranceGroups: TranscriptUtterance[][]
+): TranscriptUtterance[] => {
+	const utterancesById = new Map<string, TranscriptUtterance>();
+
+	for (const utteranceGroup of utteranceGroups) {
+		for (const utterance of utteranceGroup) {
+			utterancesById.set(utterance.id, utterance);
+		}
+	}
+
+	return sortTranscriptUtterances([...utterancesById.values()]);
+};
+
 export const createStoredTranscriptText = ({
 	session,
 	summary,

@@ -79,8 +79,11 @@ export const useNoteTranscriptScope = ({
 		[captureScopeKey],
 	);
 	const isScopedTranscriptionSession =
-		transcriptionSession.isListening &&
-		transcriptionSession.scopeKey === captureScopeKey;
+		transcriptionSession.scopeKey === captureScopeKey &&
+		(transcriptionSession.isListening ||
+			transcriptionSession.isConnecting ||
+			transcriptionSession.phase === "stopping" ||
+			transcriptionSession.utterances.length > 0);
 	const isViewingCaptureScope = resolvedCaptureScopeKey === captureScopeKey;
 	const reusesCaptureTranscriptSessionRepository =
 		noteId !== null && noteId === captureScopeNoteId;

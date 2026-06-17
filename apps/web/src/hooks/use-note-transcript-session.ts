@@ -10,8 +10,8 @@ import { logError } from "@/lib/logger";
 import {
 	createStoredTranscriptText,
 	createVisibleTranscriptView,
+	mergeTranscriptUtterances,
 	resolveTranscriptSessionReady,
-	sortTranscriptUtterances,
 } from "@/lib/note-transcript-session-view";
 import {
 	createEmptyLiveTranscriptState,
@@ -137,6 +137,9 @@ export const useNoteTranscriptSession = ({
 				: createEmptyLiveTranscriptState(),
 		[isScopedTranscriptionSession, transcriptionSession.liveTranscript],
 	);
+	const scopedSnapshotUtterances = isScopedTranscriptionSession
+		? transcriptionSession.utterances
+		: [];
 	const transcriptSessionStopController = useTranscriptSessionStopController({
 		isSpeechListening,
 		repository: captureTranscriptSessionRepository,
@@ -144,8 +147,9 @@ export const useNoteTranscriptSession = ({
 	});
 
 	const orderedTranscriptUtterances = React.useMemo(
-		() => sortTranscriptUtterances(transcriptUtterances),
-		[transcriptUtterances],
+		() =>
+			mergeTranscriptUtterances(transcriptUtterances, scopedSnapshotUtterances),
+		[scopedSnapshotUtterances, transcriptUtterances],
 	);
 
 	const liveTranscriptEntries = React.useMemo(
