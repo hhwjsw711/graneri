@@ -353,6 +353,7 @@ type PostHogConnectionSettings = {
 	status: "connected" | "disconnected";
 	displayName: string;
 	endpoint: string;
+	oauthClientId?: string;
 };
 
 type NotionConnectionSettings = {
@@ -361,6 +362,7 @@ type NotionConnectionSettings = {
 	status: "connected" | "disconnected";
 	displayName: string;
 	endpoint: string;
+	oauthClientId?: string;
 };
 
 type ZoomConnectionSettings = {
@@ -400,6 +402,15 @@ type LinearConnectionSettings = {
 
 type RemoteHeaderMcpProvider = "context7";
 type RemoteHeaderMcpConnectionSettings = Context7ConnectionSettings;
+type EndpointConnectionSettings =
+	| JiraMcpConnectionSettings
+	| PostHogConnectionSettings
+	| NotionConnectionSettings
+	| ZoomConnectionSettings
+	| Context7ConnectionSettings
+	| FigmaConnectionSettings
+	| LinearConnectionSettings;
+type EndpointConnectionProvider = EndpointConnectionSettings["provider"];
 
 type ConnectionActivitySnapshot = {
 	lastWebhookReceivedAt?: number;
@@ -737,6 +748,55 @@ const getOwnedRemoteHeaderMcpConnection = async (
 	workspaceId: Id<"workspaces">,
 	provider: RemoteHeaderMcpProvider,
 ) => await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, provider);
+
+const toEndpointConnectionSettings = <TProvider extends EndpointConnectionProvider>(
+	connection: Doc<"appConnections"> | null,
+	provider: TProvider,
+	{
+		requiresToken = false,
+	}: {
+		requiresToken?: boolean;
+	} = {},
+): Extract<EndpointConnectionSettings, { provider: TProvider }> | null => {
+	if (
+		!connection ||
+		connection.provider !== provider ||
+		!connection.baseUrl ||
+		(requiresToken && !connection.token)
+	) {
+		return null;
+	}
+
+	return {
+		sourceId: toAppSourceId(connection._id),
+		provider,
+		status: connection.status,
+		displayName: connection.displayName,
+		endpoint: connection.baseUrl,
+		...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
+	} as Extract<EndpointConnectionSettings, { provider: TProvider }>;
+};
+
+const getOwnedEndpointConnectionSettings = async <
+	TProvider extends EndpointConnectionProvider,
+>({
+	ctx,
+	ownerTokenIdentifier,
+	provider,
+	requiresToken = false,
+	workspaceId,
+}: {
+	ctx: QueryCtx;
+	ownerTokenIdentifier: string;
+	provider: TProvider;
+	requiresToken?: boolean;
+	workspaceId: Id<"workspaces">;
+}): Promise<Extract<EndpointConnectionSettings, { provider: TProvider }> | null> =>
+	toEndpointConnectionSettings(
+		await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, provider),
+		provider,
+		{ requiresToken },
+	);
 
 const getConnectionActivity = async (
 	ctx: QueryCtx | MutationCtx,
@@ -1093,24 +1153,13 @@ export const getJiraMcp = query({
 			identity.tokenIdentifier,
 			args.workspaceId,
 		);
-		const connection = await getOwnedJiraMcpConnection(
+		return await getOwnedEndpointConnectionSettings({
 			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-
-		if (!connection?.baseUrl || !connection.token) {
-			return null;
-		}
-
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "jira-mcp" as const,
-			status: connection.status,
-			displayName: connection.displayName,
-			endpoint: connection.baseUrl,
-			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
-		};
+			ownerTokenIdentifier: identity.tokenIdentifier,
+			provider: "jira-mcp",
+			requiresToken: true,
+			workspaceId: args.workspaceId,
+		});
 	},
 });
 
@@ -1171,24 +1220,13 @@ export const getPostHog = query({
 			identity.tokenIdentifier,
 			args.workspaceId,
 		);
-		const connection = await getOwnedPostHogConnection(
+		return await getOwnedEndpointConnectionSettings({
 			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-
-		if (!connection?.baseUrl || !connection.token) {
-			return null;
-		}
-
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "posthog" as const,
-			status: connection.status,
-			displayName: connection.displayName,
-			endpoint: connection.baseUrl,
-			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
-		};
+			ownerTokenIdentifier: identity.tokenIdentifier,
+			provider: "posthog",
+			requiresToken: true,
+			workspaceId: args.workspaceId,
+		});
 	},
 });
 
@@ -1204,24 +1242,12 @@ export const getNotion = query({
 			identity.tokenIdentifier,
 			args.workspaceId,
 		);
-		const connection = await getOwnedNotionConnection(
+		return await getOwnedEndpointConnectionSettings({
 			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-
-		if (!connection?.baseUrl) {
-			return null;
-		}
-
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "notion" as const,
-			status: connection.status,
-			displayName: connection.displayName,
-			endpoint: connection.baseUrl,
-			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
-		};
+			ownerTokenIdentifier: identity.tokenIdentifier,
+			provider: "notion",
+			workspaceId: args.workspaceId,
+		});
 	},
 });
 
@@ -1237,24 +1263,12 @@ export const getZoom = query({
 			identity.tokenIdentifier,
 			args.workspaceId,
 		);
-		const connection = await getOwnedZoomConnection(
+		return await getOwnedEndpointConnectionSettings({
 			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-
-		if (!connection?.baseUrl) {
-			return null;
-		}
-
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "zoom" as const,
-			status: connection.status,
-			displayName: connection.displayName,
-			endpoint: connection.baseUrl,
-			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
-		};
+			ownerTokenIdentifier: identity.tokenIdentifier,
+			provider: "zoom",
+			workspaceId: args.workspaceId,
+		});
 	},
 });
 
@@ -1270,23 +1284,12 @@ export const getContext7 = query({
 			identity.tokenIdentifier,
 			args.workspaceId,
 		);
-		const connection = await getOwnedContext7Connection(
+		return await getOwnedEndpointConnectionSettings({
 			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-
-		if (!connection?.baseUrl) {
-			return null;
-		}
-
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "context7" as const,
-			status: connection.status,
-			displayName: connection.displayName,
-			endpoint: connection.baseUrl,
-		};
+			ownerTokenIdentifier: identity.tokenIdentifier,
+			provider: "context7",
+			workspaceId: args.workspaceId,
+		});
 	},
 });
 
@@ -1302,24 +1305,12 @@ export const getFigma = query({
 			identity.tokenIdentifier,
 			args.workspaceId,
 		);
-		const connection = await getOwnedFigmaConnection(
+		return await getOwnedEndpointConnectionSettings({
 			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-
-		if (!connection?.baseUrl) {
-			return null;
-		}
-
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "figma" as const,
-			status: connection.status,
-			displayName: connection.displayName,
-			endpoint: connection.baseUrl,
-			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
-		};
+			ownerTokenIdentifier: identity.tokenIdentifier,
+			provider: "figma",
+			workspaceId: args.workspaceId,
+		});
 	},
 });
 
@@ -1335,24 +1326,12 @@ export const getLinear = query({
 			identity.tokenIdentifier,
 			args.workspaceId,
 		);
-		const connection = await getOwnedLinearConnection(
+		return await getOwnedEndpointConnectionSettings({
 			ctx,
-			identity.tokenIdentifier,
-			args.workspaceId,
-		);
-
-		if (!connection?.baseUrl) {
-			return null;
-		}
-
-		return {
-			sourceId: toAppSourceId(connection._id),
-			provider: "linear" as const,
-			status: connection.status,
-			displayName: connection.displayName,
-			endpoint: connection.baseUrl,
-			...(connection.accountId ? { oauthClientId: connection.accountId } : {}),
-		};
+			ownerTokenIdentifier: identity.tokenIdentifier,
+			provider: "linear",
+			workspaceId: args.workspaceId,
+		});
 	},
 });
 
