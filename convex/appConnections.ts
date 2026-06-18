@@ -723,13 +723,6 @@ const getOwnedZoomConnection = async (
 	workspaceId: Id<"workspaces">,
 ) => await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, "zoom");
 
-const getOwnedContext7Connection = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	workspaceId: Id<"workspaces">,
-) =>
-	await getOwnedConnection(ctx, ownerTokenIdentifier, workspaceId, "context7");
-
 const getOwnedFigmaConnection = async (
 	ctx: QueryCtx | MutationCtx,
 	ownerTokenIdentifier: string,

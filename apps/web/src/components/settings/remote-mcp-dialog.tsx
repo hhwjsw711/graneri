@@ -15,17 +15,12 @@ import { Field, FieldGroup } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 import { ChevronDown, Plus, X } from "lucide-react";
+import type { RemoteMcpConnectionFormState } from "@/lib/remote-mcp-connection-form";
 import { ConnectionDialogFooter } from "./connection-dialog-footer";
 
 const SETTINGS_LABEL_CLASSNAME = "text-xs text-muted-foreground";
 const SETTINGS_COLLAPSIBLE_TRIGGER_CLASSNAME =
 	"group w-full justify-between px-0 text-sm font-medium text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent aria-expanded:!bg-transparent aria-expanded:hover:!bg-transparent focus-visible:!bg-transparent";
-
-export type RemoteMcpConnectionFormState = {
-	name: string;
-	baseUrl: string;
-	envVars: Array<{ id: string; key: string; value: string }>;
-};
 
 type RemoteMcpDialogProps = {
 	open: boolean;

@@ -105,10 +105,7 @@ import { AppSourceIcon } from "@/components/app-source-icon";
 import { writeTextToClipboard } from "@/components/note/share-note";
 import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { ConnectionDialogFooter } from "@/components/settings/connection-dialog-footer";
-import {
-	type RemoteMcpConnectionFormState,
-	RemoteMcpDialog,
-} from "@/components/settings/remote-mcp-dialog";
+import { RemoteMcpDialog } from "@/components/settings/remote-mcp-dialog";
 import { SettingsSwitchRow } from "@/components/settings/settings-switch-row";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { useLinkedAccounts } from "@/hooks/use-linked-accounts";
@@ -123,6 +120,11 @@ import {
 	hasGoogleScope,
 } from "@/lib/google-integrations";
 import { logError } from "@/lib/logger";
+import {
+	buildRemoteMcpConnectArgs,
+	isRemoteMcpConnectionFormValid,
+	type RemoteMcpConnectionFormState,
+} from "@/lib/remote-mcp-connection-form";
 import { loadRuntimeConfig } from "@/lib/runtime-config";
 import {
 	mergeUserPreferencesForOptimisticUpdate,
@@ -136,27 +138,6 @@ import type {
 	SettingsPage,
 	SettingsUser,
 } from "./settings-types";
-
-type SettingsEnvVar = {
-	key: string;
-	value: string;
-};
-
-const getNonEmptyEnvRecord = (
-	envVars: SettingsEnvVar[],
-	options: { requireValue: boolean },
-) => {
-	const entries: Array<[string, string]> = [];
-	for (const envVar of envVars) {
-		const key = envVar.key.trim();
-		const value = envVar.value;
-		if (key.length === 0 || (options.requireValue && value.length === 0)) {
-			continue;
-		}
-		entries.push([key, value]);
-	}
-	return Object.fromEntries(entries);
-};
 
 function useResetStateWhenValueChanges<T>(
 	value: T,
@@ -2581,18 +2562,11 @@ function useConnectionsSettingsController() {
 
 		try {
 			const result = await connectJiraMcp({
-				workspaceId: activeWorkspaceId,
-				displayName: jiraMcpFormState.name.trim(),
-				baseUrl: jiraMcpFormState.baseUrl.trim(),
-				env: getNonEmptyEnvRecord(jiraMcpFormState.envVars, {
-					requireValue: true,
+				...buildRemoteMcpConnectArgs({
+					workspaceId: activeWorkspaceId,
+					formState: jiraMcpFormState,
+					requireEnvValue: true,
 				}),
-				...(jiraMcpFormState.oauthClientId.trim()
-					? { oauthClientId: jiraMcpFormState.oauthClientId.trim() }
-					: {}),
-				...(jiraMcpFormState.oauthClientSecret.trim()
-					? { oauthClientSecret: jiraMcpFormState.oauthClientSecret.trim() }
-					: {}),
 			});
 			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
 			toast.success("Continue in Jira to finish connecting");
@@ -2610,9 +2584,7 @@ function useConnectionsSettingsController() {
 		}
 	};
 
-	const isJiraMcpFormValid =
-		jiraMcpFormState.name.trim().length > 0 &&
-		jiraMcpFormState.baseUrl.trim().length > 0;
+	const isJiraMcpFormValid = isRemoteMcpConnectionFormValid(jiraMcpFormState);
 
 	const handleContext7DialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsContext7DialogOpen", value: open });
@@ -2649,11 +2621,10 @@ function useConnectionsSettingsController() {
 
 		try {
 			await connectContext7({
-				workspaceId: activeWorkspaceId,
-				displayName: context7FormState.name.trim(),
-				baseUrl: context7FormState.baseUrl.trim(),
-				env: getNonEmptyEnvRecord(context7FormState.envVars, {
-					requireValue: true,
+				...buildRemoteMcpConnectArgs({
+					workspaceId: activeWorkspaceId,
+					formState: context7FormState,
+					requireEnvValue: true,
 				}),
 			});
 			toast.success("Context7 connected");
@@ -2672,9 +2643,7 @@ function useConnectionsSettingsController() {
 		}
 	};
 
-	const isContext7FormValid =
-		context7FormState.name.trim().length > 0 &&
-		context7FormState.baseUrl.trim().length > 0;
+	const isContext7FormValid = isRemoteMcpConnectionFormValid(context7FormState);
 
 	const handleFigmaDialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsFigmaDialogOpen", value: open });
@@ -2714,18 +2683,11 @@ function useConnectionsSettingsController() {
 
 		try {
 			const result = await connectFigma({
-				workspaceId: activeWorkspaceId,
-				displayName: figmaFormState.name.trim(),
-				baseUrl: figmaFormState.baseUrl.trim(),
-				env: getNonEmptyEnvRecord(figmaFormState.envVars, {
-					requireValue: false,
+				...buildRemoteMcpConnectArgs({
+					workspaceId: activeWorkspaceId,
+					formState: figmaFormState,
+					requireEnvValue: false,
 				}),
-				...(figmaFormState.oauthClientId.trim()
-					? { oauthClientId: figmaFormState.oauthClientId.trim() }
-					: {}),
-				...(figmaFormState.oauthClientSecret.trim()
-					? { oauthClientSecret: figmaFormState.oauthClientSecret.trim() }
-					: {}),
 			});
 			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
 			toast.success("Continue in Figma to finish connecting");
@@ -2743,9 +2705,7 @@ function useConnectionsSettingsController() {
 		}
 	};
 
-	const isFigmaFormValid =
-		figmaFormState.name.trim().length > 0 &&
-		figmaFormState.baseUrl.trim().length > 0;
+	const isFigmaFormValid = isRemoteMcpConnectionFormValid(figmaFormState);
 
 	const handleLinearDialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsLinearDialogOpen", value: open });
@@ -2785,18 +2745,11 @@ function useConnectionsSettingsController() {
 
 		try {
 			const result = await connectLinear({
-				workspaceId: activeWorkspaceId,
-				displayName: linearFormState.name.trim(),
-				baseUrl: linearFormState.baseUrl.trim(),
-				env: getNonEmptyEnvRecord(linearFormState.envVars, {
-					requireValue: false,
+				...buildRemoteMcpConnectArgs({
+					workspaceId: activeWorkspaceId,
+					formState: linearFormState,
+					requireEnvValue: false,
 				}),
-				...(linearFormState.oauthClientId.trim()
-					? { oauthClientId: linearFormState.oauthClientId.trim() }
-					: {}),
-				...(linearFormState.oauthClientSecret.trim()
-					? { oauthClientSecret: linearFormState.oauthClientSecret.trim() }
-					: {}),
 			});
 			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
 			toast.success("Continue in Linear to finish connecting");
@@ -2814,9 +2767,7 @@ function useConnectionsSettingsController() {
 		}
 	};
 
-	const isLinearFormValid =
-		linearFormState.name.trim().length > 0 &&
-		linearFormState.baseUrl.trim().length > 0;
+	const isLinearFormValid = isRemoteMcpConnectionFormValid(linearFormState);
 
 	const disableAppConnection = async ({
 		sourceId,
@@ -3015,18 +2966,11 @@ function useConnectionsSettingsController() {
 
 		try {
 			const result = await connectPostHog({
-				workspaceId: activeWorkspaceId,
-				displayName: posthogFormState.name.trim(),
-				baseUrl: posthogFormState.baseUrl.trim(),
-				env: getNonEmptyEnvRecord(posthogFormState.envVars, {
-					requireValue: true,
+				...buildRemoteMcpConnectArgs({
+					workspaceId: activeWorkspaceId,
+					formState: posthogFormState,
+					requireEnvValue: true,
 				}),
-				...(posthogFormState.oauthClientId.trim()
-					? { oauthClientId: posthogFormState.oauthClientId.trim() }
-					: {}),
-				...(posthogFormState.oauthClientSecret.trim()
-					? { oauthClientSecret: posthogFormState.oauthClientSecret.trim() }
-					: {}),
 			});
 			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
 			toast.success("Continue in PostHog to finish connecting");
@@ -3046,9 +2990,7 @@ function useConnectionsSettingsController() {
 		}
 	};
 
-	const isPostHogFormValid =
-		posthogFormState.name.trim().length > 0 &&
-		posthogFormState.baseUrl.trim().length > 0;
+	const isPostHogFormValid = isRemoteMcpConnectionFormValid(posthogFormState);
 
 	const handleNotionDialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsNotionDialogOpen", value: open });
@@ -3088,18 +3030,11 @@ function useConnectionsSettingsController() {
 
 		try {
 			const result = await connectNotion({
-				workspaceId: activeWorkspaceId,
-				displayName: notionFormState.name.trim(),
-				baseUrl: notionFormState.baseUrl.trim(),
-				env: getNonEmptyEnvRecord(notionFormState.envVars, {
-					requireValue: false,
+				...buildRemoteMcpConnectArgs({
+					workspaceId: activeWorkspaceId,
+					formState: notionFormState,
+					requireEnvValue: false,
 				}),
-				...(notionFormState.oauthClientId.trim()
-					? { oauthClientId: notionFormState.oauthClientId.trim() }
-					: {}),
-				...(notionFormState.oauthClientSecret.trim()
-					? { oauthClientSecret: notionFormState.oauthClientSecret.trim() }
-					: {}),
 			});
 			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
 			toast.success("Continue in Notion to finish connecting");
@@ -3117,9 +3052,7 @@ function useConnectionsSettingsController() {
 		}
 	};
 
-	const isNotionFormValid =
-		notionFormState.name.trim().length > 0 &&
-		notionFormState.baseUrl.trim().length > 0;
+	const isNotionFormValid = isRemoteMcpConnectionFormValid(notionFormState);
 
 	const handleZoomDialogOpenChange = (open: boolean) => {
 		dispatch({ type: "setIsZoomDialogOpen", value: open });
@@ -3158,18 +3091,11 @@ function useConnectionsSettingsController() {
 
 		try {
 			const result = await connectZoom({
-				workspaceId: activeWorkspaceId,
-				displayName: zoomFormState.name.trim(),
-				baseUrl: zoomFormState.baseUrl.trim(),
-				env: getNonEmptyEnvRecord(zoomFormState.envVars, {
-					requireValue: false,
+				...buildRemoteMcpConnectArgs({
+					workspaceId: activeWorkspaceId,
+					formState: zoomFormState,
+					requireEnvValue: false,
 				}),
-				...(zoomFormState.oauthClientId.trim()
-					? { oauthClientId: zoomFormState.oauthClientId.trim() }
-					: {}),
-				...(zoomFormState.oauthClientSecret.trim()
-					? { oauthClientSecret: zoomFormState.oauthClientSecret.trim() }
-					: {}),
 			});
 			await navigateToOAuthUrl(result.authorizationUrl, oauthWindow);
 			toast.success("Continue in Zoom to finish connecting");
@@ -3187,9 +3113,7 @@ function useConnectionsSettingsController() {
 		}
 	};
 
-	const isZoomFormValid =
-		zoomFormState.name.trim().length > 0 &&
-		zoomFormState.baseUrl.trim().length > 0;
+	const isZoomFormValid = isRemoteMcpConnectionFormValid(zoomFormState);
 
 	const patchRemoteMcpForm = (
 		key: RemoteMcpFormStateKey,
