@@ -1818,7 +1818,12 @@ export function ChatPage({
 										onKeyDown={handleMessageSearchKeyDown}
 									/>
 								) : null}
-								<div className="flex-1 pt-8 pb-28 md:pb-32">
+								<div
+									className={cn(
+										"flex-1 pb-28 md:pb-32",
+										isDesktopMac ? "pt-10 md:pt-12" : "pt-8",
+									)}
+								>
 									<ChatMessagesEntry
 										messages={controller.messages}
 										error={controller.error}
