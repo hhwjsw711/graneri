@@ -30,12 +30,14 @@ import {
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
+import { stopOrphanedHostedAssistantRun } from "../../../packages/ai/src/hosted-chat-orphaned-run.mjs";
+import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/src/hosted-chat-run-finalization-queue.mjs";
+import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
 import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
 	generateHostedChatMessageId,
-	generateHostedChatTitle,
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
@@ -628,10 +630,9 @@ export const handleChatRequest = async (
 		runId: assistantRun._id,
 	});
 
-	let assistantRunTerminalization:
-		| { status: "completed" }
-		| { status: "failed"; errorText: string }
-		| null = null;
+	let finalizationQueue: ReturnType<
+		typeof createHostedAssistantRunFinalizationQueue
+	> | null = null;
 	logLatency("ai.agent_created", {
 		hasEnabledTools: finalizedToolSet.hasTools,
 		systemPromptLength: systemPrompt.length,
@@ -649,46 +650,16 @@ export const handleChatRequest = async (
 				generateMessageId: generateHostedChatMessageId,
 				sendReasoning: true,
 				sendSources: true,
-				onFinish: async ({ responseMessage }) => {
+				onFinish: ({ isAborted, responseMessage }) => {
 					logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
-
-					try {
-						const generatedChatTitle =
-							shouldGenerateChatTitle && lastUserMessage
-								? await generateHostedChatTitle({
-										userMessage: lastUserMessage,
-										assistantMessage: responseMessage,
-									})
-								: undefined;
-						await convexClient.mutation(
-							api.chats.saveMessage,
-							buildHostedChatSaveMessageArgs({
-								workspaceId: resolvedWorkspaceId,
-								chatId: id,
-								title: generatedChatTitle,
-								noteId: resolvedNoteId,
-								model: resolvedModel.model,
-								reasoningEffort: resolvedReasoningEffort,
-								message: responseMessage,
-							}),
-						);
-						assistantRunTerminalization = { status: "completed" };
-					} catch (error) {
-						recordServerError({
-							details: {
-								message_id: responseMessage.id,
-								run_id: assistantRun._id,
-							},
-							error,
-							event: wideEvent,
-							operation: "assistant_message_persist",
-						});
-						assistantRunTerminalization = {
-							status: "failed",
-							errorText:
-								error instanceof Error ? error.message : "Unknown error",
-						};
+					if (isAborted) {
+						return;
 					}
+
+					finalizationQueue?.setTerminalization({
+						responseMessage,
+						status: "completed",
+					});
 				},
 				onError: () => "Something went wrong.",
 			});
@@ -711,52 +682,84 @@ export const handleChatRequest = async (
 		}
 	})();
 	logLatency("ai.stream_created");
+	const finalizeAssistantRun = createHostedAssistantRunFinalizer({
+		activeStreamSession,
+		assistantRunId: assistantRun._id,
+		chatId: id,
+		failAssistantRun: (args) =>
+			convexClient.mutation(api.assistantRuns.failAssistantRun, args),
+		finishAssistantRun: (args) =>
+			convexClient.mutation(api.assistantRuns.finishAssistantRun, args),
+		lastUserMessage,
+		logError: ({ error, terminalization }) => {
+			recordServerError({
+				details:
+					terminalization.status === "completed"
+						? {
+								message_id: terminalization.responseMessage.id,
+								run_id: assistantRun._id,
+							}
+						: { run_id: assistantRun._id },
+				error,
+				event: wideEvent,
+				operation:
+					terminalization.status === "completed"
+						? "assistant_message_persist"
+						: "stream_finalize",
+			});
+		},
+		logLatency,
+		model: resolvedModel.model,
+		noteId: resolvedNoteId,
+		onCompleted: () => {
+			wideEvent.outcome = "success";
+			wideEvent.status_code = 200;
+			emitWideEvent(wideEvent.errors?.length ? "error" : "info");
+		},
+		onFailed: () => {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 500;
+			wideEvent.error_code = "assistant_run_failed";
+			emitWideEvent("error");
+		},
+		onFinalizeError: () => {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 500;
+			wideEvent.error_code = "stream_finalize_failed";
+			emitWideEvent("error");
+		},
+		onTitleGenerationError: ({ error, responseMessage }) => {
+			recordServerError({
+				details: {
+					message_id: responseMessage.id,
+					run_id: assistantRun._id,
+				},
+				error,
+				event: wideEvent,
+				operation: "chat_title_generate",
+			});
+		},
+		reasoningEffort: resolvedReasoningEffort,
+		saveAssistantMessageForRun: (args) =>
+			convexClient.mutation(api.chats.saveAssistantMessageForRun, args),
+		shouldGenerateChatTitle,
+		updateChatTitle: (args) =>
+			convexClient.mutation(api.chats.updateTitle, args),
+		workspaceId: resolvedWorkspaceId,
+	});
+	finalizationQueue = createHostedAssistantRunFinalizationQueue({
+		finalizeAssistantRun,
+		logLatency,
+		runId: assistantRun._id,
+	});
 	const persistedStream = pipeHostedActiveStreamText({
 		onFlush: async () => {
-			if (!assistantRunTerminalization) {
-				return;
-			}
-
-			try {
-				if (assistantRunTerminalization.status === "completed") {
-					await activeStreamSession.closePersistence();
-					await convexClient.mutation(api.assistantRuns.finishAssistantRun, {
-						runId: assistantRun._id,
-					});
-					wideEvent.outcome = "success";
-					wideEvent.status_code = 200;
-					emitWideEvent(wideEvent.errors?.length ? "error" : "info");
-					return;
-				}
-
-				await activeStreamSession.closePersistence();
-				await convexClient.mutation(api.assistantRuns.failAssistantRun, {
-					runId: assistantRun._id,
-					errorText: assistantRunTerminalization.errorText,
-				});
-				wideEvent.outcome = "error";
-				wideEvent.status_code = 500;
-				wideEvent.error_code = "assistant_run_failed";
-				emitWideEvent("error");
-			} catch (error) {
-				recordServerError({
-					error,
-					event: wideEvent,
-					operation: "stream_finalize",
-				});
-				wideEvent.outcome = "error";
-				wideEvent.status_code = 500;
-				wideEvent.error_code = "stream_finalize_failed";
-				emitWideEvent("error");
-				throw error;
-			}
+			await finalizationQueue?.flush();
 		},
 		persister: activeStreamSession,
 		stream: streamLatencyTracker.wrapStream(stream),
 	});
 	const responseStream = activeStreamSession.startBroadcast(persistedStream);
-	wideEvent.outcome = "success";
-	wideEvent.status_code = 200;
 	wideEvent.tool_count = finalizedToolSet.toolCount;
 	wideEvent.deferred_tool_count = finalizedToolSet.deferredToolCount;
 	wideEvent.local_folder_root_count = localFolderRoots.length;
@@ -801,24 +804,31 @@ export const handleChatStopRequest = async (
 		return;
 	}
 
-	await convexClient.mutation(api.assistantRuns.requestStopAssistantRun, {
-		runId: attachableRun._id,
-		stopReason: "user_requested",
-	});
-
+	const stopIntentPromise =
+		attachableRun.status === "stopping"
+			? Promise.resolve()
+			: convexClient.mutation(api.assistantRuns.requestStopAssistantRun, {
+					runId: attachableRun._id,
+					stopReason: "user_requested",
+				});
 	const streamKey = createHostedActiveStreamKey({
 		workspaceId: resolvedWorkspaceId,
 		chatId: id,
 	});
 	const activeSession = activeChatStreamControllers.get(streamKey);
 	activeSession?.abort("stopped");
-	activeSession?.cleanup();
+	if (activeSession) {
+		activeSession.cleanup();
+	}
 
-	await convexClient.mutation(api.chats.stopActiveStream, {
-		workspaceId: resolvedWorkspaceId,
-		chatId: id,
-		runId: attachableRun._id,
-	});
+	await Promise.all([
+		stopIntentPromise,
+		convexClient.mutation(api.chats.stopActiveStream, {
+			workspaceId: resolvedWorkspaceId,
+			chatId: id,
+			runId: attachableRun._id,
+		}),
+	]);
 	await convexClient.mutation(api.assistantRuns.finishStoppedAssistantRun, {
 		runId: attachableRun._id,
 	});
@@ -871,6 +881,24 @@ export const handleChatReconnectRequest = async (
 	const activeSession = activeChatStreamControllers.get(streamKey);
 
 	if (!activeSession || activeSession.persister.runId !== attachableRun._id) {
+		await stopOrphanedHostedAssistantRun({
+			chatId: id,
+			finishStoppedAssistantRun: (args) =>
+				convexClient.mutation(
+					api.assistantRuns.finishStoppedAssistantRun,
+					args,
+				),
+			logLatency: createChatLatencyLogger({
+				chatId: id,
+				enabled: AI_LATENCY_DEBUG_ENABLED,
+			}),
+			requestStopAssistantRun: (args) =>
+				convexClient.mutation(api.assistantRuns.requestStopAssistantRun, args),
+			runId: attachableRun._id,
+			stopActiveStream: (args) =>
+				convexClient.mutation(api.chats.stopActiveStream, args),
+			workspaceId,
+		});
 		response.statusCode = 204;
 		response.end();
 		return;

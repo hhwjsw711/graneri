@@ -281,6 +281,9 @@ describe("hosted active chat stream", () => {
 
 		expect(originalChunks.map((chunk) => chunk.value)).toEqual(["one", "two"]);
 		expect(reconnectChunks.map((chunk) => chunk.value)).toEqual(["one", "two"]);
+		expect(controllers.get(streamKey)).toBe(session);
+
+		session.cleanup();
 		expect(controllers.has(streamKey)).toBe(false);
 	});
 
@@ -343,6 +346,9 @@ describe("hosted active chat stream", () => {
 			{ type: "text-delta", id: "text-1", delta: " world" },
 		]);
 		expect(reconnectChunks).toEqual(originalChunks);
+		expect(controllers.get(streamKey)).toBe(session);
+
+		session.cleanup();
 		expect(controllers.has(streamKey)).toBe(false);
 	});
 

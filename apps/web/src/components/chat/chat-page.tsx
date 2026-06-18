@@ -437,6 +437,8 @@ const useChatPageController = ({
 		api.assistantRuns.getAttachableRun,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
 	);
+	const displayActiveRun =
+		activeRun && activeRun.status !== "stopping" ? activeRun : null;
 	const runningAutomationRun = useQuery(
 		api.automations.getRunningRunForChat,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
@@ -455,7 +457,7 @@ const useChatPageController = ({
 			}),
 		[],
 	);
-	const activeAssistantMessageId = activeRun?.assistantMessageId ?? null;
+	const activeAssistantMessageId = displayActiveRun?.assistantMessageId ?? null;
 	const {
 		messages,
 		setMessages,
@@ -469,7 +471,7 @@ const useChatPageController = ({
 	} = useChat({
 		id: chatId,
 		transport,
-		experimental_throttle: 50,
+		experimental_throttle: 120,
 		onToolCall: handleToolCall,
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
@@ -493,10 +495,8 @@ const useChatPageController = ({
 		void prefetchConvexToken();
 	}, [activeWorkspaceId]);
 
-	const isControllerRequestActive =
-		status === "submitted" || status === "streaming";
-	const isLocalChatLoading =
-		isPreparingRequest || (isControllerRequestActive && activeRun !== null);
+	const isAiRequestPending = status === "submitted" || status === "streaming";
+	const isChatRequestPending = isPreparingRequest || isAiRequestPending;
 
 	const persistedMessagesSeedKey = React.useMemo(
 		() => getUIMessageSeedKey(persistedMessages),
@@ -507,9 +507,9 @@ const useChatPageController = ({
 	);
 
 	useResumeActiveChatRun({
-		activeRun,
+		activeRun: displayActiveRun,
 		chatId,
-		enabled: !isLocalChatLoading,
+		enabled: !isChatRequestPending,
 		resumeStream,
 		workspaceId: activeWorkspaceId,
 	});
@@ -550,12 +550,13 @@ const useChatPageController = ({
 		status,
 	]);
 
-	const isPersistedChatStreaming = Boolean(activeRun);
 	const isAutomationRunning = Boolean(runningAutomationRun);
-	const isLoading =
-		isLocalChatLoading || isPersistedChatStreaming || isAutomationRunning;
+	const isPersistedChatStreaming = Boolean(displayActiveRun);
+	const isChatUiPending =
+		isChatRequestPending || isPersistedChatStreaming || isAutomationRunning;
+	const canStop = isChatRequestPending || isPersistedChatStreaming;
 	const displayMessages = React.useMemo(() => {
-		if (!activeAssistantMessageId || !activeRun) {
+		if (!activeAssistantMessageId || !displayActiveRun) {
 			return controllerMessages.length > 0
 				? controllerMessages
 				: persistedMessages;
@@ -583,7 +584,7 @@ const useChatPageController = ({
 			: controllerMessagesWithoutSnapshot;
 	}, [
 		activeAssistantMessageId,
-		activeRun,
+		displayActiveRun,
 		controllerMessages,
 		persistedMessages,
 	]);
@@ -592,7 +593,7 @@ const useChatPageController = ({
 		activeRun,
 		chatId,
 		contextLabel: "chat",
-		isBlocked: isLocalChatLoading || isAutomationRunning,
+		isBlocked: isChatRequestPending || isAutomationRunning,
 		latestRequestBodyRef,
 		sendMessage,
 		workspaceId: activeWorkspaceId,
@@ -709,7 +710,7 @@ const useChatPageController = ({
 		if (
 			(!value.trim() && attachedFiles.length === 0) ||
 			hasUploadingAttachments(attachedFiles) ||
-			isLocalChatLoading ||
+			isChatRequestPending ||
 			isAutomationRunning ||
 			(activeRun && attachedFiles.length > 0)
 		) {
@@ -826,7 +827,7 @@ const useChatPageController = ({
 		enqueueQueuedMessage,
 		getDraftSnapshot,
 		isAutomationRunning,
-		isLocalChatLoading,
+		isChatRequestPending,
 		localFolderStorageScope,
 		mentions,
 		onChatPersisted,
@@ -855,21 +856,20 @@ const useChatPageController = ({
 	}, []);
 
 	const stopCurrentStream = React.useCallback(async () => {
-		if (!isPersistedChatStreaming) {
-			stop();
+		stop();
+
+		if (!displayActiveRun) {
 			return;
 		}
 
 		if (!activeWorkspaceId) {
 			throw new Error("Cannot stop chat stream without an active workspace.");
 		}
-
 		await stopActiveChatStream({
 			chatId,
 			workspaceId: activeWorkspaceId,
 		});
-		stop();
-	}, [activeWorkspaceId, chatId, isPersistedChatStreaming, stop]);
+	}, [activeWorkspaceId, chatId, displayActiveRun, stop]);
 
 	const handleStop = React.useCallback(() => {
 		void stopCurrentStream().catch((error) => {
@@ -890,7 +890,7 @@ const useChatPageController = ({
 			text: string,
 			messageMentions: ChatComposerMention[],
 		) => {
-			if (isLoading) {
+			if (canStop) {
 				handleStop();
 			}
 
@@ -901,7 +901,7 @@ const useChatPageController = ({
 			);
 			setAttachedFiles([]);
 		},
-		[handleStop, isLoading, setDraft, setDraftMetadata],
+		[canStop, handleStop, setDraft, setDraftMetadata],
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
@@ -935,7 +935,7 @@ const useChatPageController = ({
 
 	const handleDeleteMessage = React.useCallback(
 		(messageId: string) => {
-			if (isLoading) {
+			if (canStop) {
 				handleStop();
 			}
 
@@ -964,9 +964,9 @@ const useChatPageController = ({
 		},
 		[
 			activeWorkspaceId,
+			canStop,
 			chatId,
 			handleStop,
-			isLoading,
 			setMessages,
 			clearDraft,
 			truncateFromMessage,
@@ -975,7 +975,7 @@ const useChatPageController = ({
 
 	const handleRegenerateMessage = React.useCallback(
 		async (assistantMessageId: string) => {
-			if (isLoading) {
+			if (canStop) {
 				await stopCurrentStream();
 			}
 
@@ -1010,8 +1010,8 @@ const useChatPageController = ({
 		},
 		[
 			buildRequestBody,
+			canStop,
 			clearDraft,
-			isLoading,
 			persistedMessages,
 			regenerate,
 			setMessages,
@@ -1040,7 +1040,8 @@ const useChatPageController = ({
 		hasMessages,
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		activeStreamingChatIds,
-		isLoading,
+		canStop,
+		isLoading: isChatUiPending,
 		isNotesLoading,
 		messages: displayMessages,
 		modelPopoverOpen,
@@ -1421,7 +1422,7 @@ export function ChatPage({
 			onStop={controller.handleStop}
 			attachedFiles={controller.attachedFiles}
 			onAttachedFilesChange={controller.setAttachedFiles}
-			isLoading={controller.isLoading}
+			canStop={controller.canStop}
 			selectedModel={controller.selectedModel}
 			reasoningEffort={controller.reasoningEffort}
 			modelPopoverOpen={controller.modelPopoverOpen}

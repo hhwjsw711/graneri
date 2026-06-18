@@ -269,7 +269,7 @@ type ChatComposerProps = {
 	onStop: () => void;
 	attachedFiles: ChatAttachment[];
 	onAttachedFilesChange: React.Dispatch<React.SetStateAction<ChatAttachment[]>>;
-	isLoading: boolean;
+	canStop: boolean;
 	selectedModel: ChatModel | null;
 	reasoningEffort: ReasoningEffort;
 	modelPopoverOpen: boolean;
@@ -301,7 +301,7 @@ export function ChatComposer({
 	onStop,
 	attachedFiles,
 	onAttachedFilesChange,
-	isLoading,
+	canStop,
 	selectedModel,
 	reasoningEffort,
 	modelPopoverOpen,
@@ -399,7 +399,7 @@ export function ChatComposer({
 				<ChatComposerFooter
 					draft={draft}
 					attachedFiles={attachedFiles}
-					isLoading={isLoading}
+					canStop={canStop}
 					onAttachmentUploadFailed={handleAttachmentUploadFailed}
 					onAttachmentUploaded={handleAttachmentUploaded}
 					onAttachmentsAdded={handleAttachmentsAdded}
@@ -1236,7 +1236,7 @@ function ChatComposerTopAddon({
 function ChatComposerFooter({
 	draft,
 	attachedFiles,
-	isLoading,
+	canStop,
 	onAttachmentUploadFailed,
 	onAttachmentUploaded,
 	onAttachmentsAdded,
@@ -1247,7 +1247,7 @@ function ChatComposerFooter({
 }: {
 	draft: string;
 	attachedFiles: ChatAttachment[];
-	isLoading: boolean;
+	canStop: boolean;
 	onAttachmentUploadFailed: (id: string) => void;
 	onAttachmentUploaded: (id: string, file: FileUIPart) => void;
 	onAttachmentsAdded: (files: ChatAttachment[]) => void;
@@ -1271,17 +1271,17 @@ function ChatComposerFooter({
 				{modelPicker}
 			</div>
 			<InputGroupButton
-				aria-label={isLoading ? "Stop streaming" : "Send"}
+				aria-label={canStop ? "Stop streaming" : "Send"}
 				className="rounded-full"
 				variant="default"
 				size="icon-sm"
 				disabled={
-					!isLoading &&
+					!canStop &&
 					((!draft.trim() && attachedFiles.length === 0) ||
 						hasUploadingAttachments(attachedFiles))
 				}
 				onClick={() => {
-					if (isLoading) {
+					if (canStop) {
 						onStop();
 						return;
 					}
@@ -1289,7 +1289,7 @@ function ChatComposerFooter({
 					void onSubmit();
 				}}
 			>
-				{isLoading ? (
+				{canStop ? (
 					<Square className="size-3.5 fill-current" />
 				) : (
 					<ArrowUp className="size-4" />

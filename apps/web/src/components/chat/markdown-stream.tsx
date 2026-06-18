@@ -1,4 +1,5 @@
 import { cn } from "@workspace/ui/lib/utils";
+import * as React from "react";
 import { Streamdown, type StreamdownProps } from "streamdown";
 
 const fixNumberedListBreaks = (text: string) =>
@@ -37,6 +38,11 @@ export function MarkdownStream({
 	mode,
 	...props
 }: MarkdownStreamProps) {
+	const normalizedMarkdown = React.useMemo(
+		() => normalizeMarkdownForStreamdown(children),
+		[children],
+	);
+
 	return (
 		<Streamdown
 			className={cn("wrap-break-word", className)}
@@ -46,7 +52,7 @@ export function MarkdownStream({
 			mode={mode}
 			{...props}
 		>
-			{normalizeMarkdownForStreamdown(children)}
+			{normalizedMarkdown}
 		</Streamdown>
 	);
 }

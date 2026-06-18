@@ -1183,25 +1183,29 @@ export const appendActiveStreamText = mutation({
 			});
 		}
 
+		const run = await ctx.db.get(args.runId);
+		if (
+			!run ||
+			run.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			run.workspaceId !== args.workspaceId ||
+			run.chatId !== chat._id
+		) {
+			throw new ConvexError({
+				code: "ASSISTANT_RUN_NOT_FOUND",
+				message: "Active assistant run not found.",
+			});
+		}
+
+		if (run.status !== "running") {
+			return null;
+		}
+
 		const stream = await getActiveStreamByRunId(ctx, args.runId);
 
 		if (!stream || stream.chatId !== chat._id || stream.runId !== args.runId) {
 			throw new ConvexError({
 				code: "ACTIVE_STREAM_NOT_FOUND",
 				message: "Active stream snapshot not found.",
-			});
-		}
-		const run = await ctx.db.get(args.runId);
-		if (
-			!run ||
-			run.ownerTokenIdentifier !== ownerTokenIdentifier ||
-			run.workspaceId !== args.workspaceId ||
-			run.chatId !== chat._id ||
-			run.status !== "running"
-		) {
-			throw new ConvexError({
-				code: "ASSISTANT_RUN_NOT_FOUND",
-				message: "Active assistant run not found.",
 			});
 		}
 
@@ -1249,6 +1253,98 @@ export const deleteActiveStreamSnapshot = mutation({
 		await deleteRunSnapshots(ctx, args.runId);
 
 		return null;
+	},
+});
+
+export const saveAssistantMessageForRun = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		chatId: v.string(),
+		runId: v.id("assistantRuns"),
+		noteId: v.optional(v.id("notes")),
+		title: v.optional(v.string()),
+		preview: v.optional(v.string()),
+		model: v.optional(v.string()),
+		reasoningEffort: v.optional(reasoningEffortValidator),
+		forceTitle: v.optional(v.boolean()),
+		message: chatMessageInputValidator,
+	},
+	returns: v.union(
+		v.object({
+			chat: chatValidator,
+			message: chatMessageValidator,
+		}),
+		v.null(),
+	),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const ownerTokenIdentifier = identity.tokenIdentifier;
+		const chat = await getOwnedActiveChatById(
+			ctx,
+			ownerTokenIdentifier,
+			args.workspaceId,
+			args.chatId,
+		);
+
+		if (!chat) {
+			throw new ConvexError({
+				code: "CHAT_NOT_FOUND",
+				message: "Chat not found.",
+			});
+		}
+
+		const run = await ctx.db.get(args.runId);
+		if (
+			!run ||
+			run.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			run.workspaceId !== args.workspaceId ||
+			run.chatId !== chat._id
+		) {
+			throw new ConvexError({
+				code: "ASSISTANT_RUN_NOT_FOUND",
+				message: "Assistant run not found.",
+			});
+		}
+
+		if (
+			run.status === "stopping" ||
+			run.status === "stopped" ||
+			run.status === "completed"
+		) {
+			return null;
+		}
+
+		if (run.status !== "running") {
+			throw new ConvexError({
+				code: "ASSISTANT_RUN_NOT_RUNNING",
+				message: "Assistant message cannot be saved for a non-running run.",
+			});
+		}
+
+		if (args.message.id !== run.assistantMessageId) {
+			throw new ConvexError({
+				code: "ASSISTANT_MESSAGE_ID_MISMATCH",
+				message: "Assistant message id does not match the active run.",
+			});
+		}
+
+		return await saveMessageForOwnerInternal(ctx, {
+			ownerTokenIdentifier,
+			workspaceId: args.workspaceId,
+			authorName: getAuthorName(identity),
+			chatId: args.chatId,
+			noteId: args.noteId,
+			title: args.title,
+			preview: args.preview,
+			model: args.model,
+			reasoningEffort: args.reasoningEffort,
+			forceTitle: args.forceTitle,
+			message: {
+				...args.message,
+				id: run.assistantMessageId,
+				role: "assistant",
+			},
+		});
 	},
 });
 
@@ -1378,6 +1474,7 @@ export const updateTitle = mutation({
 		workspaceId: v.id("workspaces"),
 		chatId: v.string(),
 		title: v.string(),
+		onlyIfReplaceable: v.optional(v.boolean()),
 	},
 	returns: v.object({
 		title: v.string(),
@@ -1400,7 +1497,10 @@ export const updateTitle = mutation({
 		}
 
 		const normalizedTitle = normalizeChatTitle(args.title);
-		const nextTitle = normalizedTitle;
+		const nextTitle =
+			args.onlyIfReplaceable && !shouldReplaceChatTitle(chat, normalizedTitle)
+				? chat.title
+				: normalizedTitle;
 
 		if (nextTitle !== chat.title) {
 			await ctx.db.patch(chat._id, {

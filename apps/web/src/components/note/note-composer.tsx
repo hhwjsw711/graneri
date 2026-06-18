@@ -696,6 +696,8 @@ const useNoteComposerController = ({
 			? { workspaceId: activeWorkspaceId, chatId: currentChatId }
 			: "skip",
 	);
+	const displayActiveRun =
+		activeRun && activeRun.status !== "stopping" ? activeRun : null;
 	const currentChatSession = useQuery(
 		api.chats.getSession,
 		activeWorkspaceId && hasStoredCurrentChat
@@ -932,7 +934,7 @@ const useNoteComposerController = ({
 		id: currentChatId,
 		messages: initialMessages,
 		transport,
-		experimental_throttle: 50,
+		experimental_throttle: 120,
 		onToolCall: handleToolCall,
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
@@ -950,16 +952,17 @@ const useNoteComposerController = ({
 		void prefetchConvexToken();
 	}, [activeWorkspaceId]);
 
-	const isLocalChatLoading =
-		chatStatus === "submitted" ||
-		chatStatus === "streaming" ||
+	const isAiRequestPending =
+		chatStatus === "submitted" || chatStatus === "streaming";
+	const isChatRequestPending =
+		isAiRequestPending ||
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		isPreparingRequest;
 
 	useResumeActiveChatRun({
-		activeRun,
+		activeRun: displayActiveRun,
 		chatId: currentChatId,
-		enabled: hasStoredCurrentChat && !isLocalChatLoading,
+		enabled: hasStoredCurrentChat && !isChatRequestPending,
 		resumeStream,
 		workspaceId: activeWorkspaceId,
 	});
@@ -1276,15 +1279,16 @@ const useNoteComposerController = ({
 		},
 		[setRightSidebarWidthMobileOverride],
 	);
-	const isPersistedChatStreaming = Boolean(activeRun);
-	const isChatLoading =
+	const isPersistedChatStreaming = Boolean(displayActiveRun);
+	const isChatUiPending =
 		// react-doctor-disable-next-line react-doctor/no-event-handler
-		isLocalChatLoading || isPersistedChatStreaming;
+		isChatRequestPending || isPersistedChatStreaming;
+	const canStop = isChatRequestPending || isPersistedChatStreaming;
 	useQueuedChatDrain({
 		activeRun,
 		chatId: currentChatId,
 		contextLabel: "note chat",
-		isBlocked: isLocalChatLoading,
+		isBlocked: isChatRequestPending,
 		latestRequestBodyRef,
 		sendMessage,
 		workspaceId: activeWorkspaceId,
@@ -1396,8 +1400,9 @@ const useNoteComposerController = ({
 		setRecipePopoverOpen(false);
 	}, [recipePopoverOpen]);
 	const stopCurrentStream = React.useCallback(async () => {
-		if (!isPersistedChatStreaming) {
-			stop();
+		stop();
+
+		if (!displayActiveRun) {
 			return;
 		}
 
@@ -1406,13 +1411,11 @@ const useNoteComposerController = ({
 				"Cannot stop note chat stream without an active workspace.",
 			);
 		}
-
 		await stopActiveChatStream({
 			chatId: currentChatId,
 			workspaceId: activeWorkspaceId,
 		});
-		stop();
-	}, [activeWorkspaceId, currentChatId, isPersistedChatStreaming, stop]);
+	}, [activeWorkspaceId, currentChatId, displayActiveRun, stop]);
 	const handleStop = React.useCallback(() => {
 		void stopCurrentStream().catch((error) => {
 			logError({
@@ -1455,14 +1458,14 @@ const useNoteComposerController = ({
 
 		previousNoteIdRef.current = noteId;
 
-		if (isChatLoading) {
+		if (canStop) {
 			// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 			handleStop();
 		}
 
 		// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 		resetComposerForNoteChange();
-	}, [handleStop, isChatLoading, noteId, resetComposerForNoteChange]);
+	}, [canStop, handleStop, noteId, resetComposerForNoteChange]);
 
 	React.useEffect(() => {
 		if (
@@ -1597,7 +1600,7 @@ const useNoteComposerController = ({
 	}, [closeComposerPopovers, panelMode, presentationMode]);
 
 	const openDraftChat = React.useCallback(() => {
-		if (isChatLoading) {
+		if (canStop) {
 			handleStop();
 		}
 
@@ -1615,8 +1618,8 @@ const useNoteComposerController = ({
 		openRightSidebar(presentationMode);
 	}, [
 		closeComposerPopovers,
+		canStop,
 		handleStop,
-		isChatLoading,
 		openRightSidebar,
 		presentationMode,
 		setMessages,
@@ -1785,7 +1788,7 @@ const useNoteComposerController = ({
 
 	const handleEditMessage = React.useCallback(
 		(messageId: string, text: string) => {
-			if (isChatLoading) {
+			if (canStop) {
 				handleStop();
 			}
 
@@ -1795,7 +1798,7 @@ const useNoteComposerController = ({
 			resizeTextarea();
 			focusComposerInput();
 		},
-		[focusComposerInput, handleStop, isChatLoading, resizeTextarea, setMessage],
+		[canStop, focusComposerInput, handleStop, resizeTextarea, setMessage],
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
@@ -1831,7 +1834,7 @@ const useNoteComposerController = ({
 
 	const handleDeleteMessage = React.useCallback(
 		(messageId: string) => {
-			if (isChatLoading) {
+			if (canStop) {
 				handleStop();
 			}
 
@@ -1862,8 +1865,8 @@ const useNoteComposerController = ({
 		},
 		[
 			activeWorkspaceId,
+			canStop,
 			currentChatId,
-			isChatLoading,
 			resetTextareaHeight,
 			setMessages,
 			clearDraft,
@@ -1874,7 +1877,7 @@ const useNoteComposerController = ({
 
 	const handleRegenerateMessage = React.useCallback(
 		async (assistantMessageId: string) => {
-			if (isChatLoading) {
+			if (canStop) {
 				await stopCurrentStream();
 			}
 
@@ -1911,8 +1914,8 @@ const useNoteComposerController = ({
 		},
 		[
 			buildRequestBody,
+			canStop,
 			clearDraft,
-			isChatLoading,
 			openRightSidebar,
 			presentationMode,
 			regenerate,
@@ -1927,7 +1930,7 @@ const useNoteComposerController = ({
 			return;
 		}
 
-		if (isChatLoading) {
+		if (canStop) {
 			handleStop();
 		}
 
@@ -1965,7 +1968,7 @@ const useNoteComposerController = ({
 	};
 
 	const openInlineChatFromComposer = React.useCallback(() => {
-		if (isChatLoading) {
+		if (canStop) {
 			handleStop();
 		}
 
@@ -1984,9 +1987,9 @@ const useNoteComposerController = ({
 	}, [
 		closeComposerPopovers,
 		closeRightSidebar,
+		canStop,
 		handlePrefetchNoteChat,
 		handleStop,
-		isChatLoading,
 		latestNoteChat,
 		setPanelMode,
 		setPresentationMode,
@@ -2067,7 +2070,8 @@ const useNoteComposerController = ({
 		recoveryStatus: transcriptSession.recoveryStatus,
 		inlinePanelRef,
 		inlinePanelHeight,
-		isChatLoading,
+		canStop,
+		isChatLoading: isChatUiPending,
 		isChatOpen,
 		isFloatingPanelResizing,
 		isFloatingPresentation,
@@ -2600,6 +2604,7 @@ function ChatInlinePopoverFooter({
 		activateInlineOnFocus: boolean;
 		isRecipeLoading: boolean;
 		canSendMessage: boolean;
+		canStop: boolean;
 		isChatLoading: boolean;
 		isSidebarCompact: boolean;
 		showModelPicker: boolean;
@@ -2626,6 +2631,7 @@ function ChatInlinePopoverFooter({
 		activateInlineOnFocus,
 		isRecipeLoading,
 		canSendMessage,
+		canStop,
 		isChatLoading,
 		isSidebarCompact,
 		showModelPicker,
@@ -3106,18 +3112,20 @@ function ChatInlinePopoverFooter({
 						</div>
 					) : null}
 					<InputGroupButton
-						type={isChatLoading ? "button" : "submit"}
+						type={canStop ? "button" : "submit"}
 						variant="default"
 						size="icon-sm"
 						className={cn("rounded-full", !showModelPicker && "ml-auto")}
-						aria-label={isChatLoading ? "Stop streaming" : "Send message"}
+						aria-label={canStop ? "Stop streaming" : "Send message"}
 						disabled={
-							!isChatLoading &&
-							(!canSendMessage || hasUploadingAttachments(attachedFiles))
+							!canStop &&
+							(isChatLoading ||
+								!canSendMessage ||
+								hasUploadingAttachments(attachedFiles))
 						}
-						onClick={isChatLoading ? onStop : undefined}
+						onClick={canStop ? onStop : undefined}
 					>
-						{isChatLoading ? (
+						{canStop ? (
 							<Square className="size-3.5 fill-current" />
 						) : (
 							<ArrowUp className="size-4" />
@@ -3460,6 +3468,7 @@ function ChatComposerForm({
 					activateInlineOnFocus,
 					isRecipeLoading: controller.isRecipeLoading,
 					canSendMessage: controller.canSendMessage,
+					canStop: controller.canStop,
 					isChatLoading: controller.isChatLoading,
 					isSidebarCompact: controller.isSidebarPresentation,
 					showModelPicker: controller.isChatOpen && !activateInlineOnFocus,

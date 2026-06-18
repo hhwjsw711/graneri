@@ -62,6 +62,9 @@ export type ChatMessageActionContext = {
 	timestamp: string | null;
 };
 
+const EMPTY_MESSAGE_PARTS: UIMessage["parts"] = [];
+const EMPTY_CHART_ARTIFACTS: ReturnType<typeof extractChatChartArtifacts> = [];
+
 export function ChatMessageListContent({
 	messages,
 	error,
@@ -179,7 +182,7 @@ export function ChatMessageListContent({
 	);
 }
 
-function ChatMessageListItem({
+const ChatMessageListItem = React.memo(function ChatMessageListItem({
 	message,
 	includeSources,
 	isLoading,
@@ -210,11 +213,15 @@ function ChatMessageListItem({
 	const toolParts =
 		message.role === "assistant"
 			? filterSupersededChartToolFailures(extractToolParts(message))
-			: [];
+			: EMPTY_MESSAGE_PARTS;
 	const chartArtifacts =
-		message.role === "assistant" ? extractChatChartArtifacts(message) : [];
+		message.role === "assistant"
+			? extractChatChartArtifacts(message)
+			: EMPTY_CHART_ARTIFACTS;
 	const reasoningParts =
-		message.role === "assistant" ? extractReasoningParts(message) : [];
+		message.role === "assistant"
+			? extractReasoningParts(message)
+			: EMPTY_MESSAGE_PARTS;
 	const metadata = getChatMessageMetadata(message);
 	const selectedRecipe = metadata?.recipe ?? null;
 	const displayText = metadata?.recipeOnly ? "" : getChatText(message);
@@ -298,7 +305,7 @@ function ChatMessageListItem({
 			</div>
 		</div>
 	);
-}
+});
 
 const filterSupersededChartToolFailures = (
 	parts: ReturnType<typeof extractToolParts>,
@@ -322,7 +329,7 @@ const filterSupersededChartToolFailures = (
 	);
 };
 
-function ChatMessageReasoning({
+const ChatMessageReasoning = React.memo(function ChatMessageReasoning({
 	isStreamingAssistantMessage,
 	parts,
 }: {
@@ -350,13 +357,13 @@ function ChatMessageReasoning({
 			})}
 		</div>
 	);
-}
+});
 
 const getReasoningPartKey = (
 	part: Extract<UIMessage["parts"][number], { type: "reasoning" }>,
 ) => `reasoning:${part.text || part.state || "empty"}`;
 
-function ChatMessageToolCalls({
+const ChatMessageToolCalls = React.memo(function ChatMessageToolCalls({
 	chatStatus,
 	parts,
 }: {
@@ -383,7 +390,7 @@ function ChatMessageToolCalls({
 			))}
 		</div>
 	);
-}
+});
 
 const getToolGroupInfo = (part: UIMessage["parts"][number]) => {
 	const toolPart = toToolPartLike(part);
@@ -472,7 +479,7 @@ const groupAdjacentToolParts = (parts: UIMessage["parts"]) => {
 	return groups;
 };
 
-function ChatMessageText({
+const ChatMessageText = React.memo(function ChatMessageText({
 	displayText,
 	isEmpty,
 	isStreamingAssistantMessage,
@@ -540,7 +547,7 @@ function ChatMessageText({
 			</div>
 		</div>
 	);
-}
+});
 
 function UserMessageWithMentions({
 	text,

@@ -8,10 +8,13 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 import type { UIMessage } from "ai";
 import { Copy, PenLine, Plus, RotateCcw, Trash2 } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 import { toast } from "sonner";
 import { CHAT_ACTIONS_VISIBILITY_CLASS } from "@/components/chat/message-layout";
-import { ChatMessageListContent } from "@/components/chat/message-list";
+import {
+	type ChatMessageActionContext,
+	ChatMessageListContent,
+} from "@/components/chat/message-list";
 
 export type NoteChatMessagesProps = {
 	chatError: Error | undefined;
@@ -39,6 +42,33 @@ export default function NoteChatMessages({
 	onEditMessage,
 	onRegenerateMessage,
 }: NoteChatMessagesProps) {
+	const getTurnClassName = React.useCallback(() => "flex flex-col gap-3", []);
+	const renderAssistantActions = React.useCallback(
+		({ displayText, message, timestamp }: ChatMessageActionContext) => (
+			<NoteAssistantMessageActions
+				disableAddToNote={disableAddToNote}
+				displayText={displayText}
+				messageId={message.id}
+				onAddMessageToNote={onAddMessageToNote}
+				onRegenerateMessage={onRegenerateMessage}
+				timestamp={timestamp}
+			/>
+		),
+		[disableAddToNote, onAddMessageToNote, onRegenerateMessage],
+	);
+	const renderUserActions = React.useCallback(
+		({ displayText, message, timestamp }: ChatMessageActionContext) => (
+			<NoteUserMessageActions
+				displayText={displayText}
+				messageId={message.id}
+				onDeleteMessage={onDeleteMessage}
+				onEditMessage={onEditMessage}
+				timestamp={timestamp}
+			/>
+		),
+		[onDeleteMessage, onEditMessage],
+	);
+
 	return (
 		<ScrollArea
 			className="min-h-0 flex-1"
@@ -59,26 +89,9 @@ export default function NoteChatMessages({
 					disablePadding ? "note-chat-sidebar-streamdown" : undefined
 				}
 				textContainerClassName=""
-				turnClassName={() => "flex flex-col gap-3"}
-				renderAssistantActions={({ displayText, message, timestamp }) => (
-					<NoteAssistantMessageActions
-						disableAddToNote={disableAddToNote}
-						displayText={displayText}
-						messageId={message.id}
-						onAddMessageToNote={onAddMessageToNote}
-						onRegenerateMessage={onRegenerateMessage}
-						timestamp={timestamp}
-					/>
-				)}
-				renderUserActions={({ displayText, message, timestamp }) => (
-					<NoteUserMessageActions
-						displayText={displayText}
-						messageId={message.id}
-						onDeleteMessage={onDeleteMessage}
-						onEditMessage={onEditMessage}
-						timestamp={timestamp}
-					/>
-				)}
+				turnClassName={getTurnClassName}
+				renderAssistantActions={renderAssistantActions}
+				renderUserActions={renderUserActions}
 			/>
 		</ScrollArea>
 	);

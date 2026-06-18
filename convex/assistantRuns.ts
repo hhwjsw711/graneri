@@ -478,6 +478,16 @@ export const waitForUserDecision = mutation({
 		);
 		const run = await requireOwnedRun(ctx, ownerTokenIdentifier, args.runId);
 
+		if (
+			run.status === "completed" ||
+			run.status === "stopped" ||
+			run.status === "failed" ||
+			run.status === "stopping"
+		) {
+			await deleteRunSnapshots(ctx, run._id);
+			return run;
+		}
+
 		if (run.status !== "running") {
 			throw new ConvexError({
 				code: "INVALID_ASSISTANT_RUN_TRANSITION",
@@ -667,7 +677,11 @@ export const finishStoppedAssistantRun = mutation({
 		);
 		const run = await requireOwnedRun(ctx, ownerTokenIdentifier, args.runId);
 
-		if (run.status === "stopped") {
+		if (
+			run.status === "stopped" ||
+			run.status === "completed" ||
+			run.status === "failed"
+		) {
 			await deleteRunSnapshots(ctx, run._id);
 			return run;
 		}

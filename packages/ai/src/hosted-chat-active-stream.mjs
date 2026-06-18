@@ -226,9 +226,6 @@ export const createHostedActiveStreamSession = ({
 			subscriber.close();
 		}
 		subscribers.clear();
-		if (controllers.get(streamKey) === session) {
-			controllers.delete(streamKey);
-		}
 	};
 
 	const errorBroadcast = (error) => {
@@ -242,9 +239,6 @@ export const createHostedActiveStreamSession = ({
 			subscriber.error(error);
 		}
 		subscribers.clear();
-		if (controllers.get(streamKey) === session) {
-			controllers.delete(streamKey);
-		}
 	};
 
 	const session = {

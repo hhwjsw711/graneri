@@ -10,7 +10,10 @@ import { Check, Copy, PenLine, Plus, RotateCcw, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { CHAT_ACTIONS_VISIBILITY_CLASS } from "@/components/chat/message-layout";
-import { ChatMessageListContent } from "@/components/chat/message-list";
+import {
+	type ChatMessageActionContext,
+	ChatMessageListContent,
+} from "@/components/chat/message-list";
 import { getChatMessageMetadata } from "@/lib/chat-message";
 import type { ChatComposerMention } from "./chat-composer";
 
@@ -75,6 +78,38 @@ export default function ChatMessages({
 		},
 		[messageIdPendingDelete, onDeleteMessage],
 	);
+	const getTurnClassName = React.useCallback(
+		(isLastTurn: boolean) => cn("space-y-3", isLastTurn && "pb-9"),
+		[],
+	);
+	const renderAssistantActions = React.useCallback(
+		({ message, messageText, timestamp }: ChatMessageActionContext) => (
+			<AssistantMessageActions
+				messageId={message.id}
+				messageText={messageText}
+				onPlusAction={onPlusAction}
+				onRegenerateMessage={onRegenerateMessage}
+				timestamp={timestamp}
+			/>
+		),
+		[onPlusAction, onRegenerateMessage],
+	);
+	const renderUserActions = React.useCallback(
+		({ message, messageText, timestamp }: ChatMessageActionContext) => (
+			<UserMessageActions
+				isPendingDelete={messageIdPendingDelete === message.id}
+				messageId={message.id}
+				messageText={messageText}
+				mentions={getChatMessageMetadata(message)?.mentionPositions ?? []}
+				onDeleteClick={handleDeleteClick}
+				onDeleteMessage={onDeleteMessage}
+				onEditMessage={onEditMessage}
+				setMessageIdPendingDelete={setMessageIdPendingDelete}
+				timestamp={timestamp}
+			/>
+		),
+		[handleDeleteClick, messageIdPendingDelete, onDeleteMessage, onEditMessage],
+	);
 
 	return (
 		<ChatMessageListContent
@@ -85,29 +120,9 @@ export default function ChatMessages({
 			messages={messages}
 			streamdownClassName="note-streamdown"
 			textContainerClassName="mt-2 flex flex-row items-start gap-2 first:mt-0"
-			turnClassName={(isLastTurn) => cn("space-y-3", isLastTurn && "pb-9")}
-			renderAssistantActions={({ message, messageText, timestamp }) => (
-				<AssistantMessageActions
-					messageId={message.id}
-					messageText={messageText}
-					onPlusAction={onPlusAction}
-					onRegenerateMessage={onRegenerateMessage}
-					timestamp={timestamp}
-				/>
-			)}
-			renderUserActions={({ message, messageText, timestamp }) => (
-				<UserMessageActions
-					isPendingDelete={messageIdPendingDelete === message.id}
-					messageId={message.id}
-					messageText={messageText}
-					mentions={getChatMessageMetadata(message)?.mentionPositions ?? []}
-					onDeleteClick={handleDeleteClick}
-					onDeleteMessage={onDeleteMessage}
-					onEditMessage={onEditMessage}
-					setMessageIdPendingDelete={setMessageIdPendingDelete}
-					timestamp={timestamp}
-				/>
-			)}
+			turnClassName={getTurnClassName}
+			renderAssistantActions={renderAssistantActions}
+			renderUserActions={renderUserActions}
 			onOpenMention={onOpenMention}
 		/>
 	);
