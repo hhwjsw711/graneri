@@ -3,6 +3,16 @@ import type { FunctionReturnType } from "convex/server";
 import * as React from "react";
 import { toast } from "sonner";
 import { fromQueuedUserMessage } from "@/lib/chat-queue";
+import {
+	getQueuedFollowUpCacheKey,
+	QUEUED_FOLLOW_UP_DRAIN_RETRY_MS,
+	type QueuedFollowUpMessage,
+	readQueuedFollowUpsCache,
+	shouldDrainQueuedFollowUp,
+	subscribeQueuedFollowUpsCache,
+	updateQueuedFollowUpsCache,
+	writeQueuedFollowUpsCache,
+} from "@/lib/chat-queued-followups";
 import { getCachedConvexToken } from "@/lib/convex-token";
 import { logError } from "@/lib/logger";
 import { api } from "../../../../convex/_generated/api";
@@ -17,61 +27,6 @@ type QueuedChatSendMessage = (
 type AttachableRun =
 	| FunctionReturnType<typeof api.assistantRuns.getAttachableRun>
 	| undefined;
-type QueuedMessage = NonNullable<
-	FunctionReturnType<typeof api.assistantQueuedMessages.listQueuedForChat>
->[number];
-
-const QUEUED_MESSAGE_DRAIN_RETRY_MS = 400;
-const EMPTY_QUEUED_MESSAGES: Array<QueuedMessage> = [];
-const queuedMessagesCache = new Map<string, Array<QueuedMessage>>();
-const queuedMessagesCacheListeners = new Map<string, Set<() => void>>();
-
-const getQueuedMessagesCacheKey = ({
-	chatId,
-	workspaceId,
-}: {
-	chatId: string;
-	workspaceId: Id<"workspaces"> | null | undefined;
-}) => (workspaceId ? `${workspaceId}:${chatId}` : null);
-
-const readQueuedMessagesCache = (cacheKey: string | null) =>
-	cacheKey
-		? (queuedMessagesCache.get(cacheKey) ?? EMPTY_QUEUED_MESSAGES)
-		: EMPTY_QUEUED_MESSAGES;
-
-const writeQueuedMessagesCache = (
-	cacheKey: string | null,
-	messages: Array<QueuedMessage>,
-) => {
-	if (!cacheKey) {
-		return;
-	}
-
-	queuedMessagesCache.set(cacheKey, messages);
-	for (const listener of queuedMessagesCacheListeners.get(cacheKey) ?? []) {
-		listener();
-	}
-};
-
-const subscribeQueuedMessagesCache = (
-	cacheKey: string | null,
-	listener: () => void,
-) => {
-	if (!cacheKey) {
-		return () => undefined;
-	}
-
-	const listeners = queuedMessagesCacheListeners.get(cacheKey) ?? new Set();
-	listeners.add(listener);
-	queuedMessagesCacheListeners.set(cacheKey, listeners);
-
-	return () => {
-		listeners.delete(listener);
-		if (listeners.size === 0) {
-			queuedMessagesCacheListeners.delete(cacheKey);
-		}
-	};
-};
 
 export const useQueuedChatDrain = ({
 	activeRun,
@@ -106,16 +61,16 @@ export const useQueuedChatDrain = ({
 		workspaceId ? { workspaceId, chatId } : "skip",
 	);
 	const queuedMessagesCacheKey = React.useMemo(
-		() => getQueuedMessagesCacheKey({ workspaceId, chatId }),
+		() => getQueuedFollowUpCacheKey({ workspaceId, chatId }),
 		[chatId, workspaceId],
 	);
 	const getVisibleQueuedMessagesSnapshot = React.useCallback(
-		() => readQueuedMessagesCache(queuedMessagesCacheKey),
+		() => readQueuedFollowUpsCache(queuedMessagesCacheKey),
 		[queuedMessagesCacheKey],
 	);
 	const subscribeVisibleQueuedMessages = React.useCallback(
 		(listener: () => void) =>
-			subscribeQueuedMessagesCache(queuedMessagesCacheKey, listener),
+			subscribeQueuedFollowUpsCache(queuedMessagesCacheKey, listener),
 		[queuedMessagesCacheKey],
 	);
 	const visibleQueuedMessages = React.useSyncExternalStore(
@@ -132,15 +87,16 @@ export const useQueuedChatDrain = ({
 			return;
 		}
 
-		writeQueuedMessagesCache(queuedMessagesCacheKey, queuedMessages);
+		writeQueuedFollowUpsCache(queuedMessagesCacheKey, queuedMessages);
 	}, [queuedMessages, queuedMessagesCacheKey]);
 
 	const updateVisibleQueuedMessages = React.useCallback(
-		(updater: (messages: Array<QueuedMessage>) => Array<QueuedMessage>) => {
-			writeQueuedMessagesCache(
-				queuedMessagesCacheKey,
-				updater(readQueuedMessagesCache(queuedMessagesCacheKey)),
-			);
+		(
+			updater: (
+				messages: Array<QueuedFollowUpMessage>,
+			) => Array<QueuedFollowUpMessage>,
+		) => {
+			updateQueuedFollowUpsCache(queuedMessagesCacheKey, updater);
 		},
 		[queuedMessagesCacheKey],
 	);
@@ -162,7 +118,7 @@ export const useQueuedChatDrain = ({
 		retryTimerRef.current = window.setTimeout(() => {
 			retryTimerRef.current = null;
 			setRetryNonce((current) => current + 1);
-		}, QUEUED_MESSAGE_DRAIN_RETRY_MS);
+		}, QUEUED_FOLLOW_UP_DRAIN_RETRY_MS);
 	}, []);
 
 	React.useEffect(() => {
@@ -170,12 +126,19 @@ export const useQueuedChatDrain = ({
 		const hasQueuedMessage = (queuedMessages?.length ?? 0) > 0;
 
 		if (
-			!workspaceId ||
-			!hasQueuedMessage ||
-			activeRun ||
-			isBlocked ||
-			isDrainingQueuedMessageRef.current
+			!shouldDrainQueuedFollowUp({
+				activeRun,
+				hasQueuedMessage,
+				isBlocked,
+				isDraining: isDrainingQueuedMessageRef.current,
+				workspaceId,
+			})
 		) {
+			return;
+		}
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		const resolvedWorkspaceId = workspaceId;
+		if (!resolvedWorkspaceId) {
 			return;
 		}
 
@@ -184,7 +147,11 @@ export const useQueuedChatDrain = ({
 			let claimedQueuedMessageId: Id<"assistantQueuedMessages"> | null = null;
 			try {
 				// react-doctor-disable-next-line react-doctor/no-event-handler
-				const queuedMessage = await claimQueuedMessage({ workspaceId, chatId });
+				const queuedMessage = await claimQueuedMessage({
+					workspaceId: resolvedWorkspaceId,
+					// react-doctor-disable-next-line react-doctor/no-event-handler
+					chatId,
+				});
 
 				if (!queuedMessage) {
 					scheduleRetry();

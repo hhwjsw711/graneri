@@ -4,6 +4,38 @@ import {
 	fromQueuedUserMessage,
 	toQueuedUserMessageInput,
 } from "@/lib/chat-queue";
+import type { Id } from "../../../convex/_generated/dataModel";
+import {
+	getQueuedFollowUpCacheKey,
+	type QueuedFollowUpMessage,
+	readQueuedFollowUpsCache,
+	resetQueuedFollowUpsCacheForTest,
+	shouldDrainQueuedFollowUp,
+	subscribeQueuedFollowUpsCache,
+	updateQueuedFollowUpsCache,
+	writeQueuedFollowUpsCache,
+} from "../src/lib/chat-queued-followups";
+
+const workspaceId = "workspace-1" as Id<"workspaces">;
+
+const createQueuedFollowUp = (
+	id: string,
+	overrides: Partial<QueuedFollowUpMessage> = {},
+): QueuedFollowUpMessage =>
+	({
+		_id: id as Id<"assistantQueuedMessages">,
+		_creationTime: 1,
+		chatId: "chat-1",
+		claimedAt: undefined,
+		createdAt: 1,
+		messageId: id,
+		metadataJson: undefined,
+		requestBodyJson: "{}",
+		runId: "run-1" as Id<"assistantRuns">,
+		text: `message ${id}`,
+		workspaceId,
+		...overrides,
+	}) as QueuedFollowUpMessage;
 
 describe("chat queue serialization", () => {
 	it("does not persist desktop local folder scope in durable queued messages", () => {
@@ -127,5 +159,105 @@ describe("chat queue serialization", () => {
 				resolveConvexToken: async () => "fresh-token",
 			}),
 		).rejects.toThrow("Queued chat request body is invalid.");
+	});
+});
+
+describe("queued follow-up lifecycle", () => {
+	it("scopes visible queued messages by workspace and chat", () => {
+		resetQueuedFollowUpsCacheForTest();
+		const cacheKey = getQueuedFollowUpCacheKey({
+			chatId: "chat-1",
+			workspaceId,
+		});
+		const otherCacheKey = getQueuedFollowUpCacheKey({
+			chatId: "chat-2",
+			workspaceId,
+		});
+		const queuedMessage = createQueuedFollowUp("queued-1");
+
+		writeQueuedFollowUpsCache(cacheKey, [queuedMessage]);
+
+		expect(readQueuedFollowUpsCache(cacheKey)).toEqual([queuedMessage]);
+		expect(readQueuedFollowUpsCache(otherCacheKey)).toEqual([]);
+	});
+
+	it("notifies visible queue subscribers when cached messages change", () => {
+		resetQueuedFollowUpsCacheForTest();
+		const cacheKey = getQueuedFollowUpCacheKey({
+			chatId: "chat-1",
+			workspaceId,
+		});
+		let notificationCount = 0;
+		const unsubscribe = subscribeQueuedFollowUpsCache(cacheKey, () => {
+			notificationCount += 1;
+		});
+
+		writeQueuedFollowUpsCache(cacheKey, [createQueuedFollowUp("queued-1")]);
+		updateQueuedFollowUpsCache(cacheKey, (messages) => [
+			...messages,
+			createQueuedFollowUp("queued-2"),
+		]);
+		unsubscribe();
+		writeQueuedFollowUpsCache(cacheKey, []);
+
+		expect(notificationCount).toBe(2);
+		expect(readQueuedFollowUpsCache(cacheKey)).toEqual([]);
+	});
+
+	it("drains only when a workspace has queued work and no active blocker", () => {
+		expect(
+			shouldDrainQueuedFollowUp({
+				activeRun: null,
+				hasQueuedMessage: true,
+				isBlocked: false,
+				isDraining: false,
+				workspaceId,
+			}),
+		).toBe(true);
+		expect(
+			shouldDrainQueuedFollowUp({
+				activeRun: { _id: "run-1" },
+				hasQueuedMessage: true,
+				isBlocked: false,
+				isDraining: false,
+				workspaceId,
+			}),
+		).toBe(false);
+		expect(
+			shouldDrainQueuedFollowUp({
+				activeRun: null,
+				hasQueuedMessage: false,
+				isBlocked: false,
+				isDraining: false,
+				workspaceId,
+			}),
+		).toBe(false);
+		expect(
+			shouldDrainQueuedFollowUp({
+				activeRun: null,
+				hasQueuedMessage: true,
+				isBlocked: true,
+				isDraining: false,
+				workspaceId,
+			}),
+		).toBe(false);
+		expect(
+			shouldDrainQueuedFollowUp({
+				activeRun: null,
+				hasQueuedMessage: true,
+				isBlocked: false,
+				isDraining: true,
+				workspaceId,
+			}),
+		).toBe(false);
+		expect(
+			shouldDrainQueuedFollowUp({
+				activeRun: null,
+				hasQueuedMessage: true,
+				isBlocked: false,
+				isDraining: false,
+				workspaceId: null,
+			}),
+		).toBe(false);
 	});
 });
