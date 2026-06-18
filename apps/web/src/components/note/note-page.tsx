@@ -62,6 +62,7 @@ import {
 	structuredNoteToDocument,
 	structuredNoteToSearchableText,
 } from "@/lib/structured-note";
+import { createTextMatchRanges } from "@/lib/text-search-ranges";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import { readDesktopCommentsPanelPinnedState } from "./note-comments-panel-state";
@@ -93,48 +94,6 @@ const NOTE_SEARCH_MATCH_HIGHLIGHT = "note-search-match";
 const NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT = "note-search-active-match";
 const NOTE_SAVE_DEBOUNCE_MS = 2000;
 const NOTE_SAVE_MAX_DEBOUNCE_MS = 10_000;
-
-const escapeRegExp = (value: string) =>
-	value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const createTextMatchRanges = ({
-	element,
-	query,
-}: {
-	element: HTMLElement;
-	query: string;
-}) => {
-	const ranges: Range[] = [];
-	const normalizedQuery = query.trim().toLocaleLowerCase();
-
-	if (!normalizedQuery) {
-		return ranges;
-	}
-
-	const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-	let currentNode = walker.nextNode();
-	const matcher = new RegExp(escapeRegExp(normalizedQuery), "gu");
-
-	while (currentNode) {
-		const textNode = currentNode as Text;
-		const normalizedText = textNode.data.toLocaleLowerCase();
-		let match = matcher.exec(normalizedText);
-
-		while (match) {
-			const searchIndex = match.index;
-			const range = document.createRange();
-			range.setStart(textNode, searchIndex);
-			range.setEnd(textNode, searchIndex + normalizedQuery.length);
-			ranges.push(range);
-			match = matcher.exec(normalizedText);
-		}
-
-		matcher.lastIndex = 0;
-		currentNode = walker.nextNode();
-	}
-
-	return ranges;
-};
 
 const showActionError = (message: string, error: unknown) => {
 	logError({ event: "client.error", error: error, message: message });

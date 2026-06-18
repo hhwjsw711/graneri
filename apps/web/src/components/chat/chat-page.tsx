@@ -93,6 +93,7 @@ import {
 } from "@/lib/local-folder-sharing";
 import { logError } from "@/lib/logger";
 import { getNoteDisplayTitle } from "@/lib/note-title";
+import { createTextMatchRanges, escapeRegExp } from "@/lib/text-search-ranges";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc } from "../../../../../convex/_generated/dataModel";
 import { ChatComposer, type ChatComposerMention } from "./chat-composer";
@@ -173,9 +174,6 @@ const getPersistedChatReasoningEffort = (
 	reasoningEffort: string | undefined,
 ): ReasoningEffort | null =>
 	reasoningEffort ? (findReasoningEffort(reasoningEffort)?.id ?? null) : null;
-
-const escapeRegExp = (value: string) =>
-	value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const getMentionRequestContext = (mentions: ChatComposerMention[]) => {
 	const noteMentionIds: string[] = [];
@@ -263,45 +261,6 @@ const CHAT_SEARCH_ACTIVE_MATCH_HIGHLIGHT = "chat-search-active-match";
 
 type ChatComposerDraftMetadata = {
 	mentions: ChatComposerMention[];
-};
-
-const createTextMatchRanges = ({
-	element,
-	query,
-}: {
-	element: HTMLElement;
-	query: string;
-}) => {
-	const ranges: Range[] = [];
-	const normalizedQuery = query.trim().toLocaleLowerCase();
-
-	if (!normalizedQuery) {
-		return ranges;
-	}
-
-	const matcher = new RegExp(escapeRegExp(normalizedQuery), "gu");
-	const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-	let currentNode = walker.nextNode();
-
-	while (currentNode) {
-		const textNode = currentNode as Text;
-		const normalizedText = textNode.data.toLocaleLowerCase();
-		let match = matcher.exec(normalizedText);
-
-		while (match) {
-			const range = document.createRange();
-			const searchIndex = match.index;
-			range.setStart(textNode, searchIndex);
-			range.setEnd(textNode, searchIndex + normalizedQuery.length);
-			ranges.push(range);
-			match = matcher.exec(normalizedText);
-		}
-
-		matcher.lastIndex = 0;
-		currentNode = walker.nextNode();
-	}
-
-	return ranges;
 };
 
 const useChatPageController = ({
