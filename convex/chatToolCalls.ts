@@ -3,6 +3,7 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { appendAssistantRunEvent } from "./assistantRunEvents";
+import { getOwnedActiveChatById } from "./assistantRunLifecycle";
 import { requireTokenIdentifier } from "./domain";
 
 const chatToolCallStatusValidator = v.union(
@@ -26,22 +27,6 @@ const chatToolCallValidator = v.object({
 	createdAt: v.number(),
 	updatedAt: v.number(),
 });
-
-const getOwnedActiveChatById = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	workspaceId: Id<"workspaces">,
-	chatId: string,
-) =>
-	await ctx.db
-		.query("chats")
-		.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_chatId", (q) =>
-			q
-				.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-				.eq("workspaceId", workspaceId)
-				.eq("chatId", chatId),
-		)
-		.unique();
 
 const getActiveStreamByRunId = async (
 	ctx: QueryCtx | MutationCtx,
@@ -83,7 +68,7 @@ const requireOwnedActiveStream = async (
 		args.chatId,
 	);
 
-	if (!chat || chat.isArchived) {
+	if (!chat) {
 		throw new ConvexError({
 			code: "CHAT_NOT_FOUND",
 			message: "Chat not found.",

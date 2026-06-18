@@ -1,8 +1,13 @@
 import { ConvexError, v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { requireOwnedWorkspace, requireTokenIdentifier } from "./domain";
+import {
+	getNonTerminalRunsForChat,
+	getOwnedActiveChatById,
+	isNonTerminalRun,
+} from "./assistantRunLifecycle";
+import { requireTokenIdentifier } from "./domain";
 
 const queuedMessageStatusValidator = v.union(
 	v.literal("queued"),
@@ -36,41 +41,8 @@ const queuedMessageInputValidator = v.object({
 	requestBodyJson: v.string(),
 });
 
-const nonTerminalRunStatuses = [
-	"queued",
-	"running",
-	"waiting_for_user",
-	"stopping",
-] as const;
 const queuedMessagesListLimit = 20;
 const STALE_CLAIMED_MESSAGE_MS = 10_000;
-
-const isNonTerminalRun = (run: Doc<"assistantRuns">) =>
-	nonTerminalRunStatuses.some((status) => status === run.status);
-
-const getOwnedActiveChatById = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	workspaceId: Id<"workspaces">,
-	chatId: string,
-) => {
-	await requireOwnedWorkspace(ctx, ownerTokenIdentifier, workspaceId);
-	const chat = await ctx.db
-		.query("chats")
-		.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_chatId", (q) =>
-			q
-				.eq("ownerTokenIdentifier", ownerTokenIdentifier)
-				.eq("workspaceId", workspaceId)
-				.eq("chatId", chatId.trim()),
-		)
-		.unique();
-
-	if (!chat || chat.isArchived) {
-		return null;
-	}
-
-	return chat;
-};
 
 const getOwnedRun = async (
 	ctx: QueryCtx | MutationCtx,
@@ -103,24 +75,6 @@ const requireSavedQueuedMessage = async (
 	}
 
 	return queuedMessage;
-};
-
-const getNonTerminalRunsForChat = async (
-	ctx: QueryCtx | MutationCtx,
-	chatId: Id<"chats">,
-) => {
-	const runs = await Promise.all(
-		nonTerminalRunStatuses.map((status) =>
-			ctx.db
-				.query("assistantRuns")
-				.withIndex("by_chatId_and_status", (q) =>
-					q.eq("chatId", chatId).eq("status", status),
-				)
-				.take(1),
-		),
-	);
-
-	return runs.flat();
 };
 
 export const enqueueForActiveRun = mutation({

@@ -10,6 +10,10 @@ import {
 } from "./_generated/server";
 import { deleteRunSnapshots } from "./assistantRuns";
 import {
+	getOwnedActiveChatById,
+	nonTerminalRunStatuses,
+} from "./assistantRunLifecycle";
+import {
 	moveLinkedAutomationToFreshChat,
 	pauseLinkedAutomationForChat,
 	resumeLinkedAutomationForChat,
@@ -163,27 +167,6 @@ const getOwnedChatById = async (
 		)
 		.unique();
 
-const getOwnedActiveChatById = async (
-	ctx: QueryCtx | MutationCtx,
-	ownerTokenIdentifier: string,
-	workspaceId: Id<"workspaces">,
-	chatId: string,
-) => {
-	await requireOwnedWorkspace(ctx, ownerTokenIdentifier, workspaceId);
-	const chat = await getOwnedChatById(
-		ctx,
-		ownerTokenIdentifier,
-		workspaceId,
-		clampWhitespace(chatId),
-	);
-
-	if (!chat || chat.isArchived) {
-		return null;
-	}
-
-	return chat;
-};
-
 const moveAutomationToFreshChat = async (
 	ctx: MutationCtx,
 	chat: Doc<"chats">,
@@ -225,13 +208,6 @@ const getActiveStreamByRunId = async (
 		.query("chatActiveStreams")
 		.withIndex("by_runId", (q) => q.eq("runId", runId))
 		.unique();
-
-const nonTerminalRunStatuses = [
-	"queued",
-	"running",
-	"waiting_for_user",
-	"stopping",
-] as const;
 
 const stopActiveRunsForChat = async (
 	ctx: MutationCtx,
