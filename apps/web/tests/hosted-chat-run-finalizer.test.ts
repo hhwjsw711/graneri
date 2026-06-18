@@ -47,6 +47,7 @@ const createFinalizerHarness = () => {
 
 	const finalizeAssistantRun = createHostedAssistantRunFinalizer({
 		activeStreamSession,
+		assistantMessageId: "assistant-message-1",
 		assistantRunId: "assistant-run-1",
 		chatId: "chat-1",
 		failAssistantRun,
@@ -107,6 +108,30 @@ describe("hosted assistant run finalizer", () => {
 			"onCompleted",
 			"cleanup",
 		]);
+	});
+
+	it("saves completed responses with the assistant run message id", async () => {
+		const harness = createFinalizerHarness();
+
+		await harness.finalizeAssistantRun({
+			responseMessage: {
+				...createMessage(),
+				id: "ai-sdk-response-message",
+			},
+			status: "completed",
+		});
+
+		expect(harness.saveAssistantMessageForRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				message: expect.objectContaining({
+					id: "assistant-message-1",
+				}),
+				runId: "assistant-run-1",
+			}),
+		);
+		expect(harness.finishAssistantRun).toHaveBeenCalledWith({
+			runId: "assistant-run-1",
+		});
 	});
 
 	it("cleans up without finishing when the assistant message was already terminal", async () => {
@@ -260,5 +285,57 @@ describe("hosted assistant run finalization queue", () => {
 
 		resolveFinalize?.();
 		await firstFlush;
+	});
+
+	it("does not block the client stream while completed runs finalize", async () => {
+		let resolveFinalize: (() => void) | null = null;
+		const finalizeAssistantRun = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					resolveFinalize = resolve;
+				}),
+		);
+		const queue = createHostedAssistantRunFinalizationQueue({
+			finalizeAssistantRun,
+			logLatency: vi.fn(),
+			runId: "assistant-run-1",
+		});
+		const terminalization = {
+			responseMessage: createMessage(),
+			status: "completed" as const,
+		};
+
+		queue.setTerminalization(terminalization);
+
+		await expect(queue.flushAfterClientStream()).resolves.toBeUndefined();
+		expect(finalizeAssistantRun).toHaveBeenCalledOnce();
+		expect(finalizeAssistantRun).toHaveBeenCalledWith(terminalization);
+
+		resolveFinalize?.();
+		await queue.flush();
+	});
+
+	it("awaits failed terminalization before the client stream closes", async () => {
+		let didFinalize = false;
+		const finalizeAssistantRun = vi.fn(async () => {
+			await Promise.resolve();
+			didFinalize = true;
+		});
+		const queue = createHostedAssistantRunFinalizationQueue({
+			finalizeAssistantRun,
+			logLatency: vi.fn(),
+			runId: "assistant-run-1",
+		});
+		const terminalization = {
+			errorText: "stream failed",
+			status: "failed" as const,
+		};
+
+		queue.setTerminalization(terminalization);
+
+		await queue.flushAfterClientStream();
+
+		expect(didFinalize).toBe(true);
+		expect(finalizeAssistantRun).toHaveBeenCalledWith(terminalization);
 	});
 });

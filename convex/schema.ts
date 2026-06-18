@@ -586,6 +586,7 @@ export default defineSchema({
 		updatedAt: v.number(),
 		finishedAt: v.optional(v.number()),
 	})
+		.index("by_chatId", ["chatId"])
 		.index("by_chatId_and_status", ["chatId", "status"])
 		.index("by_workspaceId_and_chatId", ["workspaceId", "chatId"])
 		.index("by_workspaceId_and_status", ["workspaceId", "status"])

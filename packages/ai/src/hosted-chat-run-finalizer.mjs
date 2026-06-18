@@ -20,6 +20,7 @@ const isConvexErrorCode = (error, code) => getConvexErrorCode(error) === code;
 
 export const createHostedAssistantRunFinalizer = ({
 	activeStreamSession,
+	assistantMessageId,
 	assistantRunId,
 	chatId,
 	failAssistantRun,
@@ -39,9 +40,19 @@ export const createHostedAssistantRunFinalizer = ({
 	updateChatTitle,
 	workspaceId,
 }) => {
+	const getRunResponseMessage = (responseMessage) =>
+		responseMessage.id === assistantMessageId
+			? responseMessage
+			: {
+					...responseMessage,
+					id: assistantMessageId,
+				};
+
 	const finalizeCompletedRun = async ({ responseMessage }) => {
+		const runResponseMessage = getRunResponseMessage(responseMessage);
 		logLatency("stream.persist_save_start", {
-			messageId: responseMessage.id,
+			messageId: runResponseMessage.id,
+			responseMessageId: responseMessage.id,
 			runId: assistantRunId,
 		});
 		const saveResult = await saveAssistantMessageForRun({
@@ -51,12 +62,13 @@ export const createHostedAssistantRunFinalizer = ({
 				noteId,
 				model,
 				reasoningEffort,
-				message: responseMessage,
+				message: runResponseMessage,
 			}),
 			runId: assistantRunId,
 		});
 		logLatency("stream.persist_save_done", {
-			messageId: responseMessage.id,
+			messageId: runResponseMessage.id,
+			responseMessageId: responseMessage.id,
 			runId: assistantRunId,
 			saved: Boolean(saveResult),
 		});
@@ -77,7 +89,7 @@ export const createHostedAssistantRunFinalizer = ({
 				try {
 					const generatedChatTitle = await generateHostedChatTitle({
 						userMessage: lastUserMessage,
-						assistantMessage: responseMessage,
+						assistantMessage: runResponseMessage,
 					});
 					await updateChatTitle({
 						workspaceId,

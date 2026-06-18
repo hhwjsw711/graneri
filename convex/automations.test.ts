@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
-import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -11,6 +11,14 @@ const ownerIdentity = {
 	name: "Owner",
 	email: "owner@example.com",
 };
+
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 const createWorkspace = async () => {
 	const t = convexTest(schema, modules);
@@ -29,6 +37,7 @@ const createWorkspace = async () => {
 
 	return {
 		asOwner,
+		t,
 		workspaceId,
 	};
 };
@@ -404,4 +413,169 @@ test("deleting an automation leaves its chat", async () => {
 
 	expect(chat).not.toBeNull();
 	expect(automations.some((item) => item.id === automation.id)).toBe(false);
+});
+
+test("owner cleanup removes automations and automation runs", async () => {
+	const { t, workspaceId } = await createWorkspace();
+
+	await t.run(async (ctx) => {
+		const automationId = await ctx.db.insert("automations", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			title: "Daily review",
+			prompt: "Review the workspace.",
+			model: "gpt-5.4",
+			reasoningEffort: "medium",
+			webSearchEnabled: false,
+			appsEnabled: true,
+			appSources: [],
+			schedulePeriod: "daily",
+			scheduledAt: 2_000,
+			timezone: "UTC",
+			targetKind: "workspace",
+			targetLabel: "Workspace",
+			chatId: "automation-cleanup-chat",
+			isPaused: false,
+			createdAt: 1_000,
+			updatedAt: 1_000,
+		});
+		await ctx.db.insert("automationRuns", {
+			automationId,
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: "automation-cleanup-chat",
+			scheduledFor: 2_000,
+			reason: "manual",
+			status: "completed",
+			startedAt: 2_000,
+			completedAt: 3_000,
+			createdAt: 2_000,
+			updatedAt: 3_000,
+		});
+	});
+
+	await t.mutation(internal.automations.removeAllForOwner, {
+		ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+	});
+
+	const rows = await t.run(async (ctx) => ({
+		automations: await ctx.db.query("automations").take(1),
+		runs: await ctx.db.query("automationRuns").take(1),
+	}));
+
+	expect(rows.automations).toHaveLength(0);
+	expect(rows.runs).toHaveLength(0);
+});
+
+test("removeOrphanedRuns deletes automation runs after automation is gone", async () => {
+	const { t, workspaceId } = await createWorkspace();
+	const automationId = await t.run(async (ctx) => {
+		const automationId = await ctx.db.insert("automations", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			title: "Daily review",
+			prompt: "Review the workspace.",
+			model: "gpt-5.4",
+			reasoningEffort: "medium",
+			webSearchEnabled: false,
+			appsEnabled: true,
+			appSources: [],
+			schedulePeriod: "daily",
+			scheduledAt: 2_000,
+			timezone: "UTC",
+			targetKind: "workspace",
+			targetLabel: "Workspace",
+			chatId: "automation-orphan-run-chat",
+			isPaused: false,
+			createdAt: 1_000,
+			updatedAt: 1_000,
+		});
+		await ctx.db.insert("automationRuns", {
+			automationId,
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: "automation-orphan-run-chat",
+			scheduledFor: 2_000,
+			reason: "manual",
+			status: "completed",
+			startedAt: 2_000,
+			completedAt: 3_000,
+			createdAt: 2_000,
+			updatedAt: 3_000,
+		});
+		await ctx.db.delete(automationId);
+
+		return automationId;
+	});
+
+	const result = await t.mutation(internal.automations.removeOrphanedRuns, {
+		automationId,
+	});
+	const runs = await t.run(async (ctx) =>
+		ctx.db
+			.query("automationRuns")
+			.withIndex("by_automationId_and_scheduledFor", (q) =>
+				q.eq("automationId", automationId),
+			)
+			.take(1),
+	);
+
+	expect(result).toEqual({ deletedCount: 1, hasMore: false });
+	expect(runs).toHaveLength(0);
+});
+
+test("removeOrphanedRuns leaves automation runs while automation exists", async () => {
+	const { t, workspaceId } = await createWorkspace();
+	const automationId = await t.run(async (ctx) => {
+		const automationId = await ctx.db.insert("automations", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			title: "Daily review",
+			prompt: "Review the workspace.",
+			model: "gpt-5.4",
+			reasoningEffort: "medium",
+			webSearchEnabled: false,
+			appsEnabled: true,
+			appSources: [],
+			schedulePeriod: "daily",
+			scheduledAt: 2_000,
+			timezone: "UTC",
+			targetKind: "workspace",
+			targetLabel: "Workspace",
+			chatId: "automation-active-run-chat",
+			isPaused: false,
+			createdAt: 1_000,
+			updatedAt: 1_000,
+		});
+		await ctx.db.insert("automationRuns", {
+			automationId,
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: "automation-active-run-chat",
+			scheduledFor: 2_000,
+			reason: "manual",
+			status: "completed",
+			startedAt: 2_000,
+			completedAt: 3_000,
+			createdAt: 2_000,
+			updatedAt: 3_000,
+		});
+
+		return automationId;
+	});
+
+	const result = await t.mutation(internal.automations.removeOrphanedRuns, {
+		automationId,
+	});
+	const runs = await t.run(async (ctx) =>
+		ctx.db
+			.query("automationRuns")
+			.withIndex("by_automationId_and_scheduledFor", (q) =>
+				q.eq("automationId", automationId),
+			)
+			.take(1),
+	);
+
+	expect(result).toEqual({ deletedCount: 0, hasMore: false });
+	expect(runs).toHaveLength(1);
 });

@@ -250,10 +250,15 @@ export const createHostedActiveStreamSession = ({
 		streamKey,
 		async start() {
 			const existingSession = controllers.get(streamKey);
-			existingSession?.abort("superseded");
-			existingSession?.cleanup?.();
+			if (existingSession && !existingSession.isBroadcastClosed?.()) {
+				existingSession.abort("superseded");
+				existingSession.cleanup?.();
+			}
 			controllers.set(streamKey, session);
 			await persister.start();
+		},
+		isBroadcastClosed() {
+			return broadcastClosed;
 		},
 		append(delta) {
 			persister.append(delta);

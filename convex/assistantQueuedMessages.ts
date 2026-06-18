@@ -43,6 +43,7 @@ const nonTerminalRunStatuses = [
 	"stopping",
 ] as const;
 const queuedMessagesListLimit = 20;
+const STALE_CLAIMED_MESSAGE_MS = 10_000;
 
 const isNonTerminalRun = (run: Doc<"assistantRuns">) =>
 	nonTerminalRunStatuses.some((status) => status === run.status);
@@ -86,6 +87,22 @@ const getOwnedRun = async (
 	}
 
 	return run;
+};
+
+const requireSavedQueuedMessage = async (
+	ctx: QueryCtx | MutationCtx,
+	queuedMessageId: Id<"assistantQueuedMessages">,
+) => {
+	const queuedMessage = await ctx.db.get(queuedMessageId);
+
+	if (!queuedMessage) {
+		throw new ConvexError({
+			code: "QUEUED_MESSAGE_NOT_FOUND",
+			message: "Queued message not found.",
+		});
+	}
+
+	return queuedMessage;
 };
 
 const getNonTerminalRunsForChat = async (
@@ -196,20 +213,38 @@ export const listQueuedForChat = query({
 			return [];
 		}
 
-		const queuedMessages = await ctx.db
-			.query("assistantQueuedMessages")
-			.withIndex("by_chatId_and_status_and_createdAt", (q) =>
-				q.eq("chatId", chat._id).eq("status", "queued"),
-			)
-			.take(queuedMessagesListLimit);
+		const now = Date.now();
+		const [queuedMessages, claimedMessages] = await Promise.all([
+			ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_chatId_and_status_and_createdAt", (q) =>
+					q.eq("chatId", chat._id).eq("status", "queued"),
+				)
+				.take(queuedMessagesListLimit),
+			ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_chatId_and_status_and_createdAt", (q) =>
+					q.eq("chatId", chat._id).eq("status", "claimed"),
+				)
+				.take(queuedMessagesListLimit),
+		]);
 
-		return queuedMessages;
+		return [...queuedMessages, ...claimedMessages]
+			.filter(
+				(message) =>
+					message.status === "queued" ||
+					(message.claimedAt ?? message.updatedAt) <
+						now - STALE_CLAIMED_MESSAGE_MS,
+			)
+			.sort((a, b) => a.createdAt - b.createdAt)
+			.slice(0, queuedMessagesListLimit);
 	},
 });
 
 export const claimNextForRun = mutation({
 	args: {
 		runId: v.id("assistantRuns"),
+		queuedMessageId: v.optional(v.id("assistantQueuedMessages")),
 	},
 	returns: v.union(queuedMessageValidator, v.null()),
 	handler: async (ctx, args) => {
@@ -223,15 +258,23 @@ export const claimNextForRun = mutation({
 			return null;
 		}
 
-		const queuedMessages = await ctx.db
-			.query("assistantQueuedMessages")
-			.withIndex("by_runId_and_status_and_createdAt", (q) =>
-				q.eq("runId", run._id).eq("status", "queued"),
-			)
-			.take(1);
-		const nextQueuedMessage = queuedMessages[0];
+		const nextQueuedMessage = args.queuedMessageId
+			? await ctx.db.get(args.queuedMessageId)
+			: await ctx.db
+					.query("assistantQueuedMessages")
+					.withIndex("by_runId_and_status_and_createdAt", (q) =>
+						q.eq("runId", run._id).eq("status", "queued"),
+					)
+					.first();
 
 		if (!nextQueuedMessage) {
+			return null;
+		}
+		if (
+			nextQueuedMessage.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			nextQueuedMessage.runId !== run._id ||
+			nextQueuedMessage.status !== "queued"
+		) {
 			return null;
 		}
 
@@ -242,7 +285,7 @@ export const claimNextForRun = mutation({
 			claimedAt: now,
 		});
 
-		return (await ctx.db.get(nextQueuedMessage._id))!;
+		return await requireSavedQueuedMessage(ctx, nextQueuedMessage._id);
 	},
 });
 
@@ -273,25 +316,38 @@ export const claimNextForChat = mutation({
 			return null;
 		}
 
-		const nextQueuedMessage = await ctx.db
+		const now = Date.now();
+		const claimedMessages = await ctx.db
 			.query("assistantQueuedMessages")
 			.withIndex("by_chatId_and_status_and_createdAt", (q) =>
-				q.eq("chatId", chat._id).eq("status", "queued"),
+				q.eq("chatId", chat._id).eq("status", "claimed"),
 			)
-			.first();
+			.take(queuedMessagesListLimit);
+		const staleClaimedMessage = claimedMessages.find(
+			(message) =>
+				(message.claimedAt ?? message.updatedAt) <
+				now - STALE_CLAIMED_MESSAGE_MS,
+		);
+		const nextQueuedMessage =
+			staleClaimedMessage ??
+			(await ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_chatId_and_status_and_createdAt", (q) =>
+					q.eq("chatId", chat._id).eq("status", "queued"),
+				)
+				.first());
 
 		if (!nextQueuedMessage) {
 			return null;
 		}
 
-		const now = Date.now();
 		await ctx.db.patch(nextQueuedMessage._id, {
 			status: "claimed",
 			updatedAt: now,
 			claimedAt: now,
 		});
 
-		return (await ctx.db.get(nextQueuedMessage._id))!;
+		return await requireSavedQueuedMessage(ctx, nextQueuedMessage._id);
 	},
 });
 
@@ -330,7 +386,154 @@ export const requeueClaimed = mutation({
 			claimedAt: undefined,
 		});
 
-		return (await ctx.db.get(queuedMessage._id))!;
+		return await requireSavedQueuedMessage(ctx, queuedMessage._id);
+	},
+});
+
+export const discardClaimed = mutation({
+	args: {
+		queuedMessageId: v.id("assistantQueuedMessages"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(
+			ctx,
+			"assistantQueuedMessages",
+		);
+		const queuedMessage = await ctx.db.get(args.queuedMessageId);
+
+		if (
+			!queuedMessage ||
+			queuedMessage.ownerTokenIdentifier !== ownerTokenIdentifier
+		) {
+			return null;
+		}
+
+		if (queuedMessage.status !== "claimed") {
+			return null;
+		}
+
+		await ctx.db.patch(queuedMessage._id, {
+			status: "discarded",
+			updatedAt: Date.now(),
+		});
+
+		return null;
+	},
+});
+
+export const discardQueued = mutation({
+	args: {
+		queuedMessageId: v.id("assistantQueuedMessages"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(
+			ctx,
+			"assistantQueuedMessages",
+		);
+		const queuedMessage = await ctx.db.get(args.queuedMessageId);
+
+		if (
+			!queuedMessage ||
+			queuedMessage.ownerTokenIdentifier !== ownerTokenIdentifier
+		) {
+			return null;
+		}
+
+		if (queuedMessage.status !== "queued") {
+			return null;
+		}
+
+		await ctx.db.patch(queuedMessage._id, {
+			status: "discarded",
+			updatedAt: Date.now(),
+		});
+
+		return null;
+	},
+});
+
+export const reorderQueuedForChat = mutation({
+	args: {
+		workspaceId: v.id("workspaces"),
+		chatId: v.string(),
+		queuedMessageIds: v.array(v.id("assistantQueuedMessages")),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(
+			ctx,
+			"assistantQueuedMessages",
+		);
+		const chat = await getOwnedActiveChatById(
+			ctx,
+			ownerTokenIdentifier,
+			args.workspaceId,
+			args.chatId,
+		);
+
+		if (!chat) {
+			return null;
+		}
+
+		const uniqueQueuedMessageIds = [...new Set(args.queuedMessageIds)];
+		const queuedMessages = await Promise.all(
+			uniqueQueuedMessageIds.map((queuedMessageId) =>
+				ctx.db.get(queuedMessageId),
+			),
+		);
+		if (
+			queuedMessages.some(
+				(queuedMessage) =>
+					!queuedMessage ||
+					queuedMessage.ownerTokenIdentifier !== ownerTokenIdentifier ||
+					queuedMessage.workspaceId !== args.workspaceId ||
+					queuedMessage.chatId !== chat._id ||
+					queuedMessage.status !== "queued",
+			)
+		) {
+			throw new ConvexError({
+				code: "INVALID_QUEUED_MESSAGE_REORDER",
+				message: "Queued messages cannot be reordered.",
+			});
+		}
+
+		const existingQueuedMessages = await ctx.db
+			.query("assistantQueuedMessages")
+			.withIndex("by_chatId_and_status_and_createdAt", (q) =>
+				q.eq("chatId", chat._id).eq("status", "queued"),
+			)
+			.take(queuedMessagesListLimit);
+		if (
+			existingQueuedMessages.length !== uniqueQueuedMessageIds.length ||
+			existingQueuedMessages.some(
+				(queuedMessage) =>
+					!uniqueQueuedMessageIds.some(
+						(queuedMessageId) => queuedMessageId === queuedMessage._id,
+					),
+			)
+		) {
+			throw new ConvexError({
+				code: "INVALID_QUEUED_MESSAGE_REORDER",
+				message: "Queued message order is stale.",
+			});
+		}
+
+		const now = Date.now();
+		const firstCreatedAt = Math.min(
+			...existingQueuedMessages.map((queuedMessage) => queuedMessage.createdAt),
+		);
+		await Promise.all(
+			uniqueQueuedMessageIds.map((queuedMessageId, index) =>
+				ctx.db.patch(queuedMessageId, {
+					createdAt: firstCreatedAt + index,
+					updatedAt: now,
+				}),
+			),
+		);
+
+		return null;
 	},
 });
 

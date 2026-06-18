@@ -1,7 +1,7 @@
-import { convexTest } from "convex-test";
 import { ConvexError } from "convex/values";
+import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { modules } from "./test.setup";
@@ -360,4 +360,100 @@ test("completeSession rejects already terminal transcript sessions", async () =>
 			sessionId,
 		}),
 	).rejects.toThrow(ConvexError);
+});
+
+test("removeOrphanedSession deletes transcript runtime after its note is gone", async () => {
+	const { noteId, t } = await createNoteFixture();
+	const sessionId = await t.run(async (ctx) => {
+		const sessionId = await ctx.db.insert("transcriptSessions", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			noteId,
+			startedAt: 1_000,
+			createdAt: 1_000,
+		});
+		await ctx.db.insert("transcriptSessionStates", {
+			sessionId,
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			noteId,
+			status: "completed",
+			refinementStatus: "idle",
+			createdAt: 1_000,
+			updatedAt: 1_000,
+		});
+		await ctx.db.insert("transcriptUtterances", {
+			sessionId,
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			noteId,
+			utteranceId: "orphaned",
+			speaker: "you",
+			source: "live",
+			text: "Orphaned text.",
+			startedAt: 1_000,
+			endedAt: 1_500,
+			createdAt: 1_000,
+			updatedAt: 1_000,
+		});
+		await ctx.db.delete(noteId);
+
+		return sessionId;
+	});
+
+	const result = await t.mutation(
+		internal.transcriptSessions.removeOrphanedSession,
+		{
+			sessionId,
+		},
+	);
+	const rows = await t.run(async (ctx) => ({
+		session: await ctx.db.get(sessionId),
+		state: await ctx.db
+			.query("transcriptSessionStates")
+			.withIndex("by_sessionId", (q) => q.eq("sessionId", sessionId))
+			.unique(),
+		utterances: await ctx.db
+			.query("transcriptUtterances")
+			.withIndex("by_sessionId_and_startedAt", (q) =>
+				q.eq("sessionId", sessionId),
+			)
+			.take(1),
+	}));
+
+	expect(result).toEqual({ deleted: true, hasMore: false });
+	expect(rows.session).toBeNull();
+	expect(rows.state).toBeNull();
+	expect(rows.utterances).toHaveLength(0);
+});
+
+test("removeOrphanedSession leaves transcript runtime for an active note", async () => {
+	const { noteId, t } = await createNoteFixture();
+	const sessionId = await t.run(async (ctx) => {
+		const sessionId = await ctx.db.insert("transcriptSessions", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			noteId,
+			startedAt: 1_000,
+			createdAt: 1_000,
+		});
+		await ctx.db.insert("transcriptSessionStates", {
+			sessionId,
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			noteId,
+			status: "completed",
+			refinementStatus: "idle",
+			createdAt: 1_000,
+			updatedAt: 1_000,
+		});
+
+		return sessionId;
+	});
+
+	const result = await t.mutation(
+		internal.transcriptSessions.removeOrphanedSession,
+		{
+			sessionId,
+		},
+	);
+	const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
+
+	expect(result).toEqual({ deleted: false, hasMore: false });
+	expect(session).not.toBeNull();
 });

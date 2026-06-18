@@ -32,7 +32,6 @@ import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run
 import {
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
-	generateHostedChatMessageId,
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
@@ -127,6 +126,21 @@ const getConvexUrl = () => {
 
 	return value;
 };
+
+const getConvexErrorCode = (error) => {
+	if (!error || typeof error !== "object" || !("data" in error)) {
+		return null;
+	}
+
+	const data = error.data;
+	if (!data || typeof data !== "object" || !("code" in data)) {
+		return null;
+	}
+
+	return typeof data.code === "string" ? data.code : null;
+};
+
+const isConvexErrorCode = (error, code) => getConvexErrorCode(error) === code;
 
 const getNotesContext = async ({ convexToken, mentions, workspaceId }) => {
 	if (!convexToken || !workspaceId) {
@@ -230,6 +244,8 @@ const handleChatRequest = async ({
 		recipeSlug,
 		noteContext,
 		trigger,
+		allowConcurrentRun = false,
+		supersedeActiveRun = false,
 	} = requestBody;
 	if (shouldProxyHostedAiRequest()) {
 		await proxyHostedAiRequest({
@@ -351,15 +367,19 @@ const handleChatRequest = async ({
 	logLatency("chat.messages_validated", {
 		chatMessageCount: chatMessages.length,
 	});
-	if (trigger !== "regenerate-message") {
-		const attachableRun = await convexClient.query(
-			api.assistantRuns.getAttachableRun,
-			{
-				workspaceId: resolvedWorkspaceId,
-				chatId: id,
-			},
-		);
+	const attachableRun = await convexClient.query(
+		api.assistantRuns.getAttachableRun,
+		{
+			workspaceId: resolvedWorkspaceId,
+			chatId: id,
+		},
+	);
 
+	if (
+		trigger !== "regenerate-message" &&
+		!allowConcurrentRun &&
+		!supersedeActiveRun
+	) {
 		if (attachableRun) {
 			sendJson(response, 409, {
 				error: "Chat already has an active assistant run.",
@@ -505,7 +525,12 @@ const handleChatRequest = async ({
 			assistantMessageId,
 			model: selectedModel.model,
 			reasoningEffort: resolvedReasoningEffort,
-			policy: trigger === "regenerate-message" ? "supersede" : "reject",
+			policy:
+				trigger === "regenerate-message" || supersedeActiveRun
+					? "supersede"
+					: allowConcurrentRun
+						? "allow_concurrent"
+						: "reject",
 		},
 	);
 
@@ -535,6 +560,20 @@ const handleChatRequest = async ({
 		},
 	});
 
+	if (allowConcurrentRun && attachableRun) {
+		try {
+			await convexClient.mutation(api.chats.deleteActiveStreamSnapshot, {
+				workspaceId: resolvedWorkspaceId,
+				chatId: id,
+				runId: attachableRun._id,
+			});
+		} catch (error) {
+			if (!isConvexErrorCode(error, "ACTIVE_STREAM_NOT_FOUND")) {
+				throw error;
+			}
+		}
+	}
+
 	await activeStreamSession.start();
 	logLatency("convex.active_stream_started", {
 		enabled: true,
@@ -554,7 +593,7 @@ const handleChatRequest = async ({
 				uiMessages: chatMessages,
 				abortSignal: activeStreamSession.abortSignal,
 				originalMessages: chatMessages,
-				generateMessageId: generateHostedChatMessageId,
+				generateMessageId: () => assistantMessageId,
 				onFinish: ({ isAborted, responseMessage }) => {
 					logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
 					if (isAborted) {
@@ -580,6 +619,7 @@ const handleChatRequest = async ({
 	logLatency("ai.stream_created");
 	const finalizeAssistantRun = createHostedAssistantRunFinalizer({
 		activeStreamSession,
+		assistantMessageId,
 		assistantRunId: assistantRun._id,
 		chatId: id,
 		failAssistantRun: (args) =>
@@ -620,7 +660,7 @@ const handleChatRequest = async ({
 	});
 	const persistedStream = pipeHostedActiveStreamText({
 		onFlush: async () => {
-			await finalizationQueue?.flush();
+			await finalizationQueue?.flushAfterClientStream();
 		},
 		persister: activeStreamSession,
 		stream: streamLatencyTracker.wrapStream(stream),

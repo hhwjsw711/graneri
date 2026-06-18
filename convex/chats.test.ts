@@ -317,7 +317,7 @@ test("truncating from an edited message removes that branch of the chat", async 
 	expect(relatedRows.toolCallCount).toBe(0);
 });
 
-test("appendActiveStreamText fails when the active stream snapshot is missing", async () => {
+test("appendActiveStreamText ignores missing snapshots for detached running streams", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 
 	await asOwner.mutation(api.chats.saveMessage, {
@@ -347,7 +347,7 @@ test("appendActiveStreamText fails when the active stream snapshot is missing", 
 			runId: run._id,
 			delta: "lost text",
 		}),
-	).rejects.toThrow("Active stream snapshot not found.");
+	).resolves.toBeNull();
 });
 
 test("stopActiveStream rejects a run from another chat", async () => {
@@ -393,7 +393,7 @@ test("stopActiveStream rejects a run from another chat", async () => {
 	expect(remainingSnapshotCount).toBe(1);
 });
 
-test("removing a chat deletes active stream and tool call runtime records", async () => {
+test("removing a chat deletes assistant run runtime records", async () => {
 	const { asOwner, t, workspaceId } = await createWorkspace();
 
 	await asOwner.mutation(api.chats.saveMessage, {
@@ -420,6 +420,17 @@ test("removing a chat deletes active stream and tool call runtime records", asyn
 		toolCallId: "tool-call-1",
 		toolName: "search",
 	});
+	await asOwner.mutation(api.assistantQueuedMessages.enqueueForActiveRun, {
+		workspaceId,
+		chatId: "chat-remove-runtime",
+		runId: run._id,
+		message: {
+			messageId: "queued-message-1",
+			partsJson: JSON.stringify([{ type: "text", text: "Next" }]),
+			text: "Next",
+			requestBodyJson: "{}",
+		},
+	});
 
 	await asOwner.mutation(api.chats.remove, {
 		workspaceId,
@@ -428,13 +439,17 @@ test("removing a chat deletes active stream and tool call runtime records", asyn
 
 	const rows = await t.run(async (ctx) => ({
 		activeStreams: await ctx.db.query("chatActiveStreams").take(1),
+		events: await ctx.db.query("assistantRunEvents").take(1),
+		queuedMessages: await ctx.db.query("assistantQueuedMessages").take(1),
 		toolCalls: await ctx.db.query("chatToolCalls").take(1),
 		runs: await ctx.db.query("assistantRuns").take(1),
 	}));
 
 	expect(rows.activeStreams).toHaveLength(0);
+	expect(rows.events).toHaveLength(0);
+	expect(rows.queuedMessages).toHaveLength(0);
 	expect(rows.toolCalls).toHaveLength(0);
-	expect(rows.runs[0]?.status).toBe("stopped");
+	expect(rows.runs).toHaveLength(0);
 });
 
 test("removing a chat skips malformed legacy attachment storage ids", async () => {

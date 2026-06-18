@@ -122,6 +122,7 @@ const MAX_RETURNED_CHATS = 100;
 const MAX_RETURNED_CHAT_MESSAGES = 200;
 const REMOVE_CHAT_MESSAGES_BATCH_SIZE = 100;
 const REMOVE_ALL_CHATS_BATCH_SIZE = 25;
+const REMOVE_CHAT_RUNTIME_BATCH_SIZE = 100;
 const NOTE_CHAT_BATCH_SIZE = 25;
 const CONVEX_STORAGE_PATH_SEGMENT = "/api/storage/";
 
@@ -236,16 +237,17 @@ const stopActiveRunsForChat = async (
 	ctx: MutationCtx,
 	chatId: Doc<"chats">["_id"],
 ) => {
-	const activeRuns: Doc<"assistantRuns">[] = [];
-	for (const status of nonTerminalRunStatuses) {
-		for await (const run of ctx.db
-			.query("assistantRuns")
-			.withIndex("by_chatId_and_status", (q) =>
-				q.eq("chatId", chatId).eq("status", status),
-			)) {
-			activeRuns.push(run);
-		}
-	}
+	const activeRunBatches = await Promise.all(
+		nonTerminalRunStatuses.map((status) =>
+			ctx.db
+				.query("assistantRuns")
+				.withIndex("by_chatId_and_status", (q) =>
+					q.eq("chatId", chatId).eq("status", status),
+				)
+				.take(REMOVE_CHAT_RUNTIME_BATCH_SIZE),
+		),
+	);
+	const activeRuns = activeRunBatches.flat();
 
 	const now = Date.now();
 	await Promise.all(
@@ -260,13 +262,84 @@ const stopActiveRunsForChat = async (
 			await deleteRunSnapshots(ctx, run._id);
 		}),
 	);
+
+	return activeRunBatches.some(
+		(runs) => runs.length === REMOVE_CHAT_RUNTIME_BATCH_SIZE,
+	);
+};
+
+const deleteRunEventsBatch = async (
+	ctx: MutationCtx,
+	runId: Id<"assistantRuns">,
+) => {
+	const events = await ctx.db
+		.query("assistantRunEvents")
+		.withIndex("by_runId_and_eventIndex", (q) => q.eq("runId", runId))
+		.take(REMOVE_CHAT_RUNTIME_BATCH_SIZE);
+
+	await Promise.all(events.map((event) => ctx.db.delete(event._id)));
+
+	return events.length === REMOVE_CHAT_RUNTIME_BATCH_SIZE;
+};
+
+const deleteChatRuntimeBatch = async (
+	ctx: MutationCtx,
+	chatId: Doc<"chats">["_id"],
+) => {
+	const [activeStreams, queuedMessages, toolCalls, runs] = await Promise.all([
+		ctx.db
+			.query("chatActiveStreams")
+			.withIndex("by_chatId", (q) => q.eq("chatId", chatId))
+			.take(REMOVE_CHAT_RUNTIME_BATCH_SIZE),
+		ctx.db
+			.query("assistantQueuedMessages")
+			.withIndex("by_chatId_and_createdAt", (q) => q.eq("chatId", chatId))
+			.take(REMOVE_CHAT_RUNTIME_BATCH_SIZE),
+		ctx.db
+			.query("chatToolCalls")
+			.withIndex("by_chatId", (q) => q.eq("chatId", chatId))
+			.take(REMOVE_CHAT_RUNTIME_BATCH_SIZE),
+		ctx.db
+			.query("assistantRuns")
+			.withIndex("by_chatId", (q) => q.eq("chatId", chatId))
+			.take(REMOVE_CHAT_RUNTIME_BATCH_SIZE),
+	]);
+
+	const eventBatchesHaveMore = await Promise.all(
+		runs.map((run) => deleteRunEventsBatch(ctx, run._id)),
+	);
+
+	await Promise.all([
+		...activeStreams.map((stream) => ctx.db.delete(stream._id)),
+		...queuedMessages.map((message) => ctx.db.delete(message._id)),
+		...toolCalls.map((toolCall) => ctx.db.delete(toolCall._id)),
+		...runs
+			.filter((_, index) => !eventBatchesHaveMore[index])
+			.map((run) => ctx.db.delete(run._id)),
+	]);
+
+	return {
+		hasMore:
+			activeStreams.length === REMOVE_CHAT_RUNTIME_BATCH_SIZE ||
+			queuedMessages.length === REMOVE_CHAT_RUNTIME_BATCH_SIZE ||
+			toolCalls.length === REMOVE_CHAT_RUNTIME_BATCH_SIZE ||
+			runs.length === REMOVE_CHAT_RUNTIME_BATCH_SIZE ||
+			eventBatchesHaveMore.some(Boolean),
+	};
 };
 
 const deleteChatRuntimeRecords = async (
 	ctx: MutationCtx,
 	chatId: Doc<"chats">["_id"],
 ) => {
-	await stopActiveRunsForChat(ctx, chatId);
+	const activeRunsHaveMore = await stopActiveRunsForChat(ctx, chatId);
+	const result = await deleteChatRuntimeBatch(ctx, chatId);
+
+	if (activeRunsHaveMore || result.hasMore) {
+		await ctx.scheduler.runAfter(0, internal.chats.removeChatRuntimeRecords, {
+			chatId,
+		});
+	}
 };
 
 const toStoredUiMessageSnapshot = (message: Doc<"chatMessages">) => ({
@@ -942,6 +1015,24 @@ export const removeMessagesAndDeleteChat = internalMutation({
 	},
 });
 
+export const removeChatRuntimeRecords = internalMutation({
+	args: {
+		chatId: v.id("chats"),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const result = await deleteChatRuntimeBatch(ctx, args.chatId);
+
+		if (result.hasMore) {
+			await ctx.scheduler.runAfter(0, internal.chats.removeChatRuntimeRecords, {
+				chatId: args.chatId,
+			});
+		}
+
+		return null;
+	},
+});
+
 export const archiveForNote = internalMutation({
 	args: {
 		ownerTokenIdentifier: v.string(),
@@ -1203,10 +1294,7 @@ export const appendActiveStreamText = mutation({
 		const stream = await getActiveStreamByRunId(ctx, args.runId);
 
 		if (!stream || stream.chatId !== chat._id || stream.runId !== args.runId) {
-			throw new ConvexError({
-				code: "ACTIVE_STREAM_NOT_FOUND",
-				message: "Active stream snapshot not found.",
-			});
+			return null;
 		}
 
 		await ctx.db.patch(stream._id, {

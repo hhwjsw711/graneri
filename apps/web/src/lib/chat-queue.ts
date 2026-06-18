@@ -13,8 +13,16 @@ type QueuedMessage = {
 	text: string;
 };
 
+const generatedQueuedMessageIdPrefix = "queued-";
+
+export const createQueuedUserMessageId = () =>
+	`${generatedQueuedMessageIdPrefix}${crypto.randomUUID()}`;
+
 const isRecord = (value: unknown): value is QueuedRequestBody =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isGeneratedQueuedMessageId = (messageId: string) =>
+	messageId.startsWith(generatedQueuedMessageIdPrefix);
 
 const parseQueuedRequestBody = (requestBodyJson: string): QueuedRequestBody => {
 	const parsed = JSON.parse(requestBodyJson) as unknown;
@@ -66,7 +74,7 @@ export const toQueuedUserMessageInput = ({
 	};
 
 	return {
-		messageId: messageId ?? `queued-${crypto.randomUUID()}`,
+		messageId: messageId ?? createQueuedUserMessageId(),
 		partsJson: JSON.stringify([{ type: "text", text: trimmedText }]),
 		metadataJson: metadata === undefined ? undefined : JSON.stringify(metadata),
 		text: trimmedText,
@@ -75,9 +83,11 @@ export const toQueuedUserMessageInput = ({
 };
 
 export const fromQueuedUserMessage = async ({
+	hasMessageId,
 	queuedMessage,
 	resolveConvexToken,
 }: {
+	hasMessageId?: (messageId: string) => boolean;
 	queuedMessage: QueuedMessage;
 	resolveConvexToken: () => Promise<string | null>;
 }) => {
@@ -91,7 +101,11 @@ export const fromQueuedUserMessage = async ({
 			convexToken,
 		},
 		message: {
-			messageId: queuedMessage.messageId,
+			messageId:
+				!isGeneratedQueuedMessageId(queuedMessage.messageId) ||
+				hasMessageId?.(queuedMessage.messageId)
+					? queuedMessage.messageId
+					: undefined,
 			text: queuedMessage.text,
 			metadata,
 		},

@@ -17,6 +17,8 @@ import {
 	X,
 } from "lucide-react";
 import * as React from "react";
+// react-doctor-disable-next-line react-doctor/no-flush-sync
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import {
 	type ChatAttachment,
@@ -63,11 +65,22 @@ import {
 	storeChatReasoningEffort,
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
+import { waitForBrowserPaint } from "@/lib/browser-paint";
 import { getChatId } from "@/lib/chat";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
-import { normalizeChatMessages } from "@/lib/chat-message-state";
-import { toQueuedUserMessageInput } from "@/lib/chat-queue";
+import {
+	appendLocalOptimisticChatMessages,
+	createChatUserMessage,
+	hasRenderableChatMessageText,
+	mergePersistedChatMessagesWithController,
+	normalizeChatMessages,
+} from "@/lib/chat-message-state";
+import {
+	createQueuedUserMessageId,
+	fromQueuedUserMessage,
+	toQueuedUserMessageInput,
+} from "@/lib/chat-queue";
 import {
 	buildWorkspaceChatRequestBody,
 	buildWorkspaceChatRequestBodyFromLocalFolders,
@@ -109,6 +122,11 @@ export type ChatPageProps = {
 	onAddAutomation?: (chatId: string) => void;
 };
 
+type ScopedLocalOptimisticMessages = {
+	chatId: string;
+	messages: UIMessage[];
+};
+
 const getLatestUserMessageText = (messages: UIMessage[]) => {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -128,32 +146,6 @@ const getLatestUserMessageText = (messages: UIMessage[]) => {
 
 const removeMessageById = (messages: UIMessage[], messageId: string) =>
 	messages.filter((message) => message.id !== messageId);
-
-const hasRenderableAssistantText = (messages: UIMessage[]) =>
-	messages.some(
-		(message) =>
-			message.role === "assistant" && getChatText(message).length > 0,
-	);
-
-const createUserMessage = ({
-	files,
-	id,
-	metadata,
-	text,
-}: {
-	files: UIMessage["parts"];
-	id: string;
-	metadata?: UIMessage["metadata"];
-	text: string;
-}): UIMessage => ({
-	id,
-	role: "user",
-	metadata,
-	parts: [
-		...files,
-		...(text.trim().length > 0 ? [{ type: "text" as const, text }] : []),
-	],
-});
 
 const getRegenerationMessages = ({
 	assistantMessageId,
@@ -428,6 +420,21 @@ const useChatPageController = ({
 	const enqueueQueuedMessage = useMutation(
 		api.assistantQueuedMessages.enqueueForActiveRun,
 	);
+	const claimQueuedMessageForRun = useMutation(
+		api.assistantQueuedMessages.claimNextForRun,
+	);
+	const requeueClaimedMessage = useMutation(
+		api.assistantQueuedMessages.requeueClaimed,
+	);
+	const discardClaimedMessage = useMutation(
+		api.assistantQueuedMessages.discardClaimed,
+	);
+	const discardQueuedMessage = useMutation(
+		api.assistantQueuedMessages.discardQueued,
+	);
+	const reorderQueuedMessages = useMutation(
+		api.assistantQueuedMessages.reorderQueuedForChat,
+	);
 	const userPreferences = useQuery(api.userPreferences.get, {});
 	const storedMessages = useQuery(
 		api.chats.getMessages,
@@ -437,7 +444,7 @@ const useChatPageController = ({
 		api.assistantRuns.getAttachableRun,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId, chatId } : "skip",
 	);
-	const displayActiveRun =
+	const attachableActiveRun =
 		activeRun && activeRun.status !== "stopping" ? activeRun : null;
 	const runningAutomationRun = useQuery(
 		api.automations.getRunningRunForChat,
@@ -449,6 +456,8 @@ const useChatPageController = ({
 	);
 	const addToolOutputRef =
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
+	const [localOptimisticMessages, setLocalOptimisticMessages] =
+		React.useState<ScopedLocalOptimisticMessages | null>(null);
 	const handleToolCall = React.useMemo(
 		() =>
 			createDesktopLocalToolCallHandler({
@@ -457,7 +466,6 @@ const useChatPageController = ({
 			}),
 		[],
 	);
-	const activeAssistantMessageId = displayActiveRun?.assistantMessageId ?? null;
 	const {
 		messages,
 		setMessages,
@@ -471,7 +479,6 @@ const useChatPageController = ({
 	} = useChat({
 		id: chatId,
 		transport,
-		experimental_throttle: 120,
 		onToolCall: handleToolCall,
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
@@ -497,6 +504,22 @@ const useChatPageController = ({
 
 	const isAiRequestPending = status === "submitted" || status === "streaming";
 	const isChatRequestPending = isPreparingRequest || isAiRequestPending;
+	const hasLocallyCompletedAssistantMessage =
+		!isAiRequestPending &&
+		Boolean(
+			attachableActiveRun &&
+				hasRenderableChatMessageText(
+					controllerMessages.find(
+						(message) =>
+							message.id === attachableActiveRun.assistantMessageId &&
+							message.role === "assistant",
+					),
+				),
+		);
+	const displayActiveRun = hasLocallyCompletedAssistantMessage
+		? null
+		: attachableActiveRun;
+	const activeAssistantMessageId = displayActiveRun?.assistantMessageId ?? null;
 
 	const persistedMessagesSeedKey = React.useMemo(
 		() => getUIMessageSeedKey(persistedMessages),
@@ -531,7 +554,7 @@ const useChatPageController = ({
 			const shouldUsePersistedMessages =
 				currentMessages.length === 0 ||
 				currentMessagesSeedKey === appliedPersistedMessagesSeedKeyRef.current ||
-				(!activeRun && nextPersistedMessages.length > currentMessages.length);
+				(!activeRun && nextPersistedMessages.length > 0);
 
 			if (shouldUsePersistedMessages) {
 				appliedPersistedMessagesSeedKeyRef.current = persistedMessagesSeedKey;
@@ -555,49 +578,298 @@ const useChatPageController = ({
 	const isChatUiPending =
 		isChatRequestPending || isPersistedChatStreaming || isAutomationRunning;
 	const canStop = isChatRequestPending || isPersistedChatStreaming;
-	const displayMessages = React.useMemo(() => {
+	const mergedDisplayMessages = React.useMemo(() => {
 		if (!activeAssistantMessageId || !displayActiveRun) {
 			return controllerMessages.length > 0
 				? controllerMessages
 				: persistedMessages;
 		}
 
-		const controllerMessagesWithoutSnapshot = removeMessageById(
-			controllerMessages,
-			activeAssistantMessageId,
+		const activeControllerMessage = controllerMessages.find(
+			(message) =>
+				message.id === activeAssistantMessageId && message.role === "assistant",
 		);
-
-		if (hasRenderableAssistantText(controllerMessagesWithoutSnapshot)) {
-			return controllerMessagesWithoutSnapshot;
-		}
-
 		const activeSnapshotMessage = persistedMessages.find(
 			(message) =>
 				message.id === activeAssistantMessageId && message.role === "assistant",
 		);
+		const activeAssistantMessage = hasRenderableChatMessageText(
+			activeControllerMessage,
+		)
+			? activeControllerMessage
+			: activeSnapshotMessage;
 
-		return activeSnapshotMessage
-			? normalizeChatMessages([
-					...controllerMessagesWithoutSnapshot,
-					activeSnapshotMessage,
-				])
-			: controllerMessagesWithoutSnapshot;
+		return mergePersistedChatMessagesWithController({
+			activeAssistantMessage,
+			activeAssistantMessageId,
+			controllerMessages,
+			persistedMessages,
+		});
 	}, [
 		activeAssistantMessageId,
 		displayActiveRun,
 		controllerMessages,
 		persistedMessages,
 	]);
+	const displayMessages = React.useMemo(
+		() =>
+			appendLocalOptimisticChatMessages({
+				displayMessages: mergedDisplayMessages,
+				localOptimisticMessages:
+					localOptimisticMessages?.chatId === chatId
+						? localOptimisticMessages.messages
+						: [],
+				resolvedMessages: persistedMessages,
+			}),
+		[chatId, localOptimisticMessages, mergedDisplayMessages, persistedMessages],
+	);
 	const hasMessages = displayMessages.length > 0 || isAutomationRunning;
-	useQueuedChatDrain({
-		activeRun,
+	const localMessageIds = React.useMemo(
+		() =>
+			new Set([
+				...controllerMessages.map((message) => message.id),
+				...(localOptimisticMessages?.chatId === chatId
+					? localOptimisticMessages.messages.map((message) => message.id)
+					: []),
+			]),
+		[chatId, controllerMessages, localOptimisticMessages],
+	);
+	const { queuedMessages, setQueuedMessages } = useQueuedChatDrain({
+		activeRun: displayActiveRun,
 		chatId,
 		contextLabel: "chat",
 		isBlocked: isChatRequestPending || isAutomationRunning,
 		latestRequestBodyRef,
+		localMessageIds,
 		sendMessage,
 		workspaceId: activeWorkspaceId,
 	});
+	const [queuedMessageSendingNowId, setQueuedMessageSendingNowId] =
+		React.useState<string | null>(null);
+	const [queuedMessageEditingId, setQueuedMessageEditingId] = React.useState<
+		string | null
+	>(null);
+	const [queuedMessageDeletingId, setQueuedMessageDeletingId] = React.useState<
+		string | null
+	>(null);
+	const queuedFollowUp = queuedMessages[0] ?? null;
+	const handleSendQueuedFollowUpNow = React.useCallback(
+		async (queuedMessageId?: string) => {
+			if (
+				!activeWorkspaceId ||
+				!displayActiveRun ||
+				queuedMessageSendingNowId
+			) {
+				return;
+			}
+
+			let claimedQueuedMessageId: Doc<"assistantQueuedMessages">["_id"] | null =
+				null;
+			let claimedQueuedMessage: Doc<"assistantQueuedMessages"> | null = null;
+			try {
+				const queuedMessage = await claimQueuedMessageForRun({
+					runId: displayActiveRun._id,
+					queuedMessageId: queuedMessageId as
+						| Doc<"assistantQueuedMessages">["_id"]
+						| undefined,
+				});
+
+				if (!queuedMessage) {
+					return;
+				}
+
+				claimedQueuedMessageId = queuedMessage._id;
+				claimedQueuedMessage = queuedMessage;
+				setQueuedMessages((messages) =>
+					messages.filter((message) => message._id !== queuedMessage._id),
+				);
+				setQueuedMessageSendingNowId(queuedMessage._id);
+				const preparedQueuedMessage = await fromQueuedUserMessage({
+					hasMessageId: (messageId) => localMessageIds.has(messageId),
+					queuedMessage,
+					resolveConvexToken: getCachedConvexToken,
+				});
+				const outgoingRequestBody = {
+					...preparedQueuedMessage.body,
+					supersedeActiveRun: true,
+				};
+				latestRequestBodyRef.current = outgoingRequestBody;
+				await sendMessage(preparedQueuedMessage.message, {
+					body: outgoingRequestBody,
+				});
+				await discardClaimedMessage({
+					queuedMessageId: claimedQueuedMessageId,
+				});
+				claimedQueuedMessageId = null;
+			} catch (error) {
+				if (claimedQueuedMessageId) {
+					await requeueClaimedMessage({
+						queuedMessageId: claimedQueuedMessageId,
+					}).catch((requeueError) => {
+						logError({
+							event: "client.error",
+							error: requeueError,
+							message: "Failed to requeue steered chat message",
+						});
+					});
+					if (claimedQueuedMessage) {
+						const requeuedMessage = claimedQueuedMessage;
+						setQueuedMessages((messages) =>
+							messages.some((message) => message._id === requeuedMessage._id)
+								? messages
+								: [requeuedMessage, ...messages],
+						);
+					}
+				}
+				logError({
+					event: "client.error",
+					error,
+					message: "Failed to send queued chat message now",
+				});
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to send queued message now",
+				);
+			} finally {
+				setQueuedMessageSendingNowId(null);
+			}
+		},
+		[
+			activeWorkspaceId,
+			claimQueuedMessageForRun,
+			discardClaimedMessage,
+			displayActiveRun,
+			localMessageIds,
+			queuedMessageSendingNowId,
+			requeueClaimedMessage,
+			sendMessage,
+			setQueuedMessages,
+		],
+	);
+	const handleEditQueuedFollowUp = React.useCallback(
+		async (queuedMessageId: string) => {
+			const queuedMessage = queuedMessages.find(
+				(message) => message._id === queuedMessageId,
+			);
+			if (!queuedMessage) {
+				return;
+			}
+
+			setQueuedMessageEditingId(queuedMessage._id);
+			try {
+				await discardQueuedMessage({
+					queuedMessageId: queuedMessage._id,
+				});
+				setQueuedMessages((messages) =>
+					messages.filter((message) => message._id !== queuedMessage._id),
+				);
+				setDraft(queuedMessage.text);
+				setDraftMetadata(null);
+				setAttachedFiles([]);
+			} catch (error) {
+				logError({
+					event: "client.error",
+					error,
+					message: "Failed to edit queued chat message",
+				});
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to edit queued message",
+				);
+			} finally {
+				setQueuedMessageEditingId(null);
+			}
+		},
+		[
+			discardQueuedMessage,
+			queuedMessages,
+			setDraft,
+			setDraftMetadata,
+			setQueuedMessages,
+		],
+	);
+	const handleDeleteQueuedFollowUp = React.useCallback(
+		async (queuedMessageId: string) => {
+			const queuedMessage = queuedMessages.find(
+				(message) => message._id === queuedMessageId,
+			);
+			if (!queuedMessage) {
+				return;
+			}
+
+			setQueuedMessageDeletingId(queuedMessage._id);
+			try {
+				await discardQueuedMessage({
+					queuedMessageId: queuedMessage._id,
+				});
+				setQueuedMessages((messages) =>
+					messages.filter((message) => message._id !== queuedMessage._id),
+				);
+			} catch (error) {
+				logError({
+					event: "client.error",
+					error,
+					message: "Failed to delete queued chat message",
+				});
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to delete queued message",
+				);
+			} finally {
+				setQueuedMessageDeletingId(null);
+			}
+		},
+		[discardQueuedMessage, queuedMessages, setQueuedMessages],
+	);
+	const handleQueuedFollowUpsReorder = React.useCallback(
+		(queuedMessageIds: Array<string>) => {
+			if (!activeWorkspaceId) {
+				return;
+			}
+
+			setQueuedMessages((messages) => {
+				const messagesById = new Map(
+					messages.map((message) => [message._id, message]),
+				);
+				const reorderedMessages = queuedMessageIds
+					.map((queuedMessageId) =>
+						messagesById.get(
+							queuedMessageId as Doc<"assistantQueuedMessages">["_id"],
+						),
+					)
+					.filter(
+						(message): message is (typeof messages)[number] =>
+							message !== undefined,
+					);
+
+				return reorderedMessages.length === messages.length
+					? reorderedMessages
+					: messages;
+			});
+			void reorderQueuedMessages({
+				workspaceId: activeWorkspaceId,
+				chatId,
+				queuedMessageIds: queuedMessageIds as Array<
+					Doc<"assistantQueuedMessages">["_id"]
+				>,
+			}).catch((error) => {
+				logError({
+					event: "client.error",
+					error,
+					message: "Failed to reorder queued chat messages",
+				});
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Failed to reorder queued messages",
+				);
+			});
+		},
+		[activeWorkspaceId, chatId, reorderQueuedMessages, setQueuedMessages],
+	);
 	const isNotesLoading = notes === undefined;
 	const selectedModel =
 		(selectedModelOverride?.chatId === chatId
@@ -710,9 +982,9 @@ const useChatPageController = ({
 		if (
 			(!value.trim() && attachedFiles.length === 0) ||
 			hasUploadingAttachments(attachedFiles) ||
-			isChatRequestPending ||
+			(isChatRequestPending && !displayActiveRun) ||
 			isAutomationRunning ||
-			(activeRun && attachedFiles.length > 0)
+			(displayActiveRun && attachedFiles.length > 0)
 		) {
 			return;
 		}
@@ -721,26 +993,45 @@ const useChatPageController = ({
 		const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
 		const metadata =
 			mentions.length > 0 ? { mentionPositions: mentions } : undefined;
-		const optimisticMessageId = editingMessageId ? null : crypto.randomUUID();
-		const optimisticMessage = optimisticMessageId
-			? createUserMessage({
-					files: readyFiles,
-					id: optimisticMessageId,
-					metadata,
-					text: value,
-				})
-			: null;
-
-		setIsPreparingRequest(true);
+		const optimisticMessageId = editingMessageId
+			? null
+			: displayActiveRun
+				? createQueuedUserMessageId()
+				: crypto.randomUUID();
+		const optimisticMessage =
+			optimisticMessageId && !displayActiveRun
+				? createChatUserMessage({
+						files: readyFiles,
+						id: optimisticMessageId,
+						metadata,
+						text: value,
+					})
+				: null;
 
 		try {
 			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onChatPersisted?.(chatId);
-			if (optimisticMessage && !activeRun) {
-				setMessages((currentMessages) =>
-					normalizeChatMessages([...currentMessages, optimisticMessage]),
-				);
+			setIsPreparingRequest(true);
+			setEditingMessageId(null);
+			clearDraft();
+			setAttachedFiles([]);
+			if (optimisticMessage) {
+				// react-doctor-disable-next-line react-doctor/no-flush-sync
+				flushSync(() => {
+					setLocalOptimisticMessages((currentState) => ({
+						chatId,
+						messages: normalizeChatMessages([
+							...(currentState?.chatId === chatId ? currentState.messages : []),
+							optimisticMessage,
+						]),
+					}));
+					setMessages((currentMessages) =>
+						normalizeChatMessages([...currentMessages, optimisticMessage]),
+					);
+				});
 			}
+			await waitForBrowserPaint();
+
 			const { mentionIds, requestSelectedSourceIds } =
 				getMentionRequestContext(mentions);
 			const requestBody = await buildWorkspaceChatRequestBody({
@@ -754,6 +1045,10 @@ const useChatPageController = ({
 				webSearchEnabled,
 				workspaceId: activeWorkspaceId,
 			});
+			const outgoingRequestBody =
+				activeRun && !displayActiveRun
+					? { ...requestBody, allowConcurrentRun: true }
+					: requestBody;
 			setSharedLocalFolders(requestBody.localFolders);
 			const nextOutgoingMessage = editingMessageId
 				? {
@@ -768,38 +1063,32 @@ const useChatPageController = ({
 						metadata,
 						...filePayload,
 					};
-			latestRequestBodyRef.current = requestBody;
+			latestRequestBodyRef.current = outgoingRequestBody;
 
-			if (activeRun && activeWorkspaceId) {
+			if (displayActiveRun && activeWorkspaceId) {
 				await enqueueQueuedMessage({
 					workspaceId: activeWorkspaceId,
 					chatId,
-					runId: activeRun._id,
+					runId: displayActiveRun._id,
 					message: toQueuedUserMessageInput({
-						messageId: editingMessageId ?? undefined,
+						messageId: editingMessageId ?? optimisticMessageId ?? undefined,
 						metadata,
-						requestBody,
+						requestBody: outgoingRequestBody,
 						text: value,
 					}),
 				});
 				setIsPreparingRequest(false);
-				setEditingMessageId(null);
-				clearDraft();
-				setAttachedFiles([]);
 				toast.success("Follow-up queued");
 				return;
 			}
 
 			void Promise.resolve(
 				sendMessage(nextOutgoingMessage, {
-					body: requestBody,
+					body: outgoingRequestBody,
 				}),
 			).finally(() => {
 				setIsPreparingRequest(false);
 			});
-			setEditingMessageId(null);
-			clearDraft();
-			setAttachedFiles([]);
 		} catch (error) {
 			logError({
 				event: "client.error",
@@ -812,10 +1101,24 @@ const useChatPageController = ({
 					: "Failed to prepare chat request",
 			);
 			if (optimisticMessageId) {
+				setLocalOptimisticMessages((currentState) =>
+					currentState?.chatId === chatId
+						? {
+								chatId,
+								messages: removeMessageById(
+									currentState.messages,
+									optimisticMessageId,
+								),
+							}
+						: currentState,
+				);
 				setMessages((currentMessages) =>
 					removeMessageById(currentMessages, optimisticMessageId),
 				);
 			}
+			setDraft(value);
+			setDraftMetadata(mentions.length > 0 ? { mentions } : null);
+			setAttachedFiles(attachedFiles);
 			setIsPreparingRequest(false);
 		}
 	}, [
@@ -823,6 +1126,7 @@ const useChatPageController = ({
 		activeRun,
 		attachedFiles,
 		chatId,
+		displayActiveRun,
 		editingMessageId,
 		enqueueQueuedMessage,
 		getDraftSnapshot,
@@ -832,6 +1136,8 @@ const useChatPageController = ({
 		mentions,
 		onChatPersisted,
 		clearDraft,
+		setDraft,
+		setDraftMetadata,
 		selectedReasoningEffort,
 		selectedModel.model,
 		sendMessage,
@@ -872,7 +1178,11 @@ const useChatPageController = ({
 	}, [activeWorkspaceId, chatId, displayActiveRun, stop]);
 
 	const handleStop = React.useCallback(() => {
-		void stopCurrentStream().catch((error) => {
+		const stopPromise = queuedFollowUp
+			? handleSendQueuedFollowUpNow()
+			: stopCurrentStream();
+
+		void stopPromise.catch((error) => {
 			logError({
 				event: "client.error",
 				error: error,
@@ -882,7 +1192,7 @@ const useChatPageController = ({
 				error instanceof Error ? error.message : "Failed to stop chat stream",
 			);
 		});
-	}, [stopCurrentStream]);
+	}, [handleSendQueuedFollowUpNow, queuedFollowUp, stopCurrentStream]);
 
 	const handleEditMessage = React.useCallback(
 		(
@@ -1025,6 +1335,16 @@ const useChatPageController = ({
 			requestId: (current?.requestId ?? 0) + 1,
 		}));
 	}, []);
+	const visibleActiveStreamingChatIds = React.useMemo(() => {
+		if (!hasLocallyCompletedAssistantMessage) {
+			// react-doctor-disable-next-line react-doctor/no-event-handler
+			return activeStreamingChatIds;
+		}
+
+		const ids = new Set(activeStreamingChatIds);
+		ids.delete(chatId);
+		return ids;
+	}, [activeStreamingChatIds, chatId, hasLocallyCompletedAssistantMessage]);
 
 	return {
 		contextPages,
@@ -1039,7 +1359,7 @@ const useChatPageController = ({
 		handleWebSearchEnabledChange,
 		hasMessages,
 		// react-doctor-disable-next-line react-doctor/no-event-handler
-		activeStreamingChatIds,
+		activeStreamingChatIds: visibleActiveStreamingChatIds,
 		canStop,
 		isLoading: isChatUiPending,
 		isNotesLoading,
@@ -1063,6 +1383,17 @@ const useChatPageController = ({
 		editingMessageId,
 		mentions,
 		handleCancelEdit,
+		queuedFollowUps: queuedMessages.map((queuedMessage) => ({
+			id: queuedMessage._id,
+			isDeleting: queuedMessageDeletingId === queuedMessage._id,
+			isEditing: queuedMessageEditingId === queuedMessage._id,
+			isSendingNow: queuedMessageSendingNowId === queuedMessage._id,
+			onDelete: () => handleDeleteQueuedFollowUp(queuedMessage._id),
+			onEdit: () => handleEditQueuedFollowUp(queuedMessage._id),
+			onSendNow: () => handleSendQueuedFollowUpNow(queuedMessage._id),
+			text: queuedMessage.text,
+		})),
+		onQueuedFollowUpsReorder: handleQueuedFollowUpsReorder,
 		onDeleteMessage: handleDeleteMessage,
 		onOpenMention: handleOpenMention,
 		onEditMessage: handleEditMessage,
@@ -1415,6 +1746,9 @@ export function ChatPage({
 					: "Ask anything. @ to use tools or mention notes"
 			}
 			topAccessory={composerTopAccessory}
+			showQueuePreview={shouldShowActiveChatSurface}
+			queuedFollowUps={controller.queuedFollowUps}
+			onQueuedFollowUpsReorder={controller.onQueuedFollowUpsReorder}
 			onDraftChange={controller.setDraft}
 			onDraftKeyDown={controller.handleDraftKeyDown}
 			mentions={controller.mentions}

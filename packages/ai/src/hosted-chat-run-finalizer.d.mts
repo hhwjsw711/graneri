@@ -48,6 +48,7 @@ export declare const createHostedAssistantRunFinalizer: <
 	AssistantRunId extends string,
 >(args: {
 	activeStreamSession: HostedActiveStreamSessionLike;
+	assistantMessageId: string;
 	assistantRunId: AssistantRunId;
 	chatId: string;
 	failAssistantRun: (args: {

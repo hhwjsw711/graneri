@@ -297,19 +297,20 @@ const deleteUtterancesForSessionBatch = async (
 		utterances.map((utterance) => ctx.db.delete(utterance._id)),
 	);
 
-	return utterances.length === limit;
+	return {
+		deletedCount: utterances.length,
+		hasMore: utterances.length === limit,
+	};
 };
 
-const deleteSessionCascade = async (
+const deleteSessionCascadeBatch = async (
 	ctx: MutationCtx,
 	sessionId: Id<"transcriptSessions">,
 ) => {
-	for (;;) {
-		const hasMore = await deleteUtterancesForSessionBatch(ctx, sessionId);
+	const result = await deleteUtterancesForSessionBatch(ctx, sessionId);
 
-		if (!hasMore) {
-			break;
-		}
+	if (result.hasMore) {
+		return { deleted: result.deletedCount > 0, hasMore: true };
 	}
 
 	const state = await getTranscriptSessionState(ctx, sessionId);
@@ -319,7 +320,63 @@ const deleteSessionCascade = async (
 	}
 
 	await ctx.db.delete(sessionId);
+
+	return { deleted: true, hasMore: false };
 };
+
+export const removeOrphanedSession = internalMutation({
+	args: {
+		sessionId: v.id("transcriptSessions"),
+	},
+	returns: v.object({
+		deleted: v.boolean(),
+		hasMore: v.boolean(),
+	}),
+	handler: async (ctx, args) => {
+		const session = await ctx.db.get(args.sessionId);
+
+		if (session) {
+			const note = await ctx.db.get(session.noteId);
+			if (note) {
+				return { deleted: false, hasMore: false };
+			}
+
+			const result = await deleteSessionCascadeBatch(ctx, session._id);
+			if (result.hasMore) {
+				await ctx.scheduler.runAfter(
+					0,
+					internal.transcriptSessions.removeOrphanedSession,
+					{
+						sessionId: session._id,
+					},
+				);
+			}
+			return result;
+		}
+
+		const result = await deleteUtterancesForSessionBatch(ctx, args.sessionId);
+		const state = await getTranscriptSessionState(ctx, args.sessionId);
+
+		if (state) {
+			await ctx.db.delete(state._id);
+		}
+
+		if (result.hasMore) {
+			await ctx.scheduler.runAfter(
+				0,
+				internal.transcriptSessions.removeOrphanedSession,
+				{
+					sessionId: args.sessionId,
+				},
+			);
+		}
+
+		return {
+			deleted: result.deletedCount > 0 || Boolean(state),
+			hasMore: result.hasMore,
+		};
+	},
+});
 
 export const getLatestSummaryForNote = query({
 	args: {
@@ -701,11 +758,13 @@ export const removeForNote = internalMutation({
 			)
 			.take(100);
 
+		let hasMoreSessionRuntime = false;
 		for (const session of sessions) {
-			await deleteSessionCascade(ctx, session._id);
+			const result = await deleteSessionCascadeBatch(ctx, session._id);
+			hasMoreSessionRuntime ||= result.hasMore;
 		}
 
-		if (sessions.length === 100) {
+		if (sessions.length === 100 || hasMoreSessionRuntime) {
 			await ctx.scheduler.runAfter(
 				0,
 				internal.transcriptSessions.removeForNote,
@@ -733,11 +792,13 @@ export const removeAllForOwner = internalMutation({
 			)
 			.take(50);
 
+		let hasMoreSessionRuntime = false;
 		for (const session of sessions) {
-			await deleteSessionCascade(ctx, session._id);
+			const result = await deleteSessionCascadeBatch(ctx, session._id);
+			hasMoreSessionRuntime ||= result.hasMore;
 		}
 
-		if (sessions.length === 50) {
+		if (sessions.length === 50 || hasMoreSessionRuntime) {
 			await ctx.scheduler.runAfter(
 				0,
 				internal.transcriptSessions.removeAllForOwner,

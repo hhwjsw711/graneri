@@ -69,7 +69,8 @@ import {
 	WandSparkles,
 } from "lucide-react";
 import * as React from "react";
-import { createPortal } from "react-dom";
+// react-doctor-disable-next-line react-doctor/no-flush-sync
+import { createPortal, flushSync } from "react-dom";
 import { toast } from "sonner";
 import {
 	type ChatAttachment,
@@ -129,9 +130,19 @@ import {
 	storeChatReasoningEffort,
 	storeReasoningEffort,
 } from "@/lib/ai/reasoning-effort";
+import { waitForBrowserPaint } from "@/lib/browser-paint";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
-import { normalizeChatMessages } from "@/lib/chat-message-state";
-import { toQueuedUserMessageInput } from "@/lib/chat-queue";
+import {
+	appendLocalOptimisticChatMessages,
+	createChatUserMessage,
+	hasRenderableChatMessageText,
+	mergePersistedChatMessagesWithController,
+	normalizeChatMessages,
+} from "@/lib/chat-message-state";
+import {
+	createQueuedUserMessageId,
+	toQueuedUserMessageInput,
+} from "@/lib/chat-queue";
 import {
 	buildNoteChatRequestBody,
 	buildNoteChatRequestBodyFromLocalFolders,
@@ -183,6 +194,10 @@ import {
 import { NoteChatMessagesEntry } from "./note-chat-messages-entry";
 
 type NoteChatPresentation = "inline" | "floating" | "sidebar";
+type ScopedLocalOptimisticMessages = {
+	chatId: string;
+	messages: UIMessage[];
+};
 const noteRecipePickerListboxProps = {
 	role: "listbox" as const,
 	"aria-label": "Recipe suggestions",
@@ -696,7 +711,7 @@ const useNoteComposerController = ({
 			? { workspaceId: activeWorkspaceId, chatId: currentChatId }
 			: "skip",
 	);
-	const displayActiveRun =
+	const attachableActiveRun =
 		activeRun && activeRun.status !== "stopping" ? activeRun : null;
 	const currentChatSession = useQuery(
 		api.chats.getSession,
@@ -911,6 +926,8 @@ const useNoteComposerController = ({
 	);
 	const addToolOutputRef =
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
+	const [localOptimisticMessages, setLocalOptimisticMessages] =
+		React.useState<ScopedLocalOptimisticMessages | null>(null);
 	const handleToolCall = React.useMemo(
 		() =>
 			createDesktopLocalToolCallHandler({
@@ -934,14 +951,85 @@ const useNoteComposerController = ({
 		id: currentChatId,
 		messages: initialMessages,
 		transport,
-		experimental_throttle: 120,
 		onToolCall: handleToolCall,
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 	});
 	addToolOutputRef.current = addToolOutput;
-	const displayChatMessages = React.useMemo(
+	const controllerMessages = React.useMemo(
 		() => normalizeChatMessages(chatMessages),
 		[chatMessages],
+	);
+	const isAiRequestPending =
+		chatStatus === "submitted" || chatStatus === "streaming";
+	const isChatRequestPending =
+		isAiRequestPending ||
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		isPreparingRequest;
+	const hasLocallyCompletedAssistantMessage =
+		!isAiRequestPending &&
+		Boolean(
+			attachableActiveRun &&
+				hasRenderableChatMessageText(
+					controllerMessages.find(
+						(message) =>
+							message.id === attachableActiveRun.assistantMessageId &&
+							message.role === "assistant",
+					),
+				),
+		);
+	const displayActiveRun = hasLocallyCompletedAssistantMessage
+		? null
+		: attachableActiveRun;
+	const activeAssistantMessageId = displayActiveRun?.assistantMessageId ?? null;
+	const mergedDisplayChatMessages = React.useMemo(() => {
+		if (!activeAssistantMessageId || !displayActiveRun) {
+			return controllerMessages.length > 0
+				? controllerMessages
+				: initialMessages;
+		}
+
+		const activeControllerMessage = controllerMessages.find(
+			(message) =>
+				message.id === activeAssistantMessageId && message.role === "assistant",
+		);
+		const activeSnapshotMessage = initialMessages.find(
+			(message) =>
+				message.id === activeAssistantMessageId && message.role === "assistant",
+		);
+		const activeAssistantMessage = hasRenderableChatMessageText(
+			activeControllerMessage,
+		)
+			? activeControllerMessage
+			: activeSnapshotMessage;
+
+		return mergePersistedChatMessagesWithController({
+			activeAssistantMessage,
+			activeAssistantMessageId,
+			controllerMessages,
+			persistedMessages: initialMessages,
+		});
+	}, [
+		activeAssistantMessageId,
+		controllerMessages,
+		displayActiveRun,
+		initialMessages,
+	]);
+	const displayChatMessages = React.useMemo(
+		() =>
+			appendLocalOptimisticChatMessages({
+				displayMessages: mergedDisplayChatMessages,
+				localOptimisticMessages:
+					localOptimisticMessages?.chatId === currentChatId
+						? localOptimisticMessages.messages
+						: [],
+				resolvedMessages: initialMessages,
+			}),
+		[
+			currentChatId,
+			initialMessages,
+			localOptimisticMessages,
+			mergedDisplayChatMessages,
+		],
 	);
 
 	React.useEffect(() => {
@@ -951,13 +1039,6 @@ const useNoteComposerController = ({
 
 		void prefetchConvexToken();
 	}, [activeWorkspaceId]);
-
-	const isAiRequestPending =
-		chatStatus === "submitted" || chatStatus === "streaming";
-	const isChatRequestPending =
-		isAiRequestPending ||
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		isPreparingRequest;
 
 	useResumeActiveChatRun({
 		activeRun: displayActiveRun,
@@ -997,7 +1078,8 @@ const useNoteComposerController = ({
 
 			if (
 				currentMessages.length === 0 ||
-				currentMessagesSeedKey === appliedInitialMessagesSeedKeyRef.current
+				currentMessagesSeedKey === appliedInitialMessagesSeedKeyRef.current ||
+				(!activeRun && initialMessages.length > 0)
 			) {
 				appliedInitialMessagesSeedKeyRef.current = initialMessagesSeedKey;
 				return initialMessages;
@@ -1006,6 +1088,7 @@ const useNoteComposerController = ({
 			return normalizeChatMessages(currentMessages);
 		});
 	}, [
+		activeRun,
 		chatStatus,
 		currentChatId,
 		initialMessages,
@@ -1284,12 +1367,23 @@ const useNoteComposerController = ({
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		isChatRequestPending || isPersistedChatStreaming;
 	const canStop = isChatRequestPending || isPersistedChatStreaming;
+	const localMessageIds = React.useMemo(
+		() =>
+			new Set([
+				...controllerMessages.map((message) => message.id),
+				...(localOptimisticMessages?.chatId === currentChatId
+					? localOptimisticMessages.messages.map((message) => message.id)
+					: []),
+			]),
+		[controllerMessages, currentChatId, localOptimisticMessages],
+	);
 	useQueuedChatDrain({
-		activeRun,
+		activeRun: displayActiveRun,
 		chatId: currentChatId,
 		contextLabel: "note chat",
 		isBlocked: isChatRequestPending,
 		latestRequestBodyRef,
+		localMessageIds,
 		sendMessage,
 		workspaceId: activeWorkspaceId,
 	});
@@ -1627,8 +1721,9 @@ const useNoteComposerController = ({
 	]);
 
 	const handleSend = React.useCallback(async () => {
+		const submittedDraftText = getDraftSnapshot().text;
 		const nextMessage = getMessageTextWithoutRecipeMention(
-			getDraftSnapshot().text,
+			submittedDraftText,
 			selectedRecipe,
 		);
 
@@ -1638,21 +1733,71 @@ const useNoteComposerController = ({
 			chatStatus === "submitted" ||
 			chatStatus === "streaming" ||
 			isPreparingRequest ||
-			(activeRun && attachedFiles.length > 0)
+			(displayActiveRun && attachedFiles.length > 0)
 		) {
 			return;
 		}
 
-		setIsPreparingRequest(true);
-		if (presentationMode === "inline") {
-			setPanelMode("chat");
-		} else {
-			openRightSidebar(presentationMode);
-		}
+		let optimisticMessageId: string | null = null;
 
 		try {
-			const currentNoteContext = readNoteContext();
 			const outgoingText = nextMessage || selectedRecipe?.name || "";
+			const readyFiles = getReadyFileParts(attachedFiles);
+			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
+			const recipeMetadata: UIMessage["metadata"] | undefined = selectedRecipe
+				? {
+						recipe: {
+							slug: selectedRecipe.slug,
+							name: selectedRecipe.name,
+						},
+						recipeOnly: nextMessage.length === 0,
+					}
+				: undefined;
+			optimisticMessageId =
+				editingMessageId === null
+					? displayActiveRun
+						? createQueuedUserMessageId()
+						: crypto.randomUUID()
+					: null;
+			const optimisticMessage = optimisticMessageId
+				? createChatUserMessage({
+						files: readyFiles,
+						id: optimisticMessageId,
+						metadata: recipeMetadata,
+						text: outgoingText,
+					})
+				: null;
+
+			if (optimisticMessage) {
+				// react-doctor-disable-next-line react-doctor/no-flush-sync
+				flushSync(() => {
+					setLocalOptimisticMessages((currentState) => ({
+						chatId: currentChatId,
+						messages: normalizeChatMessages([
+							...(currentState?.chatId === currentChatId
+								? currentState.messages
+								: []),
+							optimisticMessage,
+						]),
+					}));
+					setMessages((currentMessages) =>
+						normalizeChatMessages([...currentMessages, optimisticMessage]),
+					);
+				});
+			}
+			setIsPreparingRequest(true);
+			setEditingMessageId(null);
+			clearDraft();
+			setAttachedFiles([]);
+			resetTextareaHeight();
+			if (presentationMode === "inline") {
+				setPanelMode("chat");
+			} else {
+				openRightSidebar(presentationMode);
+			}
+			await waitForBrowserPaint();
+
+			const currentNoteContext = readNoteContext();
 			const requestBody = await buildNoteChatRequestBody({
 				localFolderStorageScope,
 				model: selectedModel.model,
@@ -1666,19 +1811,12 @@ const useNoteComposerController = ({
 				resolveConvexToken: getCachedConvexToken,
 				text: outgoingText,
 			});
+			const outgoingRequestBody =
+				activeRun && !displayActiveRun
+					? { ...requestBody, allowConcurrentRun: true }
+					: requestBody;
 			setSharedLocalFolders(requestBody.localFolders);
-			latestRequestBodyRef.current = requestBody;
-			const recipeMetadata: UIMessage["metadata"] | undefined = selectedRecipe
-				? {
-						recipe: {
-							slug: selectedRecipe.slug,
-							name: selectedRecipe.name,
-						},
-						recipeOnly: nextMessage.length === 0,
-					}
-				: undefined;
-			const readyFiles = getReadyFileParts(attachedFiles);
-			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
+			latestRequestBodyRef.current = outgoingRequestBody;
 			const nextOutgoingMessage = editingMessageId
 				? {
 						messageId: editingMessageId,
@@ -1686,40 +1824,37 @@ const useNoteComposerController = ({
 						metadata: recipeMetadata,
 						...filePayload,
 					}
-				: { text: outgoingText, metadata: recipeMetadata, ...filePayload };
+				: {
+						messageId: optimisticMessageId ?? undefined,
+						text: outgoingText,
+						metadata: recipeMetadata,
+						...filePayload,
+					};
 
-			if (activeRun && activeWorkspaceId) {
+			if (displayActiveRun && activeWorkspaceId) {
 				await enqueueQueuedMessage({
 					workspaceId: activeWorkspaceId,
 					chatId: currentChatId,
-					runId: activeRun._id,
+					runId: displayActiveRun._id,
 					message: toQueuedUserMessageInput({
-						messageId: editingMessageId ?? undefined,
+						messageId: editingMessageId ?? optimisticMessageId ?? undefined,
 						metadata: recipeMetadata,
-						requestBody,
+						requestBody: outgoingRequestBody,
 						text: outgoingText,
 					}),
 				});
 				setIsPreparingRequest(false);
-				setEditingMessageId(null);
-				clearDraft();
-				setAttachedFiles([]);
-				resetTextareaHeight();
 				toast.success("Follow-up queued");
 				return;
 			}
 
 			void Promise.resolve(
 				sendMessage(nextOutgoingMessage, {
-					body: requestBody,
+					body: outgoingRequestBody,
 				}),
 			).finally(() => {
 				setIsPreparingRequest(false);
 			});
-			setEditingMessageId(null);
-			clearDraft();
-			setAttachedFiles([]);
-			resetTextareaHeight();
 		} catch (error) {
 			logError({
 				event: "client.error",
@@ -1731,6 +1866,26 @@ const useNoteComposerController = ({
 					? error.message
 					: "Failed to prepare note chat request",
 			);
+			if (optimisticMessageId) {
+				setLocalOptimisticMessages((currentState) =>
+					currentState?.chatId === currentChatId
+						? {
+								chatId: currentChatId,
+								messages: currentState.messages.filter(
+									(message) => message.id !== optimisticMessageId,
+								),
+							}
+						: currentState,
+				);
+				setMessages((currentMessages) =>
+					currentMessages.filter(
+						(message) => message.id !== optimisticMessageId,
+					),
+				);
+			}
+			setMessage(submittedDraftText);
+			setAttachedFiles(attachedFiles);
+			resetTextareaHeight();
 			setIsPreparingRequest(false);
 		}
 	}, [
@@ -1740,6 +1895,7 @@ const useNoteComposerController = ({
 		chatStatus,
 		clearDraft,
 		currentChatId,
+		displayActiveRun,
 		enqueueQueuedMessage,
 		isPreparingRequest,
 		getDraftSnapshot,
@@ -1754,6 +1910,8 @@ const useNoteComposerController = ({
 		selectedModel.model,
 		sendMessage,
 		setPanelMode,
+		setMessages,
+		setMessage,
 	]);
 
 	const handleSubmit = async (event: React.FormEvent) => {

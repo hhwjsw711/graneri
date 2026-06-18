@@ -46,14 +46,19 @@ export const useLinkedAccounts = (
 		}));
 
 		try {
+			if (requestIdRef.current !== requestId) {
+				return;
+			}
+
 			const result = await authClient.$fetch("/list-accounts", {
 				method: "GET",
 				throw: true,
 			});
+			const isCurrentRequest = requestIdRef.current === requestId;
 			const nextAccounts = Array.isArray(result)
 				? (result as LinkedAccount[])
 				: [];
-			if (requestIdRef.current !== requestId) {
+			if (!isCurrentRequest) {
 				return;
 			}
 

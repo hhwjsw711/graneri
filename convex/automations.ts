@@ -150,6 +150,7 @@ const MAX_CONTEXT_NOTE_LENGTH = 2_000;
 const MAX_APP_SOURCES = 8;
 const STALE_SCHEDULED_FUNCTION_MS = 2 * 60 * 1000;
 const DELETE_RUNS_BATCH_SIZE = 50;
+const DELETE_AUTOMATIONS_BATCH_SIZE = 50;
 const MAX_TARGET_NOTES = MAX_CONTEXT_NOTES;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -915,7 +916,7 @@ export const remove = mutation({
 		);
 		await cancelScheduledFunction(ctx, automation.scheduledFunctionId);
 		await ctx.db.delete(automation._id);
-		await ctx.scheduler.runAfter(0, internal.automations.deleteRunsBatch, {
+		await ctx.scheduler.runAfter(0, internal.automations.removeOrphanedRuns, {
 			automationId: automation._id,
 		});
 
@@ -999,7 +1000,7 @@ export const resumeLinkedAutomationForChat = async (
 		chatId,
 	);
 
-	if (!automation || !automation.isPaused) {
+	if (!automation?.isPaused) {
 		return;
 	}
 
@@ -1281,12 +1282,21 @@ export const reconcileDueAutomations = internalMutation({
 	},
 });
 
-export const deleteRunsBatch = internalMutation({
+export const removeOrphanedRuns = internalMutation({
 	args: {
 		automationId: v.id("automations"),
 	},
-	returns: v.null(),
+	returns: v.object({
+		deletedCount: v.number(),
+		hasMore: v.boolean(),
+	}),
 	handler: async (ctx, args) => {
+		const automation = await ctx.db.get(args.automationId);
+
+		if (automation) {
+			return { deletedCount: 0, hasMore: false };
+		}
+
 		const runs = await ctx.db
 			.query("automationRuns")
 			.withIndex("by_automationId_and_scheduledFor", (q) =>
@@ -1296,9 +1306,57 @@ export const deleteRunsBatch = internalMutation({
 
 		await Promise.all(runs.map((run) => ctx.db.delete(run._id)));
 
-		if (runs.length === DELETE_RUNS_BATCH_SIZE) {
-			await ctx.scheduler.runAfter(0, internal.automations.deleteRunsBatch, {
+		const hasMore = runs.length === DELETE_RUNS_BATCH_SIZE;
+
+		if (hasMore) {
+			await ctx.scheduler.runAfter(0, internal.automations.removeOrphanedRuns, {
 				automationId: args.automationId,
+			});
+		}
+
+		return { deletedCount: runs.length, hasMore };
+	},
+});
+
+export const removeAllForOwner = internalMutation({
+	args: {
+		ownerTokenIdentifier: v.string(),
+	},
+	returns: v.null(),
+	handler: async (ctx, args) => {
+		const runs = await ctx.db
+			.query("automationRuns")
+			.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_createdAt", (q) =>
+				q.eq("ownerTokenIdentifier", args.ownerTokenIdentifier),
+			)
+			.take(DELETE_RUNS_BATCH_SIZE);
+
+		await Promise.all(runs.map((run) => ctx.db.delete(run._id)));
+
+		if (runs.length === DELETE_RUNS_BATCH_SIZE) {
+			await ctx.scheduler.runAfter(0, internal.automations.removeAllForOwner, {
+				ownerTokenIdentifier: args.ownerTokenIdentifier,
+			});
+			return null;
+		}
+
+		const automations = await ctx.db
+			.query("automations")
+			.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_createdAt", (q) =>
+				q.eq("ownerTokenIdentifier", args.ownerTokenIdentifier),
+			)
+			.take(DELETE_AUTOMATIONS_BATCH_SIZE);
+
+		await Promise.all(
+			automations.map(async (automation) => {
+				await cancelScheduledFunction(ctx, automation.scheduledFunctionId);
+				await ctx.db.delete(automation._id);
+			}),
+		);
+
+		if (automations.length === DELETE_AUTOMATIONS_BATCH_SIZE) {
+			await ctx.scheduler.runAfter(0, internal.automations.removeAllForOwner, {
+				ownerTokenIdentifier: args.ownerTokenIdentifier,
 			});
 		}
 

@@ -25,7 +25,6 @@ import { buildConvexWorkspaceToolSet } from "../packages/ai/src/convex-workspace
 import {
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
-	generateHostedChatMessageId,
 	generateHostedChatTitle,
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
@@ -83,6 +82,8 @@ type ChatRequestBody = {
 		title?: string;
 		text?: string;
 	};
+	allowConcurrentRun?: boolean;
+	supersedeActiveRun?: boolean;
 };
 
 type HostedChatUIMessage = UIMessage<unknown, never, InferUITools<ToolSet>>;
@@ -503,10 +504,13 @@ export const handleChatRequest = async (request: Request) => {
 							.catch(() => []),
 					getAppConnections: async (sourceIds) =>
 						await convexClient
-							.action(api.appConnectionActions.getSelectedForChatWithFreshTokens, {
-								workspaceId: resolvedWorkspaceId,
-								sourceIds,
-							})
+							.action(
+								api.appConnectionActions.getSelectedForChatWithFreshTokens,
+								{
+									workspaceId: resolvedWorkspaceId,
+									sourceIds,
+								},
+							)
 							.catch(() => []),
 				})
 			: [];
@@ -568,12 +572,13 @@ export const handleChatRequest = async (request: Request) => {
 		selectedAppSourceInstructions,
 		webSearchEnabled,
 	});
+	const assistantMessageId = `stream-${crypto.randomUUID()}`;
 
 	return await createAgentUIStreamResponse({
 		agent,
 		uiMessages: agentMessages,
 		originalMessages: agentMessages,
-		generateMessageId: generateHostedChatMessageId,
+		generateMessageId: () => assistantMessageId,
 		consumeSseStream: consumeStream,
 		sendReasoning: true,
 		onFinish: async ({ responseMessage }) => {
@@ -582,11 +587,18 @@ export const handleChatRequest = async (request: Request) => {
 			}
 
 			try {
+				const storedResponseMessage =
+					responseMessage.id === assistantMessageId
+						? responseMessage
+						: {
+								...responseMessage,
+								id: assistantMessageId,
+							};
 				const generatedChatTitle =
 					shouldGenerateChatTitle && lastUserMessage
 						? await generateHostedChatTitle({
 								userMessage: lastUserMessage,
-								assistantMessage: responseMessage,
+								assistantMessage: storedResponseMessage,
 							})
 						: undefined;
 				await convexClient.mutation(
@@ -598,7 +610,7 @@ export const handleChatRequest = async (request: Request) => {
 						title: generatedChatTitle,
 						model: selectedModel.model,
 						reasoningEffort: resolvedReasoningEffort,
-						message: responseMessage,
+						message: storedResponseMessage,
 					}),
 				);
 			} catch (error) {

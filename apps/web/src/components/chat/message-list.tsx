@@ -342,14 +342,14 @@ const ChatMessageReasoning = React.memo(function ChatMessageReasoning({
 
 	return (
 		<div className="mb-3 flex w-full flex-col gap-2 first:mt-0">
-			{parts.map((part) => {
+			{parts.map((part, partIndex) => {
 				if (part.type !== "reasoning") {
 					return null;
 				}
 
 				return (
 					<Reasoning
-						key={getReasoningPartKey(part)}
+						key={getReasoningPartKey(part, partIndex)}
 						text={part.text}
 						isStreaming={isStreamingAssistantMessage && part.state !== "done"}
 					/>
@@ -361,7 +361,8 @@ const ChatMessageReasoning = React.memo(function ChatMessageReasoning({
 
 const getReasoningPartKey = (
 	part: Extract<UIMessage["parts"][number], { type: "reasoning" }>,
-) => `reasoning:${part.text || part.state || "empty"}`;
+	index: number,
+) => `reasoning:${index}:${part.type}`;
 
 const ChatMessageToolCalls = React.memo(function ChatMessageToolCalls({
 	chatStatus,

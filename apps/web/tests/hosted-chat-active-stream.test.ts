@@ -227,6 +227,52 @@ describe("hosted active chat stream", () => {
 		expect(controllers.has(streamKey)).toBe(false);
 	});
 
+	it("replaces closed stream controllers without aborting finalization", async () => {
+		const controllers = new Map();
+		const streamKey = "workspace-1:chat-1";
+		const oldPersister = {
+			start: vi.fn().mockResolvedValue(undefined),
+			append: vi.fn(),
+			closePersistence: vi.fn().mockResolvedValue(undefined),
+			finish: vi.fn().mockResolvedValue(undefined),
+			discardPending: vi.fn(),
+		};
+		const oldSession = createHostedActiveStreamSession({
+			controllers,
+			streamKey,
+			persister: oldPersister,
+		});
+		await oldSession.start();
+		await collectStream(
+			oldSession.startBroadcast(
+				new ReadableStream({
+					start(controller) {
+						controller.close();
+					},
+				}),
+			),
+		);
+		expect(oldSession.isBroadcastClosed()).toBe(true);
+
+		const newPersister = {
+			start: vi.fn().mockResolvedValue(undefined),
+			append: vi.fn(),
+			closePersistence: vi.fn().mockResolvedValue(undefined),
+			finish: vi.fn().mockResolvedValue(undefined),
+		};
+		const newSession = createHostedActiveStreamSession({
+			controllers,
+			streamKey,
+			persister: newPersister,
+		});
+
+		await newSession.start();
+
+		expect(oldSession.abortSignal.aborted).toBe(false);
+		expect(oldPersister.discardPending).not.toHaveBeenCalled();
+		expect(controllers.get(streamKey)).toBe(newSession);
+	});
+
 	it("cleans active stream controllers when session finish fails", async () => {
 		const controllers = new Map();
 		const streamKey = "workspace-1:chat-1";

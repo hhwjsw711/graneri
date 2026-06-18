@@ -1,13 +1,14 @@
 import { DefaultChatTransport } from "ai";
 import * as React from "react";
 import { prepareChatReconnectToStreamRequest } from "@/lib/chat-resume";
+import { FrameBudgetedChatTransport } from "@/lib/frame-budgeted-chat-transport";
 import { getChatApiUrl } from "@/lib/runtime-config";
 
 export const useWorkspaceChatTransport = (workspaceId: string | null) =>
 	React.useMemo(() => {
 		const chatApiUrl = getChatApiUrl();
 
-		return new DefaultChatTransport({
+		const transport = new DefaultChatTransport({
 			api: chatApiUrl,
 			prepareSendMessagesRequest: ({
 				id,
@@ -53,4 +54,6 @@ export const useWorkspaceChatTransport = (workspaceId: string | null) =>
 				};
 			},
 		});
+
+		return new FrameBudgetedChatTransport(transport);
 	}, [workspaceId]);

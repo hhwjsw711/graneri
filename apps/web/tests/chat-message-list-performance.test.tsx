@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatMessageListContent } from "../src/components/chat/message-list";
 import ChatMessages from "../src/components/chat/messages";
+import { parseMarkdownIntoStableBlocks } from "../src/lib/markdown-stable-blocks";
 
 const streamdownRenderCounts = new Map<string, number>();
 
@@ -171,5 +172,53 @@ describe("ChatMessageListContent performance", () => {
 		);
 
 		expect(streamdownRenderCounts.get(longHistoricalText)).toBe(1);
+	});
+
+	it("keeps completed streaming markdown blocks stable as the final block grows", () => {
+		const firstSnapshot = parseMarkdownIntoStableBlocks(
+			[
+				"# Summary",
+				"",
+				"The first paragraph is complete.",
+				"",
+				"The active paragraph starts",
+			].join("\n"),
+		);
+		const nextSnapshot = parseMarkdownIntoStableBlocks(
+			[
+				"# Summary",
+				"",
+				"The first paragraph is complete.",
+				"",
+				"The active paragraph starts and keeps growing.",
+			].join("\n"),
+		);
+
+		expect(nextSnapshot.slice(0, -1)).toEqual(firstSnapshot.slice(0, -1));
+		expect(nextSnapshot.at(-1)).toBe(
+			"The active paragraph starts and keeps growing.",
+		);
+	});
+
+	it("does not split fenced code blocks while streaming markdown", () => {
+		const blocks = parseMarkdownIntoStableBlocks(
+			[
+				"Before",
+				"",
+				"```ts",
+				"const value = 1;",
+				"",
+				"console.log(value);",
+				"```",
+				"",
+				"After",
+			].join("\n"),
+		);
+
+		expect(blocks).toEqual([
+			"Before",
+			"```ts\nconst value = 1;\n\nconsole.log(value);\n```",
+			"After",
+		]);
 	});
 });

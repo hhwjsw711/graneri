@@ -79,6 +79,7 @@ const nonTerminalRunStatuses = [
 const expirableRunStatuses = ["queued", "running", "stopping"] as const;
 const ASSISTANT_RUN_EXPIRATION_MS = 20 * 60 * 1000;
 const ASSISTANT_RUN_CLEANUP_BATCH_SIZE = 8;
+const ASSISTANT_RUN_RUNTIME_DELETE_BATCH_SIZE = 100;
 
 const getOwnedActiveChatById = async (
 	ctx: QueryCtx | MutationCtx,
@@ -120,7 +121,11 @@ const getNonTerminalRunsForChat = async (
 		}
 	}
 
-	return runs;
+	return runs.sort(
+		(left, right) =>
+			right.startedAt - left.startedAt ||
+			right._creationTime - left._creationTime,
+	);
 };
 
 export const deleteRunSnapshots = async (
@@ -176,6 +181,58 @@ const getActiveStreamUpdatedAt = async (
 		.unique();
 
 	return stream?.updatedAt ?? null;
+};
+
+const deleteRunEventsBatch = async (
+	ctx: MutationCtx,
+	runId: Id<"assistantRuns">,
+) => {
+	const events = await ctx.db
+		.query("assistantRunEvents")
+		.withIndex("by_runId_and_eventIndex", (q) => q.eq("runId", runId))
+		.take(ASSISTANT_RUN_RUNTIME_DELETE_BATCH_SIZE);
+
+	await Promise.all(events.map((event) => ctx.db.delete(event._id)));
+
+	return events.length === ASSISTANT_RUN_RUNTIME_DELETE_BATCH_SIZE;
+};
+
+const deleteQueuedMessagesBatch = async (
+	ctx: MutationCtx,
+	runId: Id<"assistantRuns">,
+) => {
+	const statuses = ["queued", "claimed", "discarded"] as const;
+	const batches = await Promise.all(
+		statuses.map((status) =>
+			ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_runId_and_status", (q) =>
+					q.eq("runId", runId).eq("status", status),
+				)
+				.take(ASSISTANT_RUN_RUNTIME_DELETE_BATCH_SIZE),
+		),
+	);
+	const messages = batches.flat();
+
+	await Promise.all(messages.map((message) => ctx.db.delete(message._id)));
+
+	return batches.some(
+		(batch) => batch.length === ASSISTANT_RUN_RUNTIME_DELETE_BATCH_SIZE,
+	);
+};
+
+const deleteRunRuntimeBatch = async (
+	ctx: MutationCtx,
+	runId: Id<"assistantRuns">,
+) => {
+	const [eventsHaveMore, queuedMessagesHaveMore] = await Promise.all([
+		deleteRunEventsBatch(ctx, runId),
+		deleteQueuedMessagesBatch(ctx, runId),
+	]);
+
+	await deleteRunSnapshots(ctx, runId);
+
+	return eventsHaveMore || queuedMessagesHaveMore;
 };
 
 const terminalizeExpiredRun = async (
@@ -276,6 +333,7 @@ export const startAssistantRun = mutation({
 		model: v.string(),
 		reasoningEffort: v.optional(reasoningEffortValidator),
 		policy: v.union(
+			v.literal("allow_concurrent"),
 			v.literal("reject"),
 			v.literal("return_existing"),
 			v.literal("supersede"),
@@ -321,10 +379,12 @@ export const startAssistantRun = mutation({
 				});
 			}
 
-			const now = Date.now();
-			await Promise.all(
-				activeRuns.map((run) => stopSupersededRun(ctx, run, now)),
-			);
+			if (args.policy === "supersede") {
+				const now = Date.now();
+				await Promise.all(
+					activeRuns.map((run) => stopSupersededRun(ctx, run, now)),
+				);
+			}
 		}
 
 		const now = Date.now();
@@ -431,6 +491,44 @@ export const cleanupExpiredAssistantRuns = internalMutation({
 		}
 
 		return { checked, expired, refreshed, hasMore };
+	},
+});
+
+export const removeOrphanedRun = internalMutation({
+	args: {
+		runId: v.id("assistantRuns"),
+	},
+	returns: v.object({
+		deleted: v.boolean(),
+		hasMore: v.boolean(),
+	}),
+	handler: async (ctx, args) => {
+		const run = await ctx.db.get(args.runId);
+
+		if (!run) {
+			return { deleted: false, hasMore: false };
+		}
+
+		const chat = await ctx.db.get(run.chatId);
+		if (chat && !chat.isArchived) {
+			return { deleted: false, hasMore: false };
+		}
+
+		const hasMore = await deleteRunRuntimeBatch(ctx, run._id);
+
+		if (hasMore) {
+			await ctx.scheduler.runAfter(
+				0,
+				internal.assistantRuns.removeOrphanedRun,
+				{
+					runId: run._id,
+				},
+			);
+			return { deleted: false, hasMore: true };
+		}
+
+		await ctx.db.delete(run._id);
+		return { deleted: true, hasMore: false };
 	},
 });
 

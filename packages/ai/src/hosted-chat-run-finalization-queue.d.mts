@@ -7,6 +7,7 @@ type HostedChatLogDetails = Record<
 
 export type HostedAssistantRunFinalizationQueue = {
 	flush: () => Promise<void>;
+	flushAfterClientStream: () => Promise<void>;
 	hasTerminalization: () => boolean;
 	setTerminalization: (
 		terminalization: HostedAssistantRunTerminalization,

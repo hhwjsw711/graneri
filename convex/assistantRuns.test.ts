@@ -146,6 +146,63 @@ test("finishAssistantRun leaves no snapshots for runId", async () => {
 	expect(snapshots.toolCalls).toHaveLength(0);
 });
 
+test("removeOrphanedRun deletes runtime after its chat is gone", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-orphan-runtime", workspaceId });
+	const run = await startRunWithSnapshots({
+		asOwner,
+		chatId: "chat-orphan-runtime",
+		workspaceId,
+	});
+
+	await t.run(async (ctx) => {
+		await ctx.db.delete(run.chatId);
+	});
+
+	const result = await t.mutation(internal.assistantRuns.removeOrphanedRun, {
+		runId: run._id,
+	});
+
+	expect(result).toEqual({ deleted: true, hasMore: false });
+	const rows = await t.run(async (ctx) => ({
+		events: await ctx.db
+			.query("assistantRunEvents")
+			.withIndex("by_runId_and_eventIndex", (q) => q.eq("runId", run._id))
+			.take(1),
+		run: await ctx.db.get(run._id),
+		streams: await ctx.db
+			.query("chatActiveStreams")
+			.withIndex("by_runId", (q) => q.eq("runId", run._id))
+			.take(1),
+		toolCalls: await ctx.db
+			.query("chatToolCalls")
+			.withIndex("by_runId", (q) => q.eq("runId", run._id))
+			.take(1),
+	}));
+
+	expect(rows.events).toHaveLength(0);
+	expect(rows.run).toBeNull();
+	expect(rows.streams).toHaveLength(0);
+	expect(rows.toolCalls).toHaveLength(0);
+});
+
+test("removeOrphanedRun leaves runtime when its chat is active", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-active-runtime", workspaceId });
+	const run = await startRunWithSnapshots({
+		asOwner,
+		chatId: "chat-active-runtime",
+		workspaceId,
+	});
+
+	const result = await t.mutation(internal.assistantRuns.removeOrphanedRun, {
+		runId: run._id,
+	});
+
+	expect(result).toEqual({ deleted: false, hasMore: false });
+	expect(await t.run((ctx) => ctx.db.get(run._id))).not.toBeNull();
+});
+
 test("assistant run events record ordered stream lifecycle", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 	await createChat({ asOwner, chatId: "chat-events", workspaceId });
@@ -367,6 +424,50 @@ test("supersede stops old run and deletes old snapshots before creating new run"
 		type: "run.stopped",
 		stopReason: "superseded",
 	});
+});
+
+test("allow concurrent starts a newer run without stopping the previous finalizing run", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-concurrent", workspaceId });
+	const oldRun = await startRunWithSnapshots({
+		asOwner,
+		chatId: "chat-concurrent",
+		workspaceId,
+	});
+
+	const newRun = await asOwner.mutation(api.assistantRuns.startAssistantRun, {
+		workspaceId,
+		chatId: "chat-concurrent",
+		assistantMessageId: "chat-concurrent-assistant-2",
+		model: "gpt-5",
+		policy: "allow_concurrent",
+	});
+
+	const attachableRun = await asOwner.query(api.assistantRuns.getAttachableRun, {
+		workspaceId,
+		chatId: "chat-concurrent",
+	});
+	const rows = await t.run(async (ctx) => ({
+		oldRun: await ctx.db.get(oldRun._id),
+		oldStreams: await ctx.db
+			.query("chatActiveStreams")
+			.withIndex("by_runId", (q) => q.eq("runId", oldRun._id))
+			.take(10),
+		oldToolCalls: await ctx.db
+			.query("chatToolCalls")
+			.withIndex("by_runId", (q) => q.eq("runId", oldRun._id))
+			.take(10),
+	}));
+
+	expect(newRun._id).not.toBe(oldRun._id);
+	expect(attachableRun?._id).toBe(newRun._id);
+	expect(rows.oldRun?.status).toBe("running");
+	expect(rows.oldRun?.stopReason).toBeUndefined();
+	expect(rows.oldStreams).toHaveLength(1);
+	expect(rows.oldToolCalls).toHaveLength(1);
+	expect(await listRunEventTypes({ asOwner, runId: oldRun._id })).not.toContain(
+		"run.stopped",
+	);
 });
 
 test("attachable run query returns only non-terminal runs", async () => {

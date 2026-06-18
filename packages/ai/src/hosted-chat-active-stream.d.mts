@@ -121,6 +121,7 @@ export type HostedActiveStreamSession = {
 	discardPending(): void;
 	closePersistence(): Promise<void>;
 	finish(): Promise<void>;
+	isBroadcastClosed(): boolean;
 	cleanup(): void;
 	subscribe<Chunk extends { type: string }>(): ReadableStream<Chunk>;
 	startBroadcast<Chunk extends { type: string }>(
