@@ -82,12 +82,12 @@ export const getDisplayName = (name?: string | null) => {
 	return trimmed && trimmed.length > 0 ? trimmed : "Unknown";
 };
 
-export const isUnknownAuthorName = (name?: string | null) => {
+const isUnknownAuthorName = (name?: string | null) => {
 	const trimmed = name?.trim().toLowerCase();
 	return !trimmed || trimmed === "unknown" || trimmed === "unknown user";
 };
 
-export const getNormalizedIdentity = (value?: string | null) =>
+const getNormalizedIdentity = (value?: string | null) =>
 	value?.trim().toLowerCase() ?? "";
 
 export const resolveAuthorIdentity = ({
@@ -128,7 +128,7 @@ const commentDateFormatter = new Intl.DateTimeFormat(undefined, {
 	day: "numeric",
 });
 
-export const isSameCalendarDay = (left: Date, right: Date) =>
+const isSameCalendarDay = (left: Date, right: Date) =>
 	left.getFullYear() === right.getFullYear() &&
 	left.getMonth() === right.getMonth() &&
 	left.getDate() === right.getDate();

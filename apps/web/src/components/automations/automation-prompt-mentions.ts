@@ -184,7 +184,7 @@ export const getPromptDocument = (
 const escapeRegExp = (value: string) =>
 	value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-export const findMentionRange = ({
+const findMentionRange = ({
 	label,
 	occupiedRanges,
 	prompt,
