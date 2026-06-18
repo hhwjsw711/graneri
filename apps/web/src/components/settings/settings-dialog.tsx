@@ -106,6 +106,10 @@ import { writeTextToClipboard } from "@/components/note/share-note";
 import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { ConnectionDialogFooter } from "@/components/settings/connection-dialog-footer";
 import {
+	getConnectionErrorMessage,
+	withoutTrailingPeriod,
+} from "@/components/settings/connection-error-message";
+import {
 	calendarSettingsReducer,
 	connectionsSettingsReducer,
 	getStableConnectionSettingsKey,
@@ -195,43 +199,6 @@ const SETTINGS_LABEL_CLASSNAME = "text-xs text-muted-foreground";
 const SETTINGS_COLLAPSIBLE_TRIGGER_CLASSNAME =
 	"group w-full justify-between px-0 text-sm font-medium text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent aria-expanded:!bg-transparent aria-expanded:hover:!bg-transparent focus-visible:!bg-transparent";
 const MAX_PROFILE_AVATAR_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-
-const withoutTrailingPeriod = (message: string) =>
-	message.trimEnd().replace(/\.+$/u, "");
-
-const getConvexErrorDataMessage = (error: unknown) => {
-	if (!(error instanceof Error)) {
-		return "";
-	}
-
-	const match = error.message.match(/Uncaught ConvexError:\s*(\{.*?\})\s+at/su);
-	if (!match?.[1]) {
-		return "";
-	}
-
-	try {
-		const data = JSON.parse(match[1]) as unknown;
-		return data &&
-			typeof data === "object" &&
-			"message" in data &&
-			typeof data.message === "string"
-			? data.message
-			: "";
-	} catch {
-		return "";
-	}
-};
-
-const getConnectionErrorMessage = (error: unknown, fallback: string) => {
-	const convexMessage = getConvexErrorDataMessage(error);
-	if (convexMessage) {
-		return withoutTrailingPeriod(convexMessage);
-	}
-
-	return error instanceof Error
-		? withoutTrailingPeriod(error.message)
-		: fallback;
-};
 
 const createOAuthNavigationTarget = () =>
 	isDesktopRuntime() ? null : window.open("about:blank", "_blank");
