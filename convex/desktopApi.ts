@@ -316,6 +316,73 @@ const logOpenAiResponseMetadata = ({
 	});
 };
 
+const resolveHostedChatRequestContext = async ({
+	body,
+	request,
+}: {
+	body: ChatRequestBody;
+	request: Request;
+}) => {
+	const {
+		id,
+		model,
+		reasoningEffort,
+		workspaceId,
+		convexToken,
+		noteContext,
+	} = body;
+	const resolvedWorkspaceId =
+		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
+	const resolvedTimezone = trim(body.timezone) || "UTC";
+
+	if (convexToken && !resolvedWorkspaceId) {
+		return {
+			errorResponse: jsonResponse(400, {
+				error: "workspaceId is required.",
+			}),
+		};
+	}
+
+	const convexClient =
+		convexToken && id && resolvedWorkspaceId
+			? getConvexClient(request, convexToken)
+			: null;
+	const storedChat =
+		convexClient && id && resolvedWorkspaceId
+			? await convexClient
+					.query(api.chats.getSession, {
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+					})
+					.catch(() => null)
+			: null;
+	const selectedModel = resolveChatModel(model ?? storedChat?.model);
+	const requestedReasoningEffort =
+		reasoningEffort ?? storedChat?.reasoningEffort ?? undefined;
+	const resolvedReasoningEffort = normalizeReasoningEffort(
+		requestedReasoningEffort,
+	);
+	const providerOptions = getChatModelProviderOptions(selectedModel.model, {
+		reasoningEffort: resolvedReasoningEffort,
+	});
+	const resolvedNoteId =
+		(noteContext?.noteId as Id<"notes"> | null | undefined) ??
+		storedChat?.noteId ??
+		null;
+
+	return {
+		convexClient,
+		errorResponse: null,
+		providerOptions,
+		resolvedNoteId,
+		resolvedReasoningEffort,
+		resolvedTimezone,
+		resolvedWorkspaceId,
+		selectedModel,
+		storedChat,
+	};
+};
+
 export const handleChatRequest = async (request: Request) => {
 	if (!process.env.OPENAI_API_KEY) {
 		return jsonResponse(500, {
@@ -349,41 +416,31 @@ export const handleChatRequest = async (request: Request) => {
 		});
 	}
 
-	const resolvedWorkspaceId =
-		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
-	const resolvedTimezone = trim(timezone) || "UTC";
-	if (convexToken && !resolvedWorkspaceId) {
-		return jsonResponse(400, {
-			error: "workspaceId is required.",
-		});
-	}
-
-	const convexClient =
-		convexToken && id && resolvedWorkspaceId
-			? getConvexClient(request, convexToken)
-			: null;
-	const storedChat =
-		convexClient && id && resolvedWorkspaceId
-			? await convexClient
-					.query(api.chats.getSession, {
-						workspaceId: resolvedWorkspaceId,
-						chatId: id,
-					})
-					.catch(() => null)
-			: null;
-	const selectedModel = resolveChatModel(model ?? storedChat?.model);
-	const requestedReasoningEffort =
-		reasoningEffort ?? storedChat?.reasoningEffort ?? undefined;
-	const resolvedReasoningEffort = normalizeReasoningEffort(
-		requestedReasoningEffort,
-	);
-	const providerOptions = getChatModelProviderOptions(selectedModel.model, {
-		reasoningEffort: resolvedReasoningEffort,
+	const requestContext = await resolveHostedChatRequestContext({
+		body: {
+			id,
+			model,
+			reasoningEffort,
+			workspaceId,
+			timezone,
+			convexToken,
+			noteContext,
+		},
+		request,
 	});
-	const resolvedNoteId =
-		(noteContext?.noteId as Id<"notes"> | null | undefined) ??
-		storedChat?.noteId ??
-		null;
+	if (requestContext.errorResponse) {
+		return requestContext.errorResponse;
+	}
+	const {
+		convexClient,
+		providerOptions,
+		resolvedNoteId,
+		resolvedReasoningEffort,
+		resolvedTimezone,
+		resolvedWorkspaceId,
+		selectedModel,
+		storedChat,
+	} = requestContext;
 	const storedChatMessages =
 		message && convexClient && id && resolvedWorkspaceId
 			? await convexClient
