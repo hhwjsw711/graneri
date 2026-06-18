@@ -93,9 +93,18 @@ import {
 } from "@/components/layout/resizable-side-panel";
 import { useDesktopPanelPin } from "@/components/layout/use-desktop-panel-pin";
 import { getDesktopCommentsPanelPinnedStorageKey } from "@/components/note/note-comments-panel-state";
+import {
+	buildCommentTree,
+	type CommentViewer,
+	type FlattenedThreadComment,
+	flattenCommentTree,
+	formatCommentTimestamp,
+	formatDiscussionTitle,
+	getAvatarLabel,
+	resolveAuthorIdentity,
+} from "@/components/note/note-comments-utils";
 import { writeTextToClipboard } from "@/components/note/share-note";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
-import { getAvatarSrc } from "@/lib/avatar";
 import { DESKTOP_MAIN_HEADER_CONTENT_CLASS } from "@/lib/desktop-chrome";
 import { logError } from "@/lib/logger";
 import { api } from "../../../../../convex/_generated/api";
@@ -113,19 +122,7 @@ type ThreadView = "all" | "open" | "resolved";
 type ThreadSummary = Doc<"noteCommentThreads">;
 type ThreadComment = Doc<"noteComments">;
 type ThreadDetail = ThreadSummary & { comments: ThreadComment[] };
-type ThreadCommentNode = {
-	comment: ThreadComment;
-	children: ThreadCommentNode[];
-};
-type FlattenedThreadComment = {
-	comment: ThreadComment;
-	depth: number;
-};
-type CommentViewer = {
-	name: string;
-	email: string;
-	avatar: string;
-};
+type FlattenedNoteComment = FlattenedThreadComment<ThreadComment>;
 type CommentsUiState = {
 	view: ThreadView;
 	draftBody: string;
@@ -149,84 +146,6 @@ const getErrorMessage = (error: unknown, fallback: string) =>
 	error instanceof Error && error.message.trim().length > 0
 		? error.message.replace(/\.$/, "")
 		: fallback;
-
-const getAvatarLabel = (name?: string | null) =>
-	(name ?? "")
-		.split(/\s+/)
-		.filter(Boolean)
-		.slice(0, 2)
-		.map((part) => part[0]?.toUpperCase() ?? "")
-		.join("") || "?";
-
-const getDisplayName = (name?: string | null) => {
-	const trimmed = name?.trim();
-	return trimmed && trimmed.length > 0 ? trimmed : "Unknown";
-};
-
-const isUnknownAuthorName = (name?: string | null) => {
-	const trimmed = name?.trim().toLowerCase();
-	return !trimmed || trimmed === "unknown" || trimmed === "unknown user";
-};
-
-const getNormalizedIdentity = (value?: string | null) =>
-	value?.trim().toLowerCase() ?? "";
-
-const resolveAuthorIdentity = ({
-	name,
-	currentUser,
-}: {
-	name?: string | null;
-	currentUser: CommentViewer;
-}) => {
-	const normalizedName = getNormalizedIdentity(name);
-	const normalizedCurrentUserName = getNormalizedIdentity(currentUser.name);
-	const normalizedCurrentUserEmail = getNormalizedIdentity(currentUser.email);
-
-	if (
-		isUnknownAuthorName(name) ||
-		normalizedName === normalizedCurrentUserName ||
-		normalizedName === normalizedCurrentUserEmail
-	) {
-		return {
-			name: "You",
-			avatarSrc: getAvatarSrc(currentUser),
-		};
-	}
-
-	return {
-		name: getDisplayName(name),
-		avatarSrc: null,
-	};
-};
-
-const commentTimeFormatter = new Intl.DateTimeFormat(undefined, {
-	hour: "numeric",
-	minute: "2-digit",
-});
-
-const commentDateFormatter = new Intl.DateTimeFormat(undefined, {
-	month: "short",
-	day: "numeric",
-});
-
-const isSameCalendarDay = (left: Date, right: Date) =>
-	left.getFullYear() === right.getFullYear() &&
-	left.getMonth() === right.getMonth() &&
-	left.getDate() === right.getDate();
-
-const formatCommentTimestamp = (value: number) => {
-	const timestamp = new Date(value);
-	const now = new Date();
-
-	return isSameCalendarDay(timestamp, now)
-		? commentTimeFormatter.format(timestamp)
-		: commentDateFormatter.format(timestamp);
-};
-
-const formatDiscussionTitle = (
-	authorName: string,
-	latestCommentIsReply: boolean,
-) => `${authorName} ${latestCommentIsReply ? "replied in" : "commented in"}`;
 
 const THREAD_VIEW_OPTIONS: Array<{
 	value: ThreadView;
@@ -254,59 +173,6 @@ const commentsUiReducer = (
 	state: CommentsUiState,
 	patch: Partial<CommentsUiState>,
 ) => ({ ...state, ...patch });
-
-const buildCommentTree = (comments: ThreadComment[]) => {
-	const nodes = new Map<string, ThreadCommentNode>();
-	const roots: ThreadCommentNode[] = [];
-
-	for (const comment of comments) {
-		nodes.set(String(comment._id), {
-			comment,
-			children: [],
-		});
-	}
-
-	for (const comment of comments) {
-		const node = nodes.get(String(comment._id));
-
-		if (!node) {
-			continue;
-		}
-
-		if (!comment.parentCommentId) {
-			roots.push(node);
-			continue;
-		}
-
-		const parent = nodes.get(String(comment.parentCommentId));
-
-		if (!parent) {
-			roots.push(node);
-			continue;
-		}
-
-		parent.children.push(node);
-	}
-
-	return roots;
-};
-
-const flattenCommentTree = (
-	nodes: ThreadCommentNode[],
-	depth = 0,
-): FlattenedThreadComment[] => {
-	const flattened: FlattenedThreadComment[] = [];
-
-	for (const node of nodes) {
-		flattened.push({
-			comment: node.comment,
-			depth,
-		});
-		flattened.push(...flattenCommentTree(node.children, depth + 1));
-	}
-
-	return flattened;
-};
 
 const collectVisibleThreadOrder = (editor: Editor | null) => {
 	const threadIds = new Set<string>();
@@ -505,7 +371,7 @@ function ThreadCommentNodeItem({
 	setEditBody,
 	handleSaveEdit,
 }: {
-	item: FlattenedThreadComment;
+	item: FlattenedNoteComment;
 	currentUser: CommentViewer;
 	commentActionsOpenId: Id<"noteComments"> | null;
 	setCommentActionsOpenId: (commentId: Id<"noteComments"> | null) => void;
