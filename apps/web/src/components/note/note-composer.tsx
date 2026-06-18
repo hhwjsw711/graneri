@@ -188,6 +188,23 @@ import {
 	MOBILE_DOCKED_PANEL_MIN_WIDTH,
 } from "../layout/docked-panel-dimensions";
 import { NoteChatMessagesEntry } from "./note-chat-messages-entry";
+import {
+	clampPanelHeight,
+	getCurrentPanelMaxHeight,
+	getCurrentPanelViewportPlatform,
+	getNoteScopedStorageKey,
+	getNoteScopedStorageKeyForViewport,
+	getNoteStorageScopeKey,
+	INLINE_POPOVER_DEFAULT_HEIGHT,
+	INLINE_POPOVER_HEIGHT_LEGACY_STORAGE_KEY,
+	INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
+	NOTE_CHAT_FLOATING_DEFAULT_HEIGHT,
+	NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX,
+	NOTE_CHAT_PANEL_MIN_HEIGHT,
+	NOTE_CHAT_SIDEBAR_WIDTH_STORAGE_KEY_PREFIX,
+	readStoredPanelHeight,
+	storePanelHeight,
+} from "./note-composer-panel-storage";
 
 type NoteChatPresentation = "inline" | "floating" | "sidebar";
 type ScopedLocalOptimisticMessages = {
@@ -199,12 +216,6 @@ const noteRecipePickerListboxProps = {
 	"aria-label": "Recipe suggestions",
 };
 const NOTE_CHAT_FLOATING_WIDTH = "min(28rem, calc(100vw - 2rem))";
-const NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX =
-	"graneri.noteComposer.floatingHeight";
-const NOTE_CHAT_FLOATING_DEFAULT_HEIGHT = 512;
-const NOTE_CHAT_PANEL_MIN_HEIGHT = 320;
-const NOTE_CHAT_PANEL_MAX_HEIGHT = 680;
-const NOTE_CHAT_OVERLAY_VIEWPORT_INSET = 112;
 const NOTE_CHAT_PANEL_DOCK_OFFSET =
 	COMPOSER_DOCK_BOTTOM_OFFSET - COMPOSER_OVERLAY_FOOTER_PADDING;
 const NOTE_CHAT_INLINE_PANEL_DOCK_OFFSET = COMPOSER_OVERLAY_FOOTER_PADDING;
@@ -220,28 +231,8 @@ const NOTE_COMPOSER_FOOTER_BODY_SPACER_CLASS =
 const NOTE_COMPOSER_FOOTER_BOTTOM_ROW_CLASS =
 	"min-w-0 flex-wrap gap-1 px-4 pb-2.5";
 const INLINE_POPOVER_FOOTER_DEFAULT_HEIGHT = 120;
-const INLINE_POPOVER_DEFAULT_HEIGHT = 384;
-const INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX =
-	"graneri.noteComposer.inlinePopoverHeight";
-const INLINE_POPOVER_HEIGHT_LEGACY_STORAGE_KEY =
-	"graneri.noteComposer.inlinePopoverHeight";
-const NOTE_CHAT_SIDEBAR_WIDTH_STORAGE_KEY_PREFIX =
-	"graneri.noteComposer.sidebarWidth";
 const TRANSCRIPT_PROGRESSIVE_RENDER_THRESHOLD = 32;
 const TRANSCRIPT_INITIAL_WINDOW_SIZE = 32;
-
-const getNoteStorageScopeKey = (noteId: Id<"notes"> | null) =>
-	noteId ? `note:${noteId}` : "note:draft";
-
-const getNoteScopedStorageKey = ({
-	prefix,
-	noteScopeKey,
-	platform,
-}: {
-	prefix: string;
-	noteScopeKey: string;
-	platform: "desktop" | "mobile";
-}) => `${prefix}.${noteScopeKey}.${platform}`;
 
 const getStoredChatModel = (model: string | undefined): ChatModel | null =>
 	model ? (findChatModel(model) ?? null) : null;
@@ -250,57 +241,6 @@ const getPersistedChatReasoningEffort = (
 	reasoningEffort: string | undefined,
 ): ReasoningEffort | null =>
 	reasoningEffort ? (findReasoningEffort(reasoningEffort)?.id ?? null) : null;
-
-const readStoredPanelHeight = (
-	storageKeys: string | string[],
-	fallback: number,
-) => {
-	if (typeof window === "undefined") {
-		return fallback;
-	}
-
-	try {
-		const candidateKeys = Array.isArray(storageKeys)
-			? storageKeys
-			: [storageKeys];
-
-		for (const storageKey of candidateKeys) {
-			const storedValue = window.localStorage.getItem(storageKey);
-
-			if (!storedValue) {
-				continue;
-			}
-
-			const parsedValue = Number(storedValue);
-
-			if (Number.isFinite(parsedValue)) {
-				return parsedValue;
-			}
-		}
-
-		return fallback;
-	} catch {
-		return fallback;
-	}
-};
-
-const storePanelHeight = (storageKeys: string | string[], height: number) => {
-	if (typeof window === "undefined") {
-		return;
-	}
-
-	try {
-		const candidateKeys = Array.isArray(storageKeys)
-			? storageKeys
-			: [storageKeys];
-
-		for (const storageKey of candidateKeys) {
-			window.localStorage.setItem(storageKey, String(height));
-		}
-	} catch {
-		// Ignore storage failures and keep the in-memory size.
-	}
-};
 
 type NoteChatSummary = Pick<
 	Doc<"chats">,
@@ -516,57 +456,33 @@ const useNoteComposerController = ({
 	>([]);
 	const localFolderStorageScope = `note-chat:${currentChatId}`;
 	const [, startTranscriptPanelTransition] = React.useTransition();
-	const inlinePopoverHeightStorageKey = isMobile
-		? getNoteScopedStorageKey({
-				prefix: INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
-				noteScopeKey: noteStorageScopeKey,
-				platform: "mobile",
-			})
-		: getNoteScopedStorageKey({
-				prefix: INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
-				noteScopeKey: noteStorageScopeKey,
-				platform: "desktop",
-			});
-	const floatingPanelHeightStorageKey = isMobile
-		? getNoteScopedStorageKey({
-				prefix: NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX,
-				noteScopeKey: noteStorageScopeKey,
-				platform: "mobile",
-			})
-		: getNoteScopedStorageKey({
-				prefix: NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX,
-				noteScopeKey: noteStorageScopeKey,
-				platform: "desktop",
-			});
+	const inlinePopoverHeightStorageKey = getNoteScopedStorageKeyForViewport({
+		prefix: INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
+		noteScopeKey: noteStorageScopeKey,
+		isMobileViewport: isMobile,
+	});
+	const floatingPanelHeightStorageKey = getNoteScopedStorageKeyForViewport({
+		prefix: NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX,
+		noteScopeKey: noteStorageScopeKey,
+		isMobileViewport: isMobile,
+	});
 	const [inlinePanelHeight, setInlinePanelHeight] = React.useState(() =>
 		readStoredPanelHeight(
-			typeof window !== "undefined" && window.innerWidth < 768
-				? getNoteScopedStorageKey({
-						prefix: INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
-						noteScopeKey: noteStorageScopeKey,
-						platform: "mobile",
-					})
-				: getNoteScopedStorageKey({
-						prefix: INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
-						noteScopeKey: noteStorageScopeKey,
-						platform: "desktop",
-					}),
+			getNoteScopedStorageKey({
+				prefix: INLINE_POPOVER_HEIGHT_STORAGE_KEY_PREFIX,
+				noteScopeKey: noteStorageScopeKey,
+				platform: getCurrentPanelViewportPlatform(),
+			}),
 			INLINE_POPOVER_DEFAULT_HEIGHT,
 		),
 	);
 	const [floatingPanelHeight, setFloatingPanelHeight] = React.useState(() =>
 		readStoredPanelHeight(
-			typeof window !== "undefined" && window.innerWidth < 768
-				? getNoteScopedStorageKey({
-						prefix: NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX,
-						noteScopeKey: noteStorageScopeKey,
-						platform: "mobile",
-					})
-				: getNoteScopedStorageKey({
-						prefix: NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX,
-						noteScopeKey: noteStorageScopeKey,
-						platform: "desktop",
-					}),
+			getNoteScopedStorageKey({
+				prefix: NOTE_CHAT_FLOATING_HEIGHT_STORAGE_KEY_PREFIX,
+				noteScopeKey: noteStorageScopeKey,
+				platform: getCurrentPanelViewportPlatform(),
+			}),
 			NOTE_CHAT_FLOATING_DEFAULT_HEIGHT,
 		),
 	);
@@ -1096,49 +1012,29 @@ const useNoteComposerController = ({
 	const resetTextareaHeight = React.useCallback(() => {}, []);
 	const resizeTextarea = React.useCallback(() => {}, []);
 
-	const getInlinePanelMaxHeight = React.useCallback(() => {
-		if (typeof window === "undefined") {
-			return NOTE_CHAT_PANEL_MAX_HEIGHT;
-		}
-
-		return Math.max(
-			NOTE_CHAT_PANEL_MIN_HEIGHT,
-			Math.min(
-				NOTE_CHAT_PANEL_MAX_HEIGHT,
-				window.innerHeight - NOTE_CHAT_OVERLAY_VIEWPORT_INSET,
-			),
-		);
-	}, []);
-	const getFloatingPanelMaxHeight = React.useCallback(() => {
-		if (typeof window === "undefined") {
-			return NOTE_CHAT_PANEL_MAX_HEIGHT;
-		}
-
-		return Math.max(
-			NOTE_CHAT_PANEL_MIN_HEIGHT,
-			Math.min(
-				NOTE_CHAT_PANEL_MAX_HEIGHT,
-				window.innerHeight - NOTE_CHAT_OVERLAY_VIEWPORT_INSET,
-			),
-		);
-	}, []);
+	const getInlinePanelMaxHeight = React.useCallback(
+		() => getCurrentPanelMaxHeight(),
+		[],
+	);
+	const getFloatingPanelMaxHeight = React.useCallback(
+		() => getCurrentPanelMaxHeight(),
+		[],
+	);
 
 	const clampInlinePanelHeight = React.useCallback(
-		(nextHeight: number) => {
-			return Math.min(
-				getInlinePanelMaxHeight(),
-				Math.max(NOTE_CHAT_PANEL_MIN_HEIGHT, nextHeight),
-			);
-		},
+		(nextHeight: number) =>
+			clampPanelHeight({
+				nextHeight,
+				maxHeight: getInlinePanelMaxHeight(),
+			}),
 		[getInlinePanelMaxHeight],
 	);
 	const clampFloatingPanelHeight = React.useCallback(
-		(nextHeight: number) => {
-			return Math.min(
-				getFloatingPanelMaxHeight(),
-				Math.max(NOTE_CHAT_PANEL_MIN_HEIGHT, nextHeight),
-			);
-		},
+		(nextHeight: number) =>
+			clampPanelHeight({
+				nextHeight,
+				maxHeight: getFloatingPanelMaxHeight(),
+			}),
 		[getFloatingPanelMaxHeight],
 	);
 
