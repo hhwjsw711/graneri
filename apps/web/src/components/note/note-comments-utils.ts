@@ -1,4 +1,5 @@
 import { getAvatarSrc } from "@/lib/avatar";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export type CommentViewer = {
 	name: string;
@@ -16,10 +17,57 @@ export type FlattenedThreadComment<TComment> = {
 	depth: number;
 };
 
+export type ThreadView = "all" | "open" | "resolved";
+
+export type CommentsUiState = {
+	view: ThreadView;
+	draftBody: string;
+	replyBody: string;
+	editBody: string;
+	expandedThreadId: Id<"noteCommentThreads"> | null;
+	editingThreadId: Id<"noteCommentThreads"> | null;
+	editingCommentId: Id<"noteComments"> | null;
+	threadActionsOpenId: Id<"noteCommentThreads"> | null;
+	commentActionsOpenId: Id<"noteComments"> | null;
+	filtersOpen: boolean;
+};
+
+export const THREAD_VIEW_OPTIONS: Array<{
+	value: ThreadView;
+	label: string;
+}> = [
+	{ value: "all", label: "All discussions" },
+	{ value: "open", label: "Open discussions" },
+	{ value: "resolved", label: "Resolved discussions" },
+];
+
+export const INITIAL_COMMENTS_UI_STATE: CommentsUiState = {
+	view: "all",
+	draftBody: "",
+	replyBody: "",
+	editBody: "",
+	expandedThreadId: null,
+	editingThreadId: null,
+	editingCommentId: null,
+	threadActionsOpenId: null,
+	commentActionsOpenId: null,
+	filtersOpen: false,
+};
+
 type CommentTreeRecord = {
 	_id: string;
 	parentCommentId?: string | null;
 };
+
+export const getErrorMessage = (error: unknown, fallback: string) =>
+	error instanceof Error && error.message.trim().length > 0
+		? error.message.replace(/\.$/, "")
+		: fallback;
+
+export const commentsUiReducer = (
+	state: CommentsUiState,
+	patch: Partial<CommentsUiState>,
+) => ({ ...state, ...patch });
 
 export const getAvatarLabel = (name?: string | null) =>
 	(name ?? "")

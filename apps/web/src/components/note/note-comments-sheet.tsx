@@ -96,12 +96,17 @@ import { getDesktopCommentsPanelPinnedStorageKey } from "@/components/note/note-
 import {
 	buildCommentTree,
 	type CommentViewer,
+	commentsUiReducer,
 	type FlattenedThreadComment,
 	flattenCommentTree,
 	formatCommentTimestamp,
 	formatDiscussionTitle,
 	getAvatarLabel,
+	getErrorMessage,
+	INITIAL_COMMENTS_UI_STATE,
 	resolveAuthorIdentity,
+	THREAD_VIEW_OPTIONS,
+	type ThreadView,
 } from "@/components/note/note-comments-utils";
 import { writeTextToClipboard } from "@/components/note/share-note";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
@@ -117,62 +122,16 @@ const COMMENTS_PANEL_STORAGE_KEY_MOBILE =
 const INITIAL_VISIBLE_THREAD_COMMENTS = 2;
 const THREAD_COMMENT_PAGE_SIZE = 4;
 
-type ThreadView = "all" | "open" | "resolved";
-
 type ThreadSummary = Doc<"noteCommentThreads">;
 type ThreadComment = Doc<"noteComments">;
 type ThreadDetail = ThreadSummary & { comments: ThreadComment[] };
 type FlattenedNoteComment = FlattenedThreadComment<ThreadComment>;
-type CommentsUiState = {
-	view: ThreadView;
-	draftBody: string;
-	replyBody: string;
-	editBody: string;
-	expandedThreadId: Id<"noteCommentThreads"> | null;
-	editingThreadId: Id<"noteCommentThreads"> | null;
-	editingCommentId: Id<"noteComments"> | null;
-	threadActionsOpenId: Id<"noteCommentThreads"> | null;
-	commentActionsOpenId: Id<"noteComments"> | null;
-	filtersOpen: boolean;
-};
 
 export type PendingNoteCommentSelection = {
 	from: number;
 	to: number;
 	text: string;
 };
-
-const getErrorMessage = (error: unknown, fallback: string) =>
-	error instanceof Error && error.message.trim().length > 0
-		? error.message.replace(/\.$/, "")
-		: fallback;
-
-const THREAD_VIEW_OPTIONS: Array<{
-	value: ThreadView;
-	label: string;
-}> = [
-	{ value: "all", label: "All discussions" },
-	{ value: "open", label: "Open discussions" },
-	{ value: "resolved", label: "Resolved discussions" },
-];
-
-const INITIAL_COMMENTS_UI_STATE: CommentsUiState = {
-	view: "all",
-	draftBody: "",
-	replyBody: "",
-	editBody: "",
-	expandedThreadId: null,
-	editingThreadId: null,
-	editingCommentId: null,
-	threadActionsOpenId: null,
-	commentActionsOpenId: null,
-	filtersOpen: false,
-};
-
-const commentsUiReducer = (
-	state: CommentsUiState,
-	patch: Partial<CommentsUiState>,
-) => ({ ...state, ...patch });
 
 const collectVisibleThreadOrder = (editor: Editor | null) => {
 	const threadIds = new Set<string>();
