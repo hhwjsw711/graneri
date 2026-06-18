@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	canFlushQueuedNoteSave,
 	createNoteSnapshot,
+	getFlushableQueuedNoteSave,
 	isLatestNoteSaveRequest,
 } from "../src/lib/note-snapshot";
 
@@ -73,5 +74,50 @@ describe("note snapshot coordination", () => {
 				lastSavedSnapshot: latestSnapshot,
 			}),
 		).toBe(false);
+	});
+
+	it("returns only the queued save that should run after the in-flight save", () => {
+		const latestSnapshot = createNoteSnapshot({
+			title: "Generated title",
+			content:
+				'{"type":"doc","content":[{"type":"heading","attrs":{"level":2}}]}',
+			searchableText: "Overview\nDecisions\nShip autosave fix",
+		});
+		const queuedSave = {
+			requestId: 2,
+			snapshot: latestSnapshot,
+			payload: {
+				title: "Generated title",
+			},
+		};
+
+		expect(
+			getFlushableQueuedNoteSave({
+				queuedSave,
+				latestRequestId: 2,
+				lastSavedSnapshot: null,
+			}),
+		).toBe(queuedSave);
+		expect(
+			getFlushableQueuedNoteSave({
+				queuedSave,
+				latestRequestId: 3,
+				lastSavedSnapshot: null,
+			}),
+		).toBeNull();
+		expect(
+			getFlushableQueuedNoteSave({
+				queuedSave,
+				latestRequestId: 2,
+				lastSavedSnapshot: latestSnapshot,
+			}),
+		).toBeNull();
+		expect(
+			getFlushableQueuedNoteSave({
+				queuedSave: null,
+				latestRequestId: 2,
+				lastSavedSnapshot: null,
+			}),
+		).toBeNull();
 	});
 });

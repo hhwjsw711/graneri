@@ -36,3 +36,28 @@ export const canFlushQueuedNoteSave = ({
 		requestId: queuedRequestId,
 		latestRequestId,
 	}) && queuedSnapshot !== lastSavedSnapshot;
+
+export type QueuedNoteSave<TPayload> = {
+	requestId: number;
+	snapshot: string;
+	payload: TPayload;
+};
+
+export const getFlushableQueuedNoteSave = <TPayload>({
+	lastSavedSnapshot,
+	latestRequestId,
+	queuedSave,
+}: {
+	lastSavedSnapshot: string | null;
+	latestRequestId: number;
+	queuedSave: QueuedNoteSave<TPayload> | null;
+}) =>
+	queuedSave &&
+	canFlushQueuedNoteSave({
+		lastSavedSnapshot,
+		latestRequestId,
+		queuedRequestId: queuedSave.requestId,
+		queuedSnapshot: queuedSave.snapshot,
+	})
+		? queuedSave
+		: null;

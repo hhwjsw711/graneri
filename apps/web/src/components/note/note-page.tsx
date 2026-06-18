@@ -46,8 +46,8 @@ import {
 } from "@/lib/note-editor";
 import { exportTextFile } from "@/lib/note-export";
 import {
-	canFlushQueuedNoteSave,
 	createNoteSnapshot,
+	getFlushableQueuedNoteSave,
 	isLatestNoteSaveRequest,
 } from "@/lib/note-snapshot";
 import {
@@ -340,24 +340,18 @@ const useNotePageController = ({
 			} finally {
 				saveInFlightRef.current = false;
 
-				const queuedSave = queuedSaveRef.current;
-				const shouldFlushQueuedSave = queuedSave
-					? canFlushQueuedNoteSave({
-							lastSavedSnapshot: lastSavedSnapshotRef.current,
-							latestRequestId: latestSaveRequestIdRef.current,
-							queuedRequestId: queuedSave.requestId,
-							queuedSnapshot: queuedSave.snapshot,
-						})
-					: false;
-				if (!shouldFlushQueuedSave) {
-					queuedSaveRef.current = null;
-				} else if (queuedSave) {
-					queuedSaveRef.current = null;
+				const queuedSaveToFlush = getFlushableQueuedNoteSave({
+					lastSavedSnapshot: lastSavedSnapshotRef.current,
+					latestRequestId: latestSaveRequestIdRef.current,
+					queuedSave: queuedSaveRef.current,
+				});
+				queuedSaveRef.current = null;
+				if (queuedSaveToFlush) {
 					void flushSave(
 						nextNoteId,
-						queuedSave.requestId,
-						queuedSave.snapshot,
-						queuedSave.payload,
+						queuedSaveToFlush.requestId,
+						queuedSaveToFlush.snapshot,
+						queuedSaveToFlush.payload,
 					);
 				}
 			}
