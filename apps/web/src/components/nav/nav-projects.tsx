@@ -82,9 +82,14 @@ import { optimisticUpdateProjectList } from "@/lib/optimistic-projects";
 import { api } from "../../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../../convex/_generated/dataModel";
 import {
+	buildProjectEntries,
 	initialNavProjectsState,
 	navProjectsReducer,
+	normalizeProjectName,
 	type ProjectListSort,
+	type ProjectWithNotes,
+	sortProjectEntries,
+	toNormalizedProjectKey,
 } from "./nav-projects-state";
 import {
 	SIDEBAR_COLLAPSIBLE_GROUP_ACTION_CLASS_NAME,
@@ -110,12 +115,6 @@ const SIDEBAR_PROJECT_SKELETON_IDS = [
 const MAX_VISIBLE_PROJECT_NOTES = 5;
 const MAX_PROJECT_NAME_LENGTH = 48;
 const SidebarRecordingSpinner = Icons.sidebarRecordingSpinner;
-
-type ProjectWithNotes = {
-	project: Doc<"projects">;
-	notes: Array<Doc<"notes">>;
-	lastActivityAt: number;
-};
 
 const getProjectSortOptions = (
 	selectedValue: ProjectListSort,
@@ -1633,105 +1632,6 @@ function NavProjectsSkeleton() {
 			</div>
 		</div>
 	);
-}
-
-function buildProjectEntries(
-	projects: Array<Doc<"projects">>,
-	notes: Array<Doc<"notes">>,
-): Array<ProjectWithNotes> {
-	const notesByProjectId = new Map<Id<"projects">, Array<Doc<"notes">>>();
-
-	for (const note of notes) {
-		if (!note.projectId) {
-			continue;
-		}
-
-		const projectNotes = notesByProjectId.get(note.projectId) ?? [];
-		projectNotes.push(note);
-		notesByProjectId.set(note.projectId, projectNotes);
-	}
-
-	return projects.map((project) => {
-		const projectNotes = notesByProjectId.get(project._id) ?? [];
-
-		return {
-			project,
-			notes: projectNotes,
-			lastActivityAt: projectNotes.reduce(
-				(latestTimestamp, note) =>
-					Math.max(latestTimestamp, note.createdAt, note.updatedAt),
-				Math.max(project.createdAt, project.updatedAt),
-			),
-		};
-	});
-}
-
-const normalizeProjectName = (value: string) =>
-	value.replace(/\s+/g, " ").trim();
-
-const toNormalizedProjectKey = (value: string) =>
-	normalizeProjectName(value).toLowerCase();
-
-function sortProjectEntries(
-	entries: Array<ProjectWithNotes>,
-	sortBy: ProjectListSort,
-) {
-	return entries.slice().sort((left, right) => {
-		if (sortBy === "custom") {
-			if (left.project.sortOrder !== right.project.sortOrder) {
-				return left.project.sortOrder - right.project.sortOrder;
-			}
-
-			return left.project._creationTime - right.project._creationTime;
-		}
-
-		if (sortBy === "created") {
-			return compareProjectsByTimestamp(
-				left.project.createdAt,
-				right.project.createdAt,
-				left.project,
-				right.project,
-			);
-		}
-
-		if (sortBy === "updated") {
-			return compareProjectsByTimestamp(
-				left.lastActivityAt,
-				right.lastActivityAt,
-				left.project,
-				right.project,
-			);
-		}
-
-		return compareProjectsByName(left.project, right.project);
-	});
-}
-
-function compareProjectsByTimestamp(
-	leftTimestamp: number,
-	rightTimestamp: number,
-	leftProject: Doc<"projects">,
-	rightProject: Doc<"projects">,
-) {
-	if (rightTimestamp !== leftTimestamp) {
-		return rightTimestamp - leftTimestamp;
-	}
-
-	return compareProjectsByName(leftProject, rightProject);
-}
-
-function compareProjectsByName(
-	leftProject: Doc<"projects">,
-	rightProject: Doc<"projects">,
-) {
-	const normalizedComparison = leftProject.normalizedName.localeCompare(
-		rightProject.normalizedName,
-	);
-	if (normalizedComparison !== 0) {
-		return normalizedComparison;
-	}
-
-	return leftProject._creationTime - rightProject._creationTime;
 }
 
 function optimisticClearProjectFromNotes(
