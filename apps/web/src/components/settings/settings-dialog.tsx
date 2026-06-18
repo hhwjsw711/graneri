@@ -105,6 +105,33 @@ import { AppSourceIcon } from "@/components/app-source-icon";
 import { writeTextToClipboard } from "@/components/note/share-note";
 import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { ConnectionDialogFooter } from "@/components/settings/connection-dialog-footer";
+import {
+	calendarSettingsReducer,
+	connectionsSettingsReducer,
+	getStableConnectionSettingsKey,
+	initialCalendarSettingsState,
+	initialConnectionsSettingsState,
+	initialContext7ConnectionFormState,
+	initialFigmaConnectionFormState,
+	initialJiraConnectionFormState,
+	initialJiraMcpConnectionFormState,
+	initialLinearConnectionFormState,
+	initialNotionConnectionFormState,
+	initialPostHogConnectionFormState,
+	initialYandexCalendarConnectionFormState,
+	initialYandexTrackerConnectionFormState,
+	initialZoomConnectionFormState,
+	type JiraConnectionFormState,
+	type PreferencesSettingsState,
+	preferencesSettingsReducer,
+	type RemoteMcpFormPatch,
+	type RemoteMcpFormStateKey,
+	resolveConnectionSettings,
+	stableConnectionSettingsStore,
+	type YandexCalendarConnectionFormState,
+	type YandexTrackerConnectionFormState,
+	type YandexTrackerOrgType,
+} from "@/components/settings/connection-settings-state";
 import { RemoteMcpDialog } from "@/components/settings/remote-mcp-dialog";
 import { SettingsSwitchRow } from "@/components/settings/settings-switch-row";
 import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
@@ -255,128 +282,6 @@ type DataControlsState = {
 	isDeletingAllChats: boolean;
 };
 
-type YandexTrackerOrgType = "x-org-id" | "x-cloud-org-id";
-
-type YandexTrackerConnectionFormState = {
-	orgType: YandexTrackerOrgType;
-	orgId: string;
-	token: string;
-};
-
-type JiraConnectionFormState = {
-	baseUrl: string;
-	email: string;
-	token: string;
-};
-
-type JiraMcpConnectionFormState = {
-	name: string;
-	baseUrl: string;
-	envVars: Array<{ id: string; key: string; value: string }>;
-	oauthClientId: string;
-	oauthClientSecret: string;
-};
-
-type PostHogConnectionFormState = {
-	name: string;
-	baseUrl: string;
-	envVars: Array<{ id: string; key: string; value: string }>;
-	oauthClientId: string;
-	oauthClientSecret: string;
-};
-
-type Context7ConnectionFormState = RemoteMcpConnectionFormState;
-type FigmaConnectionFormState = RemoteMcpConnectionFormState & {
-	oauthClientId: string;
-	oauthClientSecret: string;
-};
-type LinearConnectionFormState = RemoteMcpConnectionFormState & {
-	oauthClientId: string;
-	oauthClientSecret: string;
-};
-
-type NotionConnectionFormState = {
-	name: string;
-	baseUrl: string;
-	envVars: Array<{ id: string; key: string; value: string }>;
-	oauthClientId: string;
-	oauthClientSecret: string;
-};
-
-type ZoomConnectionFormState = {
-	name: string;
-	baseUrl: string;
-	envVars: Array<{ id: string; key: string; value: string }>;
-	oauthClientId: string;
-	oauthClientSecret: string;
-};
-
-type RemoteMcpFormStateKey =
-	| "jiraMcpFormState"
-	| "context7FormState"
-	| "figmaFormState"
-	| "linearFormState"
-	| "posthogFormState"
-	| "notionFormState"
-	| "zoomFormState";
-
-type RemoteMcpOAuthFields = {
-	oauthClientId: string;
-	oauthClientSecret: string;
-};
-
-type RemoteMcpFormPatch = Partial<
-	RemoteMcpConnectionFormState & RemoteMcpOAuthFields
->;
-
-type RemoteMcpFormPatchAction = {
-	type: "patchRemoteMcpFormState";
-	key: RemoteMcpFormStateKey;
-	value: RemoteMcpFormPatch;
-};
-
-type YandexCalendarConnectionFormState = {
-	email: string;
-	password: string;
-};
-
-type PreferencesSettingsState = {
-	preferences: DesktopPreferences | null;
-	isLoadingPreferences: boolean;
-	savingPreference: keyof DesktopPreferences | null;
-};
-
-type PreferencesSettingsAction =
-	| {
-			type: "loadSucceeded";
-			value: DesktopPreferences;
-	  }
-	| {
-			type: "finishLoading";
-	  }
-	| {
-			type: "setSavingPreference";
-			value: keyof DesktopPreferences | null;
-	  }
-	| {
-			type: "setPreferences";
-			value: DesktopPreferences | null;
-	  }
-	| {
-			key: keyof DesktopPreferences;
-			type: "setPreferenceOptimistic";
-			value: boolean;
-	  };
-
-type CalendarSettingsState = {
-	isSavingCalendarPreferences: boolean;
-};
-
-type CalendarSettingsAction = {
-	type: "setIsSavingCalendarPreferences";
-	value: boolean;
-};
-
 type CalendarVisibilityPreferences = {
 	showGoogleCalendar: boolean;
 	showGoogleDrive: boolean;
@@ -401,302 +306,6 @@ type ToolConnectionRowProps = {
 	buttonIcon?: React.ReactNode;
 	onButtonClick: () => void;
 };
-
-type AppConnectionStatus = "connected" | "disconnected";
-
-type YandexTrackerConnectionSettings = {
-	sourceId: string;
-	provider: "yandex-tracker";
-	status: AppConnectionStatus;
-	displayName: string;
-	orgType: "x-org-id" | "x-cloud-org-id";
-	orgId: string;
-};
-
-type YandexCalendarConnectionSettings = {
-	sourceId: string;
-	provider: "yandex-calendar";
-	status: AppConnectionStatus;
-	displayName: string;
-	email: string;
-	serverAddress: string;
-	calendarHomePath: string;
-};
-
-type JiraConnectionSettings = {
-	sourceId: string;
-	provider: "jira";
-	status: AppConnectionStatus;
-	displayName: string;
-	baseUrl: string;
-	email: string;
-	accountId?: string;
-	webhookSecret?: string;
-	lastWebhookReceivedAt?: number;
-	lastMentionSyncAt?: number;
-};
-
-type JiraMcpConnectionSettings = {
-	sourceId: string;
-	provider: "jira-mcp";
-	status: AppConnectionStatus;
-	displayName: string;
-	endpoint: string;
-	oauthClientId?: string;
-};
-
-type PostHogConnectionSettings = {
-	sourceId: string;
-	provider: "posthog";
-	status: AppConnectionStatus;
-	displayName: string;
-	endpoint: string;
-	oauthClientId?: string;
-};
-
-type Context7ConnectionSettings = {
-	sourceId: string;
-	provider: "context7";
-	status: AppConnectionStatus;
-	displayName: string;
-	endpoint: string;
-};
-
-type FigmaConnectionSettings = {
-	sourceId: string;
-	provider: "figma";
-	status: AppConnectionStatus;
-	displayName: string;
-	endpoint: string;
-	oauthClientId?: string;
-};
-
-type LinearConnectionSettings = {
-	sourceId: string;
-	provider: "linear";
-	status: AppConnectionStatus;
-	displayName: string;
-	endpoint: string;
-	oauthClientId?: string;
-};
-
-type NotionConnectionSettings = {
-	sourceId: string;
-	provider: "notion";
-	status: AppConnectionStatus;
-	displayName: string;
-	endpoint: string;
-	oauthClientId?: string;
-};
-
-type ZoomConnectionSettings = {
-	sourceId: string;
-	provider: "zoom";
-	status: AppConnectionStatus;
-	displayName: string;
-	endpoint: string;
-	oauthClientId?: string;
-};
-
-type StableConnectionSettings = {
-	yandexTracker: YandexTrackerConnectionSettings | null;
-	yandexCalendar: YandexCalendarConnectionSettings | null;
-	context7: Context7ConnectionSettings | null;
-	figma: FigmaConnectionSettings | null;
-	linear: LinearConnectionSettings | null;
-	jira: JiraConnectionSettings | null;
-	jiraMcp: JiraMcpConnectionSettings | null;
-	posthog: PostHogConnectionSettings | null;
-	notion: NotionConnectionSettings | null;
-	zoom: ZoomConnectionSettings | null;
-};
-
-const stableConnectionSettingsByWorkspace = new Map<
-	string,
-	StableConnectionSettings
->();
-
-type ConnectionsSettingsState = {
-	isYandexTrackerDialogOpen: boolean;
-	isJiraDialogOpen: boolean;
-	isJiraMcpDialogOpen: boolean;
-	isContext7DialogOpen: boolean;
-	isFigmaDialogOpen: boolean;
-	isLinearDialogOpen: boolean;
-	isPostHogDialogOpen: boolean;
-	isNotionDialogOpen: boolean;
-	isZoomDialogOpen: boolean;
-	isSavingYandexTrackerConnection: boolean;
-	isSavingJiraConnection: boolean;
-	isSavingJiraMcpConnection: boolean;
-	isSavingContext7Connection: boolean;
-	isSavingFigmaConnection: boolean;
-	isSavingLinearConnection: boolean;
-	isDisablingConnection: boolean;
-	isSavingPostHogConnection: boolean;
-	isSavingNotionConnection: boolean;
-	isSavingZoomConnection: boolean;
-	yandexTrackerFormState: YandexTrackerConnectionFormState;
-	jiraFormState: JiraConnectionFormState;
-	jiraMcpFormState: JiraMcpConnectionFormState;
-	context7FormState: Context7ConnectionFormState;
-	figmaFormState: FigmaConnectionFormState;
-	linearFormState: LinearConnectionFormState;
-	posthogFormState: PostHogConnectionFormState;
-	notionFormState: NotionConnectionFormState;
-	zoomFormState: ZoomConnectionFormState;
-};
-
-type ConnectionsSettingsAction =
-	| {
-			type: "setIsYandexTrackerDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsJiraDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsJiraMcpDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsContext7DialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsFigmaDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsLinearDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsPostHogDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsNotionDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsZoomDialogOpen";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingYandexTrackerConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingJiraConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingJiraMcpConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingContext7Connection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingFigmaConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingLinearConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsDisablingConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingPostHogConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingNotionConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setIsSavingZoomConnection";
-			value: boolean;
-	  }
-	| {
-			type: "setYandexTrackerFormState";
-			value: YandexTrackerConnectionFormState;
-	  }
-	| {
-			type: "patchYandexTrackerFormState";
-			value: Partial<YandexTrackerConnectionFormState>;
-	  }
-	| {
-			type: "setJiraFormState";
-			value: JiraConnectionFormState;
-	  }
-	| {
-			type: "patchJiraFormState";
-			value: Partial<JiraConnectionFormState>;
-	  }
-	| {
-			type: "setJiraMcpFormState";
-			value: JiraMcpConnectionFormState;
-	  }
-	| {
-			type: "patchJiraMcpFormState";
-			value: Partial<JiraMcpConnectionFormState>;
-	  }
-	| RemoteMcpFormPatchAction
-	| {
-			type: "setContext7FormState";
-			value: Context7ConnectionFormState;
-	  }
-	| {
-			type: "patchContext7FormState";
-			value: Partial<Context7ConnectionFormState>;
-	  }
-	| {
-			type: "setFigmaFormState";
-			value: FigmaConnectionFormState;
-	  }
-	| {
-			type: "patchFigmaFormState";
-			value: Partial<FigmaConnectionFormState>;
-	  }
-	| {
-			type: "setLinearFormState";
-			value: LinearConnectionFormState;
-	  }
-	| {
-			type: "patchLinearFormState";
-			value: Partial<LinearConnectionFormState>;
-	  }
-	| {
-			type: "setPostHogFormState";
-			value: PostHogConnectionFormState;
-	  }
-	| {
-			type: "patchPostHogFormState";
-			value: Partial<PostHogConnectionFormState>;
-	  }
-	| {
-			type: "setNotionFormState";
-			value: NotionConnectionFormState;
-	  }
-	| {
-			type: "patchNotionFormState";
-			value: Partial<NotionConnectionFormState>;
-	  }
-	| {
-			type: "setZoomFormState";
-			value: ZoomConnectionFormState;
-	  }
-	| {
-			type: "patchZoomFormState";
-			value: Partial<ZoomConnectionFormState>;
-	  };
 
 const getWorkspaceFormState = (
 	workspace: WorkspaceRecord | null,
@@ -734,340 +343,11 @@ const navigateTo = (pathname: string) => {
 	window.dispatchEvent(new PopStateEvent("popstate"));
 };
 
-const initialYandexTrackerConnectionFormState: YandexTrackerConnectionFormState =
-	{
-		orgType: "x-org-id",
-		orgId: "",
-		token: "",
-	};
-
-const initialYandexCalendarConnectionFormState: YandexCalendarConnectionFormState =
-	{
-		email: "",
-		password: "",
-	};
-
-const initialJiraConnectionFormState: JiraConnectionFormState = {
-	baseUrl: "",
-	email: "",
-	token: "",
-};
-
-const initialJiraMcpConnectionFormState: JiraMcpConnectionFormState = {
-	name: "Jira",
-	baseUrl: "https://mcp.atlassian.com/v1/mcp",
-	envVars: [],
-	oauthClientId: "",
-	oauthClientSecret: "",
-};
-
-const initialPostHogConnectionFormState: PostHogConnectionFormState = {
-	name: "PostHog",
-	baseUrl: "https://mcp.posthog.com/mcp",
-	envVars: [],
-	oauthClientId: "",
-	oauthClientSecret: "",
-};
-
-const initialContext7ConnectionFormState: Context7ConnectionFormState = {
-	name: "Context7",
-	baseUrl: "https://mcp.context7.com/mcp",
-	envVars: [],
-};
-
-const initialFigmaConnectionFormState: FigmaConnectionFormState = {
-	name: "Figma",
-	baseUrl: "https://mcp.figma.com/mcp",
-	envVars: [],
-	oauthClientId: "",
-	oauthClientSecret: "",
-};
-
-const initialLinearConnectionFormState: LinearConnectionFormState = {
-	name: "Linear",
-	baseUrl: "https://mcp.linear.app/mcp",
-	envVars: [],
-	oauthClientId: "",
-	oauthClientSecret: "",
-};
-
-const initialNotionConnectionFormState: NotionConnectionFormState = {
-	name: "Notion",
-	baseUrl: "https://mcp.notion.com/mcp",
-	envVars: [],
-	oauthClientId: "",
-	oauthClientSecret: "",
-};
-
-const initialZoomConnectionFormState: ZoomConnectionFormState = {
-	name: "Zoom",
-	baseUrl: "https://mcp.zoom.us/mcp/zoom/streamable",
-	envVars: [],
-	oauthClientId: "",
-	oauthClientSecret: "",
-};
-
 const getInitialPreferencesSettingsState = (): PreferencesSettingsState => ({
 	preferences: null,
 	isLoadingPreferences: isDesktopRuntime(),
 	savingPreference: null,
 });
-
-const initialCalendarSettingsState: CalendarSettingsState = {
-	isSavingCalendarPreferences: false,
-};
-
-const initialConnectionsSettingsState: ConnectionsSettingsState = {
-	isYandexTrackerDialogOpen: false,
-	isJiraDialogOpen: false,
-	isJiraMcpDialogOpen: false,
-	isContext7DialogOpen: false,
-	isFigmaDialogOpen: false,
-	isLinearDialogOpen: false,
-	isPostHogDialogOpen: false,
-	isNotionDialogOpen: false,
-	isZoomDialogOpen: false,
-	isSavingYandexTrackerConnection: false,
-	isSavingJiraConnection: false,
-	isSavingJiraMcpConnection: false,
-	isSavingContext7Connection: false,
-	isSavingFigmaConnection: false,
-	isSavingLinearConnection: false,
-	isDisablingConnection: false,
-	isSavingPostHogConnection: false,
-	isSavingNotionConnection: false,
-	isSavingZoomConnection: false,
-	yandexTrackerFormState: initialYandexTrackerConnectionFormState,
-	jiraFormState: initialJiraConnectionFormState,
-	jiraMcpFormState: initialJiraMcpConnectionFormState,
-	context7FormState: initialContext7ConnectionFormState,
-	figmaFormState: initialFigmaConnectionFormState,
-	linearFormState: initialLinearConnectionFormState,
-	posthogFormState: initialPostHogConnectionFormState,
-	notionFormState: initialNotionConnectionFormState,
-	zoomFormState: initialZoomConnectionFormState,
-};
-
-const preferencesSettingsReducer = (
-	state: PreferencesSettingsState,
-	action: PreferencesSettingsAction,
-): PreferencesSettingsState => {
-	switch (action.type) {
-		case "loadSucceeded":
-			return {
-				...state,
-				preferences: action.value,
-				isLoadingPreferences: false,
-			};
-		case "finishLoading":
-			return { ...state, isLoadingPreferences: false };
-		case "setSavingPreference":
-			return { ...state, savingPreference: action.value };
-		case "setPreferences":
-			return { ...state, preferences: action.value };
-		case "setPreferenceOptimistic":
-			return state.preferences
-				? {
-						...state,
-						preferences: {
-							...state.preferences,
-							[action.key]: action.value,
-						},
-					}
-				: state;
-	}
-};
-
-const calendarSettingsReducer = (
-	state: CalendarSettingsState,
-	action: CalendarSettingsAction,
-): CalendarSettingsState => {
-	switch (action.type) {
-		case "setIsSavingCalendarPreferences":
-			return { ...state, isSavingCalendarPreferences: action.value };
-	}
-};
-
-const patchRemoteMcpFormState = (
-	state: ConnectionsSettingsState,
-	action: RemoteMcpFormPatchAction,
-): ConnectionsSettingsState => {
-	switch (action.key) {
-		case "jiraMcpFormState":
-			return {
-				...state,
-				jiraMcpFormState: { ...state.jiraMcpFormState, ...action.value },
-			};
-		case "context7FormState":
-			return {
-				...state,
-				context7FormState: { ...state.context7FormState, ...action.value },
-			};
-		case "figmaFormState":
-			return {
-				...state,
-				figmaFormState: { ...state.figmaFormState, ...action.value },
-			};
-		case "linearFormState":
-			return {
-				...state,
-				linearFormState: { ...state.linearFormState, ...action.value },
-			};
-		case "posthogFormState":
-			return {
-				...state,
-				posthogFormState: { ...state.posthogFormState, ...action.value },
-			};
-		case "notionFormState":
-			return {
-				...state,
-				notionFormState: { ...state.notionFormState, ...action.value },
-			};
-		case "zoomFormState":
-			return {
-				...state,
-				zoomFormState: { ...state.zoomFormState, ...action.value },
-			};
-	}
-};
-
-const connectionsSettingsReducer = (
-	state: ConnectionsSettingsState,
-	action: ConnectionsSettingsAction,
-): ConnectionsSettingsState => {
-	switch (action.type) {
-		case "setIsYandexTrackerDialogOpen":
-			return { ...state, isYandexTrackerDialogOpen: action.value };
-		case "setIsJiraDialogOpen":
-			return { ...state, isJiraDialogOpen: action.value };
-		case "setIsJiraMcpDialogOpen":
-			return { ...state, isJiraMcpDialogOpen: action.value };
-		case "setIsContext7DialogOpen":
-			return { ...state, isContext7DialogOpen: action.value };
-		case "setIsFigmaDialogOpen":
-			return { ...state, isFigmaDialogOpen: action.value };
-		case "setIsLinearDialogOpen":
-			return { ...state, isLinearDialogOpen: action.value };
-		case "setIsPostHogDialogOpen":
-			return { ...state, isPostHogDialogOpen: action.value };
-		case "setIsNotionDialogOpen":
-			return { ...state, isNotionDialogOpen: action.value };
-		case "setIsZoomDialogOpen":
-			return { ...state, isZoomDialogOpen: action.value };
-		case "setIsSavingYandexTrackerConnection":
-			return { ...state, isSavingYandexTrackerConnection: action.value };
-		case "setIsSavingJiraConnection":
-			return { ...state, isSavingJiraConnection: action.value };
-		case "setIsSavingJiraMcpConnection":
-			return { ...state, isSavingJiraMcpConnection: action.value };
-		case "setIsSavingContext7Connection":
-			return { ...state, isSavingContext7Connection: action.value };
-		case "setIsSavingFigmaConnection":
-			return { ...state, isSavingFigmaConnection: action.value };
-		case "setIsSavingLinearConnection":
-			return { ...state, isSavingLinearConnection: action.value };
-		case "setIsDisablingConnection":
-			return { ...state, isDisablingConnection: action.value };
-		case "setIsSavingPostHogConnection":
-			return { ...state, isSavingPostHogConnection: action.value };
-		case "setIsSavingNotionConnection":
-			return { ...state, isSavingNotionConnection: action.value };
-		case "setIsSavingZoomConnection":
-			return { ...state, isSavingZoomConnection: action.value };
-		case "setYandexTrackerFormState":
-			return { ...state, yandexTrackerFormState: action.value };
-		case "patchYandexTrackerFormState":
-			return {
-				...state,
-				yandexTrackerFormState: {
-					...state.yandexTrackerFormState,
-					...action.value,
-				},
-			};
-		case "setJiraFormState":
-			return { ...state, jiraFormState: action.value };
-		case "patchJiraFormState":
-			return {
-				...state,
-				jiraFormState: {
-					...state.jiraFormState,
-					...action.value,
-				},
-			};
-		case "setJiraMcpFormState":
-			return { ...state, jiraMcpFormState: action.value };
-		case "patchJiraMcpFormState":
-			return {
-				...state,
-				jiraMcpFormState: {
-					...state.jiraMcpFormState,
-					...action.value,
-				},
-			};
-		case "patchRemoteMcpFormState":
-			return patchRemoteMcpFormState(state, action);
-		case "setContext7FormState":
-			return { ...state, context7FormState: action.value };
-		case "patchContext7FormState":
-			return {
-				...state,
-				context7FormState: {
-					...state.context7FormState,
-					...action.value,
-				},
-			};
-		case "setFigmaFormState":
-			return { ...state, figmaFormState: action.value };
-		case "patchFigmaFormState":
-			return {
-				...state,
-				figmaFormState: {
-					...state.figmaFormState,
-					...action.value,
-				},
-			};
-		case "setLinearFormState":
-			return { ...state, linearFormState: action.value };
-		case "patchLinearFormState":
-			return {
-				...state,
-				linearFormState: {
-					...state.linearFormState,
-					...action.value,
-				},
-			};
-		case "setPostHogFormState":
-			return { ...state, posthogFormState: action.value };
-		case "patchPostHogFormState":
-			return {
-				...state,
-				posthogFormState: {
-					...state.posthogFormState,
-					...action.value,
-				},
-			};
-		case "setNotionFormState":
-			return { ...state, notionFormState: action.value };
-		case "patchNotionFormState":
-			return {
-				...state,
-				notionFormState: {
-					...state.notionFormState,
-					...action.value,
-				},
-			};
-		case "setZoomFormState":
-			return { ...state, zoomFormState: action.value };
-		case "patchZoomFormState":
-			return {
-				...state,
-				zoomFormState: {
-					...state.zoomFormState,
-					...action.value,
-				},
-			};
-	}
-};
 
 export function SettingsDialog({
 	open,
@@ -2109,10 +1389,10 @@ function useConnectionsSettingsController() {
 	const activeWorkspaceId = useActiveWorkspaceId();
 	const { data: session } = authClient.useSession();
 	const { accounts, loadAccounts } = useLinkedAccounts(session?.user);
-	const stableConnectionSettingsKey =
-		activeWorkspaceId && session?.user?.email
-			? `${session.user.email}:${activeWorkspaceId}`
-			: null;
+	const stableConnectionSettingsKey = getStableConnectionSettingsKey({
+		workspaceId: activeWorkspaceId,
+		email: session?.user?.email,
+	});
 	const yandexTrackerConnectionResult = useQuery(
 		api.appConnections.getYandexTracker,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
@@ -2158,49 +1438,48 @@ function useConnectionsSettingsController() {
 		api.appConnections.getZoom,
 		activeWorkspaceId ? { workspaceId: activeWorkspaceId } : "skip",
 	);
-	const stableConnectionSettings = stableConnectionSettingsKey
-		? stableConnectionSettingsByWorkspace.get(stableConnectionSettingsKey)
-		: undefined;
-	const yandexTrackerConnection =
-		yandexTrackerConnectionResult === undefined
-			? (stableConnectionSettings?.yandexTracker ?? null)
-			: yandexTrackerConnectionResult;
-	const yandexCalendarConnection =
-		yandexCalendarConnectionResult === undefined
-			? (stableConnectionSettings?.yandexCalendar ?? null)
-			: yandexCalendarConnectionResult;
-	const jiraConnection =
-		jiraConnectionResult === undefined
-			? (stableConnectionSettings?.jira ?? null)
-			: jiraConnectionResult;
-	const jiraMcpConnection =
-		jiraMcpConnectionResult === undefined
-			? (stableConnectionSettings?.jiraMcp ?? null)
-			: jiraMcpConnectionResult;
-	const posthogConnection =
-		posthogConnectionResult === undefined
-			? (stableConnectionSettings?.posthog ?? null)
-			: posthogConnectionResult;
-	const context7Connection =
-		context7ConnectionResult === undefined
-			? (stableConnectionSettings?.context7 ?? null)
-			: context7ConnectionResult;
-	const figmaConnection =
-		figmaConnectionResult === undefined
-			? (stableConnectionSettings?.figma ?? null)
-			: figmaConnectionResult;
-	const linearConnection =
-		linearConnectionResult === undefined
-			? (stableConnectionSettings?.linear ?? null)
-			: linearConnectionResult;
-	const notionConnection =
-		notionConnectionResult === undefined
-			? (stableConnectionSettings?.notion ?? null)
-			: notionConnectionResult;
-	const zoomConnection =
-		zoomConnectionResult === undefined
-			? (stableConnectionSettings?.zoom ?? null)
-			: zoomConnectionResult;
+	const connectionQueryResults = useMemo(
+		() => ({
+			yandexTracker: yandexTrackerConnectionResult,
+			yandexCalendar: yandexCalendarConnectionResult,
+			jira: jiraConnectionResult,
+			jiraMcp: jiraMcpConnectionResult,
+			posthog: posthogConnectionResult,
+			context7: context7ConnectionResult,
+			figma: figmaConnectionResult,
+			linear: linearConnectionResult,
+			notion: notionConnectionResult,
+			zoom: zoomConnectionResult,
+		}),
+		[
+			context7ConnectionResult,
+			figmaConnectionResult,
+			jiraConnectionResult,
+			jiraMcpConnectionResult,
+			linearConnectionResult,
+			notionConnectionResult,
+			posthogConnectionResult,
+			yandexCalendarConnectionResult,
+			yandexTrackerConnectionResult,
+			zoomConnectionResult,
+		],
+	);
+	const stableConnectionSettings = resolveConnectionSettings({
+		cachedSettings: stableConnectionSettingsKey
+			? stableConnectionSettingsStore.get(stableConnectionSettingsKey)
+			: undefined,
+		results: connectionQueryResults,
+	});
+	const yandexTrackerConnection = stableConnectionSettings.yandexTracker;
+	const yandexCalendarConnection = stableConnectionSettings.yandexCalendar;
+	const jiraConnection = stableConnectionSettings.jira;
+	const jiraMcpConnection = stableConnectionSettings.jiraMcp;
+	const posthogConnection = stableConnectionSettings.posthog;
+	const context7Connection = stableConnectionSettings.context7;
+	const figmaConnection = stableConnectionSettings.figma;
+	const linearConnection = stableConnectionSettings.linear;
+	const notionConnection = stableConnectionSettings.notion;
+	const zoomConnection = stableConnectionSettings.zoom;
 	const connectYandexTracker = useAction(
 		api.appConnectionActions.connectYandexTracker,
 	);
@@ -2282,76 +1561,11 @@ function useConnectionsSettingsController() {
 			return;
 		}
 
-		const previous = stableConnectionSettingsByWorkspace.get(
+		stableConnectionSettingsStore.update(
 			stableConnectionSettingsKey,
-		) ?? {
-			yandexTracker: null,
-			yandexCalendar: null,
-			jira: null,
-			jiraMcp: null,
-			context7: null,
-			figma: null,
-			linear: null,
-			posthog: null,
-			notion: null,
-			zoom: null,
-		};
-
-		stableConnectionSettingsByWorkspace.set(stableConnectionSettingsKey, {
-			yandexTracker:
-				yandexTrackerConnectionResult === undefined
-					? previous.yandexTracker
-					: yandexTrackerConnectionResult,
-			yandexCalendar:
-				yandexCalendarConnectionResult === undefined
-					? previous.yandexCalendar
-					: yandexCalendarConnectionResult,
-			jira:
-				jiraConnectionResult === undefined
-					? previous.jira
-					: jiraConnectionResult,
-			jiraMcp:
-				jiraMcpConnectionResult === undefined
-					? previous.jiraMcp
-					: jiraMcpConnectionResult,
-			context7:
-				context7ConnectionResult === undefined
-					? previous.context7
-					: context7ConnectionResult,
-			figma:
-				figmaConnectionResult === undefined
-					? previous.figma
-					: figmaConnectionResult,
-			linear:
-				linearConnectionResult === undefined
-					? previous.linear
-					: linearConnectionResult,
-			posthog:
-				posthogConnectionResult === undefined
-					? previous.posthog
-					: posthogConnectionResult,
-			notion:
-				notionConnectionResult === undefined
-					? previous.notion
-					: notionConnectionResult,
-			zoom:
-				zoomConnectionResult === undefined
-					? previous.zoom
-					: zoomConnectionResult,
-		});
-	}, [
-		context7ConnectionResult,
-		figmaConnectionResult,
-		jiraConnectionResult,
-		jiraMcpConnectionResult,
-		linearConnectionResult,
-		notionConnectionResult,
-		posthogConnectionResult,
-		stableConnectionSettingsKey,
-		yandexCalendarConnectionResult,
-		yandexTrackerConnectionResult,
-		zoomConnectionResult,
-	]);
+			connectionQueryResults,
+		);
+	}, [connectionQueryResults, stableConnectionSettingsKey]);
 
 	useEffect(() => {
 		let isMounted = true;
