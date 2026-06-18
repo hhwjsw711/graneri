@@ -41,6 +41,11 @@ import { createDesktopRealtimeTransport } from "./desktop-realtime-transport.mjs
 import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopSystemAudioPolicy as createSystemAudioPolicy } from "./desktop-transcription-policy.mjs";
+import {
+	createEmptyLiveTranscriptState,
+	createTranscriptionSpeakerRuntime,
+	createTranscriptRecoveryStatus,
+} from "./desktop-transcription-runtime.mjs";
 import { createDesktopTray } from "./desktop-tray.mjs";
 import {
 	createDesktopUpdater,
@@ -288,45 +293,6 @@ const hideMainWindow = () => {
 const hideApp = (options) => {
 	requireDesktopService(desktopShell, "desktopShell").hideApp(options);
 };
-
-function createTranscriptionSpeakerRuntime(speaker) {
-	return {
-		speaker,
-		activeSourceMode: "unsupported",
-		captureDispose: null,
-		emittedItemIds: new Set(),
-		lastCommittedItemId: null,
-		liveItemId: null,
-		sessionId: null,
-		transportActive: false,
-		turns: new Map(),
-	};
-}
-
-function createTranscriptRecoveryStatus(overrides = {}) {
-	return {
-		attempt: 0,
-		maxAttempts: 0,
-		message: null,
-		state: "idle",
-		...overrides,
-	};
-}
-
-function createEmptyLiveTranscriptState() {
-	return {
-		you: {
-			speaker: "you",
-			startedAt: null,
-			text: "",
-		},
-		them: {
-			speaker: "them",
-			startedAt: null,
-			text: "",
-		},
-	};
-}
 
 const markSystemAudioPermissionGranted = () => {
 	systemAudioPermissionState = "granted";
