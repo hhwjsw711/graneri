@@ -79,10 +79,7 @@ import {
 	useFileAttachmentDropzone,
 	useRevokeAttachmentObjectUrls,
 } from "@/components/ai-elements/file-attachment-controls";
-import {
-	getReadyFileParts,
-	hasUploadingAttachments,
-} from "@/components/ai-elements/file-attachment-utils";
+import { hasUploadingAttachments } from "@/components/ai-elements/file-attachment-utils";
 import {
 	ASSISTANT_CHAT_CONTENT_CLASS,
 	CHAT_MESSAGE_MAX_WIDTH_CLASS,
@@ -134,20 +131,19 @@ import { waitForBrowserPaint } from "@/lib/browser-paint";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import {
 	appendLocalOptimisticChatMessages,
-	createChatUserMessage,
 	hasRenderableChatMessageText,
 	mergePersistedChatMessagesWithController,
 	normalizeChatMessages,
 } from "@/lib/chat-message-state";
 import {
-	createQueuedUserMessageId,
-	toQueuedUserMessageInput,
-} from "@/lib/chat-queue";
-import {
 	buildNoteChatRequestBody,
 	buildNoteChatRequestBodyFromLocalFolders,
 } from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
+import {
+	removeChatMessageById,
+	submitChatTurn,
+} from "@/lib/chat-submit-session";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getNoteComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
@@ -1742,8 +1738,6 @@ const useNoteComposerController = ({
 
 		try {
 			const outgoingText = nextMessage || selectedRecipe?.name || "";
-			const readyFiles = getReadyFileParts(attachedFiles);
-			const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
 			const recipeMetadata: UIMessage["metadata"] | undefined = selectedRecipe
 				? {
 						recipe: {
@@ -1753,38 +1747,6 @@ const useNoteComposerController = ({
 						recipeOnly: nextMessage.length === 0,
 					}
 				: undefined;
-			optimisticMessageId =
-				editingMessageId === null
-					? displayActiveRun
-						? createQueuedUserMessageId()
-						: crypto.randomUUID()
-					: null;
-			const optimisticMessage = optimisticMessageId
-				? createChatUserMessage({
-						files: readyFiles,
-						id: optimisticMessageId,
-						metadata: recipeMetadata,
-						text: outgoingText,
-					})
-				: null;
-
-			if (optimisticMessage) {
-				// react-doctor-disable-next-line react-doctor/no-flush-sync
-				flushSync(() => {
-					setLocalOptimisticMessages((currentState) => ({
-						chatId: currentChatId,
-						messages: normalizeChatMessages([
-							...(currentState?.chatId === currentChatId
-								? currentState.messages
-								: []),
-							optimisticMessage,
-						]),
-					}));
-					setMessages((currentMessages) =>
-						normalizeChatMessages([...currentMessages, optimisticMessage]),
-					);
-				});
-			}
 			setIsPreparingRequest(true);
 			setEditingMessageId(null);
 			clearDraft();
@@ -1798,63 +1760,61 @@ const useNoteComposerController = ({
 			await waitForBrowserPaint();
 
 			const currentNoteContext = readNoteContext();
-			const requestBody = await buildNoteChatRequestBody({
-				localFolderStorageScope,
-				model: selectedModel.model,
-				noteContext: {
-					noteId: currentNoteContext.noteId,
-					title: currentNoteContext.title,
-					text: currentNoteContext.text,
-				},
-				reasoningEffort: selectedReasoningEffort,
-				recipeSlug: selectedRecipe?.slug ?? null,
-				resolveConvexToken: getCachedConvexToken,
-				text: outgoingText,
-			});
-			const outgoingRequestBody =
-				activeRun && !displayActiveRun
-					? { ...requestBody, allowConcurrentRun: true }
-					: requestBody;
-			setSharedLocalFolders(requestBody.localFolders);
-			latestRequestBodyRef.current = outgoingRequestBody;
-			const nextOutgoingMessage = editingMessageId
-				? {
-						messageId: editingMessageId,
-						text: outgoingText,
-						metadata: recipeMetadata,
-						...filePayload,
-					}
-				: {
-						messageId: optimisticMessageId ?? undefined,
-						text: outgoingText,
-						metadata: recipeMetadata,
-						...filePayload,
-					};
-
-			if (displayActiveRun && activeWorkspaceId) {
-				await enqueueQueuedMessage({
-					workspaceId: activeWorkspaceId,
-					chatId: currentChatId,
-					runId: displayActiveRun._id,
-					message: toQueuedUserMessageInput({
-						messageId: editingMessageId ?? optimisticMessageId ?? undefined,
-						metadata: recipeMetadata,
-						requestBody: outgoingRequestBody,
+			const result = await submitChatTurn({
+				activeRun,
+				attachedFiles,
+				buildRequestBody: () =>
+					buildNoteChatRequestBody({
+						localFolderStorageScope,
+						model: selectedModel.model,
+						noteContext: {
+							noteId: currentNoteContext.noteId,
+							title: currentNoteContext.title,
+							text: currentNoteContext.text,
+						},
+						reasoningEffort: selectedReasoningEffort,
+						recipeSlug: selectedRecipe?.slug ?? null,
+						resolveConvexToken: getCachedConvexToken,
 						text: outgoingText,
 					}),
-				});
+				chatId: currentChatId,
+				displayActiveRun,
+				editingMessageId,
+				enqueueQueuedMessage,
+				metadata: recipeMetadata,
+				onOptimisticMessage: (message) => {
+					optimisticMessageId = message.id;
+					// react-doctor-disable-next-line react-doctor/no-flush-sync
+					flushSync(() => {
+						setLocalOptimisticMessages((currentState) => ({
+							chatId: currentChatId,
+							messages: normalizeChatMessages([
+								...(currentState?.chatId === currentChatId
+									? currentState.messages
+									: []),
+								message,
+							]),
+						}));
+						setMessages((currentMessages) =>
+							normalizeChatMessages([...currentMessages, message]),
+						);
+					});
+				},
+				onRequestPrepared: ({ localFolders, requestBody }) => {
+					setSharedLocalFolders(localFolders);
+					latestRequestBodyRef.current = requestBody;
+				},
+				sendMessage,
+				text: outgoingText,
+				workspaceId: activeWorkspaceId,
+			});
+
+			if (result.status === "queued") {
 				setIsPreparingRequest(false);
 				toast.success("Follow-up queued");
 				return;
 			}
-
-			void Promise.resolve(
-				sendMessage(nextOutgoingMessage, {
-					body: outgoingRequestBody,
-				}),
-			).finally(() => {
-				setIsPreparingRequest(false);
-			});
+			setIsPreparingRequest(false);
 		} catch (error) {
 			logError({
 				event: "client.error",
@@ -1867,20 +1827,20 @@ const useNoteComposerController = ({
 					: "Failed to prepare note chat request",
 			);
 			if (optimisticMessageId) {
+				const failedOptimisticMessageId = optimisticMessageId;
 				setLocalOptimisticMessages((currentState) =>
 					currentState?.chatId === currentChatId
 						? {
 								chatId: currentChatId,
-								messages: currentState.messages.filter(
-									(message) => message.id !== optimisticMessageId,
+								messages: removeChatMessageById(
+									currentState.messages,
+									failedOptimisticMessageId,
 								),
 							}
 						: currentState,
 				);
 				setMessages((currentMessages) =>
-					currentMessages.filter(
-						(message) => message.id !== optimisticMessageId,
-					),
+					removeChatMessageById(currentMessages, failedOptimisticMessageId),
 				);
 			}
 			setMessage(submittedDraftText);

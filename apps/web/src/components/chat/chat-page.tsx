@@ -24,10 +24,7 @@ import {
 	type ChatAttachment,
 	useRevokeAttachmentObjectUrls,
 } from "@/components/ai-elements/file-attachment-controls";
-import {
-	getReadyFileParts,
-	hasUploadingAttachments,
-} from "@/components/ai-elements/file-attachment-utils";
+import { hasUploadingAttachments } from "@/components/ai-elements/file-attachment-utils";
 import type { AutomationListItem } from "@/components/automations/automation-types";
 import { ChatMessagesEntry } from "@/components/chat/chat-messages-entry";
 import {
@@ -71,21 +68,20 @@ import { stopActiveChatStream } from "@/lib/chat-active-stream";
 import { getChatText } from "@/lib/chat-message";
 import {
 	appendLocalOptimisticChatMessages,
-	createChatUserMessage,
 	hasRenderableChatMessageText,
 	mergePersistedChatMessagesWithController,
 	normalizeChatMessages,
 } from "@/lib/chat-message-state";
-import {
-	createQueuedUserMessageId,
-	fromQueuedUserMessage,
-	toQueuedUserMessageInput,
-} from "@/lib/chat-queue";
+import { fromQueuedUserMessage } from "@/lib/chat-queue";
 import {
 	buildWorkspaceChatRequestBody,
 	buildWorkspaceChatRequestBodyFromLocalFolders,
 } from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
+import {
+	removeChatMessageById,
+	submitChatTurn,
+} from "@/lib/chat-submit-session";
 import { getMessagesBefore } from "@/lib/chat-thread";
 import { getChatComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
@@ -143,9 +139,6 @@ const getLatestUserMessageText = (messages: UIMessage[]) => {
 
 	return "";
 };
-
-const removeMessageById = (messages: UIMessage[], messageId: string) =>
-	messages.filter((message) => message.id !== messageId);
 
 const getRegenerationMessages = ({
 	assistantMessageId,
@@ -550,7 +543,7 @@ const useChatPageController = ({
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
 			const nextPersistedMessages = activeAssistantMessageId
-				? removeMessageById(persistedMessages, activeAssistantMessageId)
+				? removeChatMessageById(persistedMessages, activeAssistantMessageId)
 				: persistedMessages;
 			const shouldUsePersistedMessages =
 				currentMessages.length === 0 ||
@@ -993,24 +986,9 @@ const useChatPageController = ({
 			return;
 		}
 
-		const readyFiles = getReadyFileParts(attachedFiles);
-		const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
 		const metadata =
 			mentions.length > 0 ? { mentionPositions: mentions } : undefined;
-		const optimisticMessageId = editingMessageId
-			? null
-			: displayActiveRun
-				? createQueuedUserMessageId()
-				: crypto.randomUUID();
-		const optimisticMessage =
-			optimisticMessageId && !displayActiveRun
-				? createChatUserMessage({
-						files: readyFiles,
-						id: optimisticMessageId,
-						metadata,
-						text: value,
-					})
-				: null;
+		let optimisticMessageId: string | null = null;
 
 		try {
 			// react-doctor-disable-next-line react-doctor/no-event-handler
@@ -1019,80 +997,65 @@ const useChatPageController = ({
 			setEditingMessageId(null);
 			clearDraft();
 			setAttachedFiles([]);
-			if (optimisticMessage) {
-				// react-doctor-disable-next-line react-doctor/no-flush-sync
-				flushSync(() => {
-					setLocalOptimisticMessages((currentState) => ({
-						chatId,
-						messages: normalizeChatMessages([
-							...(currentState?.chatId === chatId ? currentState.messages : []),
-							optimisticMessage,
-						]),
-					}));
-					setMessages((currentMessages) =>
-						normalizeChatMessages([...currentMessages, optimisticMessage]),
-					);
-				});
-			}
 			await waitForBrowserPaint();
 
 			const { mentionIds, requestSelectedSourceIds } =
 				getMentionRequestContext(mentions);
-			const requestBody = await buildWorkspaceChatRequestBody({
-				localFolderStorageScope,
-				mentions: mentionIds,
-				model: selectedModel.model,
-				reasoningEffort: selectedReasoningEffort,
-				resolveConvexToken: getCachedConvexToken,
-				selectedSourceIds: requestSelectedSourceIds,
+
+			const result = await submitChatTurn({
+				activeRun,
+				attachedFiles,
+				buildRequestBody: () =>
+					buildWorkspaceChatRequestBody({
+						localFolderStorageScope,
+						mentions: mentionIds,
+						model: selectedModel.model,
+						reasoningEffort: selectedReasoningEffort,
+						resolveConvexToken: getCachedConvexToken,
+						selectedSourceIds: requestSelectedSourceIds,
+						text: value,
+						webSearchEnabled,
+						workspaceId: activeWorkspaceId,
+					}),
+				chatId,
+				displayActiveRun,
+				editingMessageId,
+				enqueueQueuedMessage,
+				metadata,
+				onOptimisticMessage: (message) => {
+					optimisticMessageId = message.id;
+					// react-doctor-disable-next-line react-doctor/no-flush-sync
+					flushSync(() => {
+						setLocalOptimisticMessages((currentState) => ({
+							chatId,
+							messages: normalizeChatMessages([
+								...(currentState?.chatId === chatId
+									? currentState.messages
+									: []),
+								message,
+							]),
+						}));
+						setMessages((currentMessages) =>
+							normalizeChatMessages([...currentMessages, message]),
+						);
+					});
+				},
+				onRequestPrepared: ({ localFolders, requestBody }) => {
+					setSharedLocalFolders(localFolders);
+					latestRequestBodyRef.current = requestBody;
+				},
+				optimisticQueuedMessage: false,
+				sendMessage,
 				text: value,
-				webSearchEnabled,
 				workspaceId: activeWorkspaceId,
 			});
-			const outgoingRequestBody =
-				activeRun && !displayActiveRun
-					? { ...requestBody, allowConcurrentRun: true }
-					: requestBody;
-			setSharedLocalFolders(requestBody.localFolders);
-			const nextOutgoingMessage = editingMessageId
-				? {
-						messageId: editingMessageId,
-						text: value,
-						metadata,
-						...filePayload,
-					}
-				: {
-						messageId: optimisticMessageId ?? undefined,
-						text: value,
-						metadata,
-						...filePayload,
-					};
-			latestRequestBodyRef.current = outgoingRequestBody;
 
-			if (displayActiveRun && activeWorkspaceId) {
-				await enqueueQueuedMessage({
-					workspaceId: activeWorkspaceId,
-					chatId,
-					runId: displayActiveRun._id,
-					message: toQueuedUserMessageInput({
-						messageId: editingMessageId ?? optimisticMessageId ?? undefined,
-						metadata,
-						requestBody: outgoingRequestBody,
-						text: value,
-					}),
-				});
+			if (result.status === "queued") {
 				setIsPreparingRequest(false);
 				toast.success("Follow-up queued");
 				return;
 			}
-
-			void Promise.resolve(
-				sendMessage(nextOutgoingMessage, {
-					body: outgoingRequestBody,
-				}),
-			).finally(() => {
-				setIsPreparingRequest(false);
-			});
+			setIsPreparingRequest(false);
 		} catch (error) {
 			logError({
 				event: "client.error",
@@ -1105,19 +1068,20 @@ const useChatPageController = ({
 					: "Failed to prepare chat request",
 			);
 			if (optimisticMessageId) {
+				const failedOptimisticMessageId = optimisticMessageId;
 				setLocalOptimisticMessages((currentState) =>
 					currentState?.chatId === chatId
 						? {
 								chatId,
-								messages: removeMessageById(
+								messages: removeChatMessageById(
 									currentState.messages,
-									optimisticMessageId,
+									failedOptimisticMessageId,
 								),
 							}
 						: currentState,
 				);
 				setMessages((currentMessages) =>
-					removeMessageById(currentMessages, optimisticMessageId),
+					removeChatMessageById(currentMessages, failedOptimisticMessageId),
 				);
 			}
 			setDraft(value);
