@@ -22,7 +22,9 @@ type QueuedMessage = NonNullable<
 >[number];
 
 const QUEUED_MESSAGE_DRAIN_RETRY_MS = 400;
+const EMPTY_QUEUED_MESSAGES: Array<QueuedMessage> = [];
 const queuedMessagesCache = new Map<string, Array<QueuedMessage>>();
+const queuedMessagesCacheListeners = new Map<string, Set<() => void>>();
 
 const getQueuedMessagesCacheKey = ({
 	chatId,
@@ -31,6 +33,45 @@ const getQueuedMessagesCacheKey = ({
 	chatId: string;
 	workspaceId: Id<"workspaces"> | null | undefined;
 }) => (workspaceId ? `${workspaceId}:${chatId}` : null);
+
+const readQueuedMessagesCache = (cacheKey: string | null) =>
+	cacheKey
+		? (queuedMessagesCache.get(cacheKey) ?? EMPTY_QUEUED_MESSAGES)
+		: EMPTY_QUEUED_MESSAGES;
+
+const writeQueuedMessagesCache = (
+	cacheKey: string | null,
+	messages: Array<QueuedMessage>,
+) => {
+	if (!cacheKey) {
+		return;
+	}
+
+	queuedMessagesCache.set(cacheKey, messages);
+	for (const listener of queuedMessagesCacheListeners.get(cacheKey) ?? []) {
+		listener();
+	}
+};
+
+const subscribeQueuedMessagesCache = (
+	cacheKey: string | null,
+	listener: () => void,
+) => {
+	if (!cacheKey) {
+		return () => undefined;
+	}
+
+	const listeners = queuedMessagesCacheListeners.get(cacheKey) ?? new Set();
+	listeners.add(listener);
+	queuedMessagesCacheListeners.set(cacheKey, listeners);
+
+	return () => {
+		listeners.delete(listener);
+		if (listeners.size === 0) {
+			queuedMessagesCacheListeners.delete(cacheKey);
+		}
+	};
+};
 
 export const useQueuedChatDrain = ({
 	activeRun,
@@ -68,43 +109,38 @@ export const useQueuedChatDrain = ({
 		() => getQueuedMessagesCacheKey({ workspaceId, chatId }),
 		[chatId, workspaceId],
 	);
-	const [visibleQueuedMessages, setVisibleQueuedMessages] = React.useState<
-		Array<QueuedMessage>
-	>(() =>
-		queuedMessagesCacheKey
-			? (queuedMessagesCache.get(queuedMessagesCacheKey) ?? [])
-			: [],
+	const getVisibleQueuedMessagesSnapshot = React.useCallback(
+		() => readQueuedMessagesCache(queuedMessagesCacheKey),
+		[queuedMessagesCacheKey],
+	);
+	const subscribeVisibleQueuedMessages = React.useCallback(
+		(listener: () => void) =>
+			subscribeQueuedMessagesCache(queuedMessagesCacheKey, listener),
+		[queuedMessagesCacheKey],
+	);
+	const visibleQueuedMessages = React.useSyncExternalStore(
+		subscribeVisibleQueuedMessages,
+		getVisibleQueuedMessagesSnapshot,
+		getVisibleQueuedMessagesSnapshot,
 	);
 	const isDrainingQueuedMessageRef = React.useRef(false);
 	const retryTimerRef = React.useRef<number | null>(null);
 	const [retryNonce, setRetryNonce] = React.useState(0);
 
 	React.useEffect(() => {
-		setVisibleQueuedMessages(
-			queuedMessagesCacheKey
-				? (queuedMessagesCache.get(queuedMessagesCacheKey) ?? [])
-				: [],
-		);
-	}, [queuedMessagesCacheKey]);
-
-	React.useEffect(() => {
 		if (!queuedMessagesCacheKey || !queuedMessages) {
 			return;
 		}
 
-		queuedMessagesCache.set(queuedMessagesCacheKey, queuedMessages);
-		setVisibleQueuedMessages(queuedMessages);
+		writeQueuedMessagesCache(queuedMessagesCacheKey, queuedMessages);
 	}, [queuedMessages, queuedMessagesCacheKey]);
 
 	const updateVisibleQueuedMessages = React.useCallback(
 		(updater: (messages: Array<QueuedMessage>) => Array<QueuedMessage>) => {
-			setVisibleQueuedMessages((messages) => {
-				const nextMessages = updater(messages);
-				if (queuedMessagesCacheKey) {
-					queuedMessagesCache.set(queuedMessagesCacheKey, nextMessages);
-				}
-				return nextMessages;
-			});
+			writeQueuedMessagesCache(
+				queuedMessagesCacheKey,
+				updater(readQueuedMessagesCache(queuedMessagesCacheKey)),
+			);
 		},
 		[queuedMessagesCacheKey],
 	);

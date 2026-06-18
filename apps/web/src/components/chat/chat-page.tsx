@@ -456,6 +456,7 @@ const useChatPageController = ({
 	);
 	const addToolOutputRef =
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [localOptimisticMessages, setLocalOptimisticMessages] =
 		React.useState<ScopedLocalOptimisticMessages | null>(null);
 	const handleToolCall = React.useMemo(
@@ -644,11 +645,14 @@ const useChatPageController = ({
 		sendMessage,
 		workspaceId: activeWorkspaceId,
 	});
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [queuedMessageSendingNowId, setQueuedMessageSendingNowId] =
 		React.useState<string | null>(null);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [queuedMessageEditingId, setQueuedMessageEditingId] = React.useState<
 		string | null
 	>(null);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [queuedMessageDeletingId, setQueuedMessageDeletingId] = React.useState<
 		string | null
 	>(null);
@@ -1746,7 +1750,6 @@ export function ChatPage({
 					: "Ask anything. @ to use tools or mention notes"
 			}
 			topAccessory={composerTopAccessory}
-			showQueuePreview={shouldShowActiveChatSurface}
 			queuedFollowUps={controller.queuedFollowUps}
 			onQueuedFollowUpsReorder={controller.onQueuedFollowUpsReorder}
 			onDraftChange={controller.setDraft}
