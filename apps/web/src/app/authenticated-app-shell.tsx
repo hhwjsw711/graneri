@@ -101,6 +101,7 @@ import {
 	getSettingsPath,
 	shouldAutoStartNoteCaptureFromUrl,
 } from "@/app/location";
+import { createPendingPersistedChatRoutesStore } from "@/app/pending-persisted-chat-routes";
 import {
 	getResolvingPersistedChatIds,
 	resolveCollectionRoute,
@@ -160,65 +161,11 @@ const currentWeekdayFormatter = new Intl.DateTimeFormat(undefined, {
 	weekday: "short",
 });
 
-const PENDING_PERSISTED_CHAT_ROUTE_LIMIT = 8;
-
-type PendingPersistedChatRoutesStore = {
-	add: (chatId: string) => void;
-	getSnapshot: () => readonly string[];
-	remove: (chatId: string) => void;
-	subscribe: (listener: () => void) => () => void;
-};
-
-const createPendingPersistedChatRoutesStore =
-	(): PendingPersistedChatRoutesStore => {
-		let chatIds: readonly string[] = [];
-		const listeners = new Set<() => void>();
-
-		const emitChange = () => {
-			for (const listener of listeners) {
-				listener();
-			}
-		};
-
-		const updateChatIds = (nextChatIds: readonly string[]) => {
-			if (nextChatIds === chatIds) {
-				return;
-			}
-
-			chatIds = nextChatIds;
-			emitChange();
-		};
-
-		return {
-			add: (chatId) => {
-				if (chatIds.includes(chatId)) {
-					return;
-				}
-
-				updateChatIds(
-					[...chatIds, chatId].slice(-PENDING_PERSISTED_CHAT_ROUTE_LIMIT),
-				);
-			},
-			getSnapshot: () => chatIds,
-			remove: (chatId) => {
-				if (!chatIds.includes(chatId)) {
-					return;
-				}
-
-				updateChatIds(chatIds.filter((currentId) => currentId !== chatId));
-			},
-			subscribe: (listener) => {
-				listeners.add(listener);
-
-				return () => {
-					listeners.delete(listener);
-				};
-			},
-		};
-	};
-
 const usePendingPersistedChatRoutes = () => {
-	const store = React.useMemo(createPendingPersistedChatRoutesStore, []);
+	const store = React.useMemo(
+		() => createPendingPersistedChatRoutesStore(),
+		[],
+	);
 	const pendingPersistedChatRouteIds = React.useSyncExternalStore(
 		store.subscribe,
 		store.getSnapshot,
