@@ -7,6 +7,58 @@ const channels = {
 	desktopNavigation: "app:navigate",
 };
 
+const invokeChannels = {
+	authFetch: "app:auth-fetch",
+	clearNoteDraft: "app:clear-note-draft",
+	clearTranscriptDraft: "app:clear-transcript-draft",
+	configureTranscriptionSession: "app:configure-transcription-session",
+	detachTranscriptionSystemAudio: "app:detach-transcription-system-audio",
+	dismissDetectedMeetingWidget: "app:dismiss-detected-meeting-widget",
+	getAuthCallbackUrl: "app:get-auth-callback-url",
+	getMeetingDetectionState: "app:get-meeting-detection-state",
+	getMeta: "app:get-meta",
+	getPermissionsStatus: "app:get-permissions-status",
+	getPreferences: "app:get-preferences",
+	getRuntimeConfig: "app:get-runtime-config",
+	getShareBaseUrl: "app:get-share-base-url",
+	getTranscriptionSessionState: "app:get-transcription-session-state",
+	loadNoteDraft: "app:load-note-draft",
+	loadTranscriptDraft: "app:load-transcript-draft",
+	openExternalUrl: "app:open-external-url",
+	openPermissionSettings: "app:open-permission-settings",
+	openSoundSettings: "app:open-sound-settings",
+	refreshTrayCalendar: "app:refresh-tray-calendar",
+	requestPermission: "app:request-permission",
+	requestTranscriptionSystemAudio: "app:request-transcription-system-audio",
+	saveNoteDraft: "app:save-note-draft",
+	saveTextFile: "app:save-text-file",
+	saveTranscriptDraft: "app:save-transcript-draft",
+	setActiveWorkspaceId: "app:set-active-workspace-id",
+	setActiveWorkspaceNotificationPreferences:
+		"app:set-active-workspace-notification-preferences",
+	setKeepDictationBarVisible: "app:set-keep-dictation-bar-visible",
+	setLaunchAtLogin: "app:set-launch-at-login",
+	setNativeTheme: "app:set-native-theme",
+	setTrayCalendarState: "app:set-tray-calendar-state",
+	shareLocalFolders: "app:share-local-folders",
+	startDetectedMeetingNote: "app:start-detected-meeting-note",
+	startMicrophoneCapture: "app:start-microphone-capture",
+	startSystemAudioCapture: "app:start-system-audio-capture",
+	startTranscriptionSession: "app:start-transcription-session",
+	stopMicrophoneCapture: "app:stop-microphone-capture",
+	stopSystemAudioCapture: "app:stop-system-audio-capture",
+	stopTranscriptionSession: "app:stop-transcription-session",
+	testGetTrayCalendarState: "app:test-get-tray-calendar-state",
+	testResetMeetingDetection: "app:test-reset-meeting-detection",
+	testShowMeetingWidget: "app:test-show-meeting-widget",
+	writeClipboardRichText: "app:write-clipboard-rich-text",
+	writeClipboardText: "app:write-clipboard-text",
+};
+
+const sendChannels = {
+	reportMeetingWidgetSize: "app:report-meeting-widget-size",
+};
+
 const subscribe = (ipcRenderer, channel, listener) => {
 	const handler = (_event, payload) => {
 		listener(payload);
@@ -24,63 +76,67 @@ const shouldExposeTestHooks = (env) =>
 
 const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 	platform,
-	getMeta: () => ipcRenderer.invoke("app:get-meta"),
-	getRuntimeConfig: () => ipcRenderer.invoke("app:get-runtime-config"),
-	authFetch: (request) => ipcRenderer.invoke("app:auth-fetch", request),
-	getPermissionsStatus: () => ipcRenderer.invoke("app:get-permissions-status"),
-	getPreferences: () => ipcRenderer.invoke("app:get-preferences"),
+	getMeta: () => ipcRenderer.invoke(invokeChannels.getMeta),
+	getRuntimeConfig: () => ipcRenderer.invoke(invokeChannels.getRuntimeConfig),
+	authFetch: (request) => ipcRenderer.invoke(invokeChannels.authFetch, request),
+	getPermissionsStatus: () =>
+		ipcRenderer.invoke(invokeChannels.getPermissionsStatus),
+	getPreferences: () => ipcRenderer.invoke(invokeChannels.getPreferences),
 	setNativeTheme: (themeSource) =>
-		ipcRenderer.invoke("app:set-native-theme", themeSource),
-	getAuthCallbackUrl: () => ipcRenderer.invoke("app:get-auth-callback-url"),
-	getShareBaseUrl: () => ipcRenderer.invoke("app:get-share-base-url"),
+		ipcRenderer.invoke(invokeChannels.setNativeTheme, themeSource),
+	getAuthCallbackUrl: () =>
+		ipcRenderer.invoke(invokeChannels.getAuthCallbackUrl),
+	getShareBaseUrl: () => ipcRenderer.invoke(invokeChannels.getShareBaseUrl),
 	setActiveWorkspaceId: (workspaceId) =>
-		ipcRenderer.invoke("app:set-active-workspace-id", workspaceId),
+		ipcRenderer.invoke(invokeChannels.setActiveWorkspaceId, workspaceId),
 	setActiveWorkspaceNotificationPreferences: (payload) =>
 		ipcRenderer.invoke(
-			"app:set-active-workspace-notification-preferences",
+			invokeChannels.setActiveWorkspaceNotificationPreferences,
 			payload,
 		),
-	refreshTrayCalendar: () => ipcRenderer.invoke("app:refresh-tray-calendar"),
+	refreshTrayCalendar: () =>
+		ipcRenderer.invoke(invokeChannels.refreshTrayCalendar),
 	setTrayCalendarState: (payload) =>
-		ipcRenderer.invoke("app:set-tray-calendar-state", payload),
-	openExternalUrl: (url) => ipcRenderer.invoke("app:open-external-url", url),
+		ipcRenderer.invoke(invokeChannels.setTrayCalendarState, payload),
+	openExternalUrl: (url) =>
+		ipcRenderer.invoke(invokeChannels.openExternalUrl, url),
 	requestPermission: (permissionId) =>
-		ipcRenderer.invoke("app:request-permission", permissionId),
+		ipcRenderer.invoke(invokeChannels.requestPermission, permissionId),
 	openPermissionSettings: (permissionId) =>
-		ipcRenderer.invoke("app:open-permission-settings", permissionId),
-	openSoundSettings: () => ipcRenderer.invoke("app:open-sound-settings"),
+		ipcRenderer.invoke(invokeChannels.openPermissionSettings, permissionId),
+	openSoundSettings: () => ipcRenderer.invoke(invokeChannels.openSoundSettings),
 	setLaunchAtLogin: (enabled) =>
-		ipcRenderer.invoke("app:set-launch-at-login", enabled),
+		ipcRenderer.invoke(invokeChannels.setLaunchAtLogin, enabled),
 	setKeepDictationBarVisible: (enabled) =>
-		ipcRenderer.invoke("app:set-keep-dictation-bar-visible", enabled),
+		ipcRenderer.invoke(invokeChannels.setKeepDictationBarVisible, enabled),
 	getTranscriptionSessionState: () =>
-		ipcRenderer.invoke("app:get-transcription-session-state"),
+		ipcRenderer.invoke(invokeChannels.getTranscriptionSessionState),
 	getMeetingDetectionState: () =>
-		ipcRenderer.invoke("app:get-meeting-detection-state"),
+		ipcRenderer.invoke(invokeChannels.getMeetingDetectionState),
 	configureTranscriptionSession: (options) =>
-		ipcRenderer.invoke("app:configure-transcription-session", options),
+		ipcRenderer.invoke(invokeChannels.configureTranscriptionSession, options),
 	startTranscriptionSession: () =>
-		ipcRenderer.invoke("app:start-transcription-session"),
+		ipcRenderer.invoke(invokeChannels.startTranscriptionSession),
 	stopTranscriptionSession: () =>
-		ipcRenderer.invoke("app:stop-transcription-session"),
+		ipcRenderer.invoke(invokeChannels.stopTranscriptionSession),
 	requestTranscriptionSystemAudio: () =>
-		ipcRenderer.invoke("app:request-transcription-system-audio"),
+		ipcRenderer.invoke(invokeChannels.requestTranscriptionSystemAudio),
 	detachTranscriptionSystemAudio: () =>
-		ipcRenderer.invoke("app:detach-transcription-system-audio"),
+		ipcRenderer.invoke(invokeChannels.detachTranscriptionSystemAudio),
 	startDetectedMeetingNote: () =>
-		ipcRenderer.invoke("app:start-detected-meeting-note"),
+		ipcRenderer.invoke(invokeChannels.startDetectedMeetingNote),
 	dismissDetectedMeetingWidget: () =>
-		ipcRenderer.invoke("app:dismiss-detected-meeting-widget"),
+		ipcRenderer.invoke(invokeChannels.dismissDetectedMeetingWidget),
 	reportMeetingWidgetSize: (size) =>
-		ipcRenderer.send("app:report-meeting-widget-size", size),
+		ipcRenderer.send(sendChannels.reportMeetingWidgetSize, size),
 	test: shouldExposeTestHooks(env)
 		? {
 				showMeetingWidget: () =>
-					ipcRenderer.invoke("app:test-show-meeting-widget"),
+					ipcRenderer.invoke(invokeChannels.testShowMeetingWidget),
 				resetMeetingDetection: () =>
-					ipcRenderer.invoke("app:test-reset-meeting-detection"),
+					ipcRenderer.invoke(invokeChannels.testResetMeetingDetection),
 				getTrayCalendarState: () =>
-					ipcRenderer.invoke("app:test-get-tray-calendar-state"),
+					ipcRenderer.invoke(invokeChannels.testGetTrayCalendarState),
 			}
 		: undefined,
 	onTranscriptionSessionState: (listener) =>
@@ -92,41 +148,43 @@ const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 	onNavigate: (listener) =>
 		subscribe(ipcRenderer, channels.desktopNavigation, listener),
 	startSystemAudioCapture: () =>
-		ipcRenderer.invoke("app:start-system-audio-capture"),
+		ipcRenderer.invoke(invokeChannels.startSystemAudioCapture),
 	stopSystemAudioCapture: () =>
-		ipcRenderer.invoke("app:stop-system-audio-capture"),
+		ipcRenderer.invoke(invokeChannels.stopSystemAudioCapture),
 	startMicrophoneCapture: () =>
-		ipcRenderer.invoke("app:start-microphone-capture"),
+		ipcRenderer.invoke(invokeChannels.startMicrophoneCapture),
 	stopMicrophoneCapture: () =>
-		ipcRenderer.invoke("app:stop-microphone-capture"),
+		ipcRenderer.invoke(invokeChannels.stopMicrophoneCapture),
 	onMicrophoneCaptureEvent: (listener) =>
 		subscribe(ipcRenderer, channels.microphoneCaptureEvent, listener),
 	onSystemAudioCaptureEvent: (listener) =>
 		subscribe(ipcRenderer, channels.systemAudioCaptureEvent, listener),
 	writeClipboardText: (value) =>
-		ipcRenderer.invoke("app:write-clipboard-text", value),
+		ipcRenderer.invoke(invokeChannels.writeClipboardText, value),
 	writeClipboardRichText: (payload) =>
-		ipcRenderer.invoke("app:write-clipboard-rich-text", payload),
+		ipcRenderer.invoke(invokeChannels.writeClipboardRichText, payload),
 	loadTranscriptDraft: (noteKey) =>
-		ipcRenderer.invoke("app:load-transcript-draft", noteKey),
+		ipcRenderer.invoke(invokeChannels.loadTranscriptDraft, noteKey),
 	saveTranscriptDraft: (noteKey, draft) =>
-		ipcRenderer.invoke("app:save-transcript-draft", noteKey, draft),
+		ipcRenderer.invoke(invokeChannels.saveTranscriptDraft, noteKey, draft),
 	clearTranscriptDraft: (noteKey) =>
-		ipcRenderer.invoke("app:clear-transcript-draft", noteKey),
+		ipcRenderer.invoke(invokeChannels.clearTranscriptDraft, noteKey),
 	loadNoteDraft: (noteKey) =>
-		ipcRenderer.invoke("app:load-note-draft", noteKey),
+		ipcRenderer.invoke(invokeChannels.loadNoteDraft, noteKey),
 	saveNoteDraft: (noteKey, draft) =>
-		ipcRenderer.invoke("app:save-note-draft", noteKey, draft),
+		ipcRenderer.invoke(invokeChannels.saveNoteDraft, noteKey, draft),
 	clearNoteDraft: (noteKey) =>
-		ipcRenderer.invoke("app:clear-note-draft", noteKey),
+		ipcRenderer.invoke(invokeChannels.clearNoteDraft, noteKey),
 	shareLocalFolders: (paths) =>
-		ipcRenderer.invoke("app:share-local-folders", paths),
+		ipcRenderer.invoke(invokeChannels.shareLocalFolders, paths),
 	saveTextFile: (defaultFileName, content) =>
-		ipcRenderer.invoke("app:save-text-file", defaultFileName, content),
+		ipcRenderer.invoke(invokeChannels.saveTextFile, defaultFileName, content),
 });
 
 module.exports = {
 	channels,
 	createGraneriDesktopApi,
+	invokeChannels,
+	sendChannels,
 	shouldExposeTestHooks,
 };
