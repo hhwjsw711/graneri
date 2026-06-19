@@ -154,8 +154,15 @@ const withDuration = async (operation) => {
 };
 
 const logLocalToolEvent = (event, payload = {}) => {
+	const env =
+		typeof globalThis.process === "object" &&
+		globalThis.process !== null &&
+		typeof globalThis.process.env === "object" &&
+		globalThis.process.env !== null
+			? globalThis.process.env
+			: {};
 	if (
-		process.env.GRANERI_LOCAL_TOOLS_DEBUG !== "1" &&
+		env.GRANERI_LOCAL_TOOLS_DEBUG !== "1" &&
 		!event.startsWith("image_search_") &&
 		!event.startsWith("image_metadata_")
 	) {

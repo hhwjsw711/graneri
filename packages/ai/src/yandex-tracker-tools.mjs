@@ -2,10 +2,18 @@ import { z } from "zod";
 import { buildAiToolSet, defineAiTool } from "./ai-tool-definition.mjs";
 import { toolUiMetadata } from "./tool-ui-metadata.mjs";
 
+const env =
+	typeof globalThis.process === "object" &&
+	globalThis.process !== null &&
+	typeof globalThis.process.env === "object" &&
+	globalThis.process.env !== null
+		? globalThis.process.env
+		: {};
+
 const TRACKER_API_BASE_URL =
-	process.env.TRACKER_API_BASE_URL ?? "https://api.tracker.yandex.net";
+	env.TRACKER_API_BASE_URL ?? "https://api.tracker.yandex.net";
 const TRACKER_HOST_BASE_URL =
-	process.env.TRACKER_HOST_BASE_URL ?? "https://tracker.yandex.ru";
+	env.TRACKER_HOST_BASE_URL ?? "https://tracker.yandex.ru";
 
 const getYandexTrackerOrgHeader = (orgType) =>
 	orgType === "x-cloud-org-id" ? "X-Cloud-Org-Id" : "X-Org-Id";
