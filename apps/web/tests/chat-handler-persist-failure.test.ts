@@ -843,7 +843,7 @@ describe("chat handler persistence failures", () => {
 		});
 	});
 
-	it("accepts a steered input batch and keeps Codex-style steer acceptance headers when later stream startup fails", async () => {
+	it("accepts a steered input batch and keeps app-server-style steer acceptance headers when later stream startup fails", async () => {
 		convexMock.query.mockResolvedValueOnce({
 			model: "gpt-5.4",
 			title: "Existing chat",

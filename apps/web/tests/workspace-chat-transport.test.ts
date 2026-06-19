@@ -4,6 +4,7 @@ import {
 	hostedChatReplayQueuedMessageIdHeader,
 	hostedChatSteerAcceptedHeader,
 	hostedChatSteerQueuedMessageIdHeader,
+	hostedChatSteerQueuedMessageIdsHeader,
 	hostedChatSteerTurnIdHeader,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
@@ -156,6 +157,7 @@ describe("createWorkspaceChatFetch", () => {
 						[hostedChatSteerAcceptedHeader]: "true",
 						[hostedChatSteerTurnIdHeader]: "run-1",
 						[hostedChatSteerQueuedMessageIdHeader]: "queued-1",
+						[hostedChatSteerQueuedMessageIdsHeader]: "queued-1,queued-2",
 					},
 				}),
 		);
@@ -172,6 +174,9 @@ describe("createWorkspaceChatFetch", () => {
 		expect(response.headers.get(hostedChatSteerTurnIdHeader)).toBe("run-1");
 		expect(response.headers.get(hostedChatSteerQueuedMessageIdHeader)).toBe(
 			"queued-1",
+		);
+		expect(response.headers.get(hostedChatSteerQueuedMessageIdsHeader)).toBe(
+			"queued-1,queued-2",
 		);
 		expect(await response.text()).toBe("");
 	});

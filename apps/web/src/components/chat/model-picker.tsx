@@ -23,7 +23,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { chatModels, reasoningEfforts } from "@/lib/ai/models";
 import type { ReasoningEffort } from "@/lib/ai/reasoning-effort";
 
-const CodexLogo = Icons.codexLogo;
+const OpenAILogo = Icons.codexLogo;
 
 export type ChatModel = (typeof chatModels)[number];
 export type { ReasoningEffort };
@@ -81,7 +81,7 @@ export function ChatModelPicker({
 							)}
 							aria-label={`Model: ${selectedModelDisplayName}`}
 						>
-							<CodexLogo
+							<OpenAILogo
 								className={cn(
 									"size-3.5 text-muted-foreground transition-colors group-hover:text-foreground group-data-[state=open]:text-foreground",
 									triggerIconClassName,
@@ -121,7 +121,7 @@ export function ChatModelPicker({
 							className="pl-2 *:[span:first-child]:right-2 *:[span:first-child]:left-auto"
 						>
 							<span className="inline-flex items-center gap-2">
-								<CodexLogo className="size-3.5 text-muted-foreground" />
+								<OpenAILogo className="size-3.5 text-muted-foreground" />
 								{model.name}
 							</span>
 						</DropdownMenuCheckboxItem>

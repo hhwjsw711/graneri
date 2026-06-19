@@ -11,7 +11,7 @@ const ownerIdentity = {
 	name: "Owner",
 	email: "owner@example.com",
 };
-const MAX_CODEX_INPUT_TEXT_CHARS = 1_048_576;
+const MAX_INPUT_TEXT_CHARS = 1_048_576;
 
 const createWorkspace = async () => {
 	const t = convexTest(schema, modules);
@@ -95,7 +95,7 @@ test("chat titles preserve organization and person name capitalization", async (
 
 test("oversized user messages are rejected before chat persistence", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
-	const oversizedInput = "x".repeat(MAX_CODEX_INPUT_TEXT_CHARS + 1);
+	const oversizedInput = "x".repeat(MAX_INPUT_TEXT_CHARS + 1);
 
 	await expect(
 		asOwner.mutation(api.chats.saveMessage, {
@@ -111,7 +111,7 @@ test("oversized user messages are rejected before chat persistence", async () =>
 			},
 		}),
 	).rejects.toThrow(
-		`Input exceeds the maximum length of ${MAX_CODEX_INPUT_TEXT_CHARS} characters.`,
+		`Input exceeds the maximum length of ${MAX_INPUT_TEXT_CHARS} characters.`,
 	);
 });
 

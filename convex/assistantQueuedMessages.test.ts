@@ -11,7 +11,7 @@ const ownerIdentity = {
 	name: "Owner",
 	email: "owner@example.com",
 };
-const MAX_CODEX_INPUT_TEXT_CHARS = 1_048_576;
+const MAX_INPUT_TEXT_CHARS = 1_048_576;
 
 const createWorkspace = async () => {
 	const t = convexTest(schema, modules);
@@ -180,11 +180,11 @@ test("oversized queued follow-ups are rejected before claim", async () => {
 			runId: run._id,
 			message: queuedMessageInput(
 				"queued-large",
-				"x".repeat(MAX_CODEX_INPUT_TEXT_CHARS + 1),
+				"x".repeat(MAX_INPUT_TEXT_CHARS + 1),
 			),
 		}),
 	).rejects.toThrow(
-		`Input exceeds the maximum length of ${MAX_CODEX_INPUT_TEXT_CHARS} characters.`,
+		`Input exceeds the maximum length of ${MAX_INPUT_TEXT_CHARS} characters.`,
 	);
 });
 

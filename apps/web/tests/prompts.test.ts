@@ -218,7 +218,7 @@ describe("prompt helpers", () => {
 		expect(saved.message.text).toBe("Hello from Graneri");
 	});
 
-	it("builds Codex-style steer acceptance headers", () => {
+	it("builds app-server-style steer acceptance headers", () => {
 		expect(
 			getHostedChatSteerAcceptanceHeaders({
 				queuedMessageId: "queued-1",
@@ -242,7 +242,7 @@ describe("prompt helpers", () => {
 		});
 	});
 
-	it("builds Codex-style steer telemetry", () => {
+	it("builds app-server-style steer telemetry", () => {
 		expect(
 			getHostedChatSteerTelemetry({
 				acceptedTurnId: "run-1",
@@ -294,7 +294,7 @@ describe("prompt helpers", () => {
 		).toBeNull();
 	});
 
-	it("validates the Codex-style steer route contract", () => {
+	it("validates the app-server-style steer route contract", () => {
 		expect(
 			validateHostedChatSteerRoute({
 				continueRunId: "run-1",

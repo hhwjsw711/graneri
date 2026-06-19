@@ -110,7 +110,7 @@ describe("chat queue serialization", () => {
 		).toThrow("Queued chat message cannot be empty.");
 	});
 
-	it("rejects queued message text above the Codex input cap", () => {
+	it("rejects queued message text above the input cap", () => {
 		expect(() =>
 			toQueuedUserMessageInput({
 				requestBody: {

@@ -8,6 +8,7 @@ import {
 	hostedChatReplayQueuedMessageIdHeader,
 	hostedChatSteerAcceptedHeader,
 	hostedChatSteerQueuedMessageIdHeader,
+	hostedChatSteerQueuedMessageIdsHeader,
 	hostedChatSteerTurnIdHeader,
 } from "../../../../packages/ai/src/hosted-chat-runtime.mjs";
 
@@ -54,6 +55,15 @@ export const createWorkspaceChatFetch =
 				headers.set(
 					hostedChatSteerQueuedMessageIdHeader,
 					acceptedQueuedMessageId,
+				);
+			}
+			const acceptedQueuedMessageIds = response.headers.get(
+				hostedChatSteerQueuedMessageIdsHeader,
+			);
+			if (acceptedQueuedMessageIds) {
+				headers.set(
+					hostedChatSteerQueuedMessageIdsHeader,
+					acceptedQueuedMessageIds,
 				);
 			}
 		}

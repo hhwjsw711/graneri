@@ -79,7 +79,7 @@ describe("hosted wait_agent tool", () => {
 		expect(harness.listenerCount()).toBe(0);
 	});
 
-	it("returns a Codex-compatible timeout result", async () => {
+	it("returns a wait-agent-compatible timeout result", async () => {
 		vi.useFakeTimers();
 		try {
 			const harness = createSessionHarness();

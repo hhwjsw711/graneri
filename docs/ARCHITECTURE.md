@@ -94,7 +94,7 @@ context scoped to the active run. It must not persist desktop-local folder
 selections; follow-ups that need local folders must wait for the active answer
 instead of entering the durable queue. Completed runs leave queued follow-ups
 for the client drain path, which claims the next queued item only after no
-non-terminal run remains for the chat. User input uses Codex app-server input
+non-terminal run remains for the chat. User input uses upstream app-server input
 gates: HTTP chat routes, client queue serialization, `saveMessage`, and
 queued-message mutations reject empty user text and more than 1,048,576 text
 characters before the input can enter the AI SDK loop or durable queue state.
@@ -156,15 +156,15 @@ transport crash. Durable queued request state must not persist desktop-local
 folder scope or absolute paths; follow-ups that need local-folder tools must
 wait for the current run to finish.
 
-### Codex Queue Parity
+### Queue Parity
 
-Codex is the reference for active-turn user input semantics. Graneri keeps the
+The upstream app-server is the reference for active-turn user input semantics. Graneri keeps the
 same separation of responsibilities with its stack: AI SDK routes own the
 stream/tool loop and acceptance headers, while Convex owns durable coordination,
 atomic queue claims, lifecycle invariants, and replayable state. The parity
 target is behavior, not identical storage.
 
-| Codex behavior | Graneri implementation | Status |
+| Reference behavior | Graneri implementation | Status |
 | --- | --- | --- |
 | One active turn owns in-flight user input. | `assistantRuns` enforces one non-terminal run per chat; duplicate active-run queries and queue claims fail closed with `ASSISTANT_RUN_INVARIANT_VIOLATION`. | Implemented |
 | User input can be accepted during an active turn without trusting the client copy. | `/api/chat/steer` claims `assistantQueuedMessages` by id and reconstructs the user message from Convex before acceptance. | Implemented |
@@ -177,14 +177,14 @@ target is behavior, not identical storage.
 | Pending input is local to a turn and can be drained into the next turn state. | Hosted active stream sessions expose `extendPendingInput`, `takePendingInput`, `hasPendingInput`, and `clearPendingInput`; running steer interruptions append the steered message, drain the active session, and feed ordered pending user messages into the next AI SDK prompt branch with message-id de-duplication against persisted history. | Implemented |
 | Multiple active-turn inputs can accumulate before the model loop drains them. | Graneri can persist multiple queued follow-ups, the renderer accepts distinct manual steer intents into a FIFO while one steer request is in flight, `claimReadyForRun` claims the targeted row plus ready queued rows for the same active run, `acceptSteeredUserMessages` atomically saves/deletes the accepted batch, and active stream replacement carries ordered pending input until it is drained into the next prompt branch. | Implemented |
 | Activity subscribers can distinguish mailbox work from steered input. | Hosted active stream sessions expose `subscribePendingInputActivity`; pending steered input reports `steer`, queued mailbox-style input reports `mailbox`, and subscribing after input is already pending returns the pending activity. | Implemented |
-| A model tool can wait for mailbox or steer activity. | Graneri exposes a runtime-only AI SDK `wait_agent` tool. It subscribes to hosted active stream activity, wakes immediately on already-pending activity, returns Codex-compatible `{ message, timed_out }` results for mailbox, steer, and timeout, and aborts with the active turn. | Implemented |
+| A model tool can wait for mailbox or steer activity. | Graneri exposes a runtime-only AI SDK `wait_agent` tool. It subscribes to hosted active stream activity, wakes immediately on already-pending activity, returns app-server-compatible `{ message, timed_out }` results for mailbox, steer, and timeout, and aborts with the active turn. | Implemented |
 | Mailbox delivery is accepted into turn state. | Hosted active stream sessions keep mailbox-style pending input separate from steered input, can defer mailbox delivery after an answer boundary, and reopen delivery when steered input arrives. Replacement sessions carry both steer and mailbox pending input forward. | Implemented |
-| A model can create and manage live subagents. | Graneri does not expose Codex subagent tools because the product does not have subagents. Runtime tools such as `spawn_agent`, `send_message`, `followup_task`, `list_agents`, and `interrupt_agent` are intentionally out of scope. | Not applicable |
+| A model can create and manage live subagents. | Graneri does not expose subagent tools because the product does not have subagents. Runtime tools such as `spawn_agent`, `send_message`, `followup_task`, `list_agents`, and `interrupt_agent` are intentionally out of scope. | Not applicable |
 
-The current queue, steering, replay, and run-lifecycle slice is close to Codex
+The current queue, steering, replay, and run-lifecycle slice is close to the reference
 for durable correctness and fail-closed behavior. Graneri keeps mailbox activity
 and wait primitives for active-turn user input, but it does not implement
-Codex-style subagents. Graneri drains accepted input at the AI SDK stream restart
+reference subagents. Graneri drains accepted input at the AI SDK stream restart
 boundary into the next prompt branch, while Convex remains the durable source of
 truth for user input, chat runs, crash recovery, and cross-process coordination.
 
