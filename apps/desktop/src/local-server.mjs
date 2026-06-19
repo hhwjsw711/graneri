@@ -26,6 +26,7 @@ import {
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
 import { stopOrphanedHostedAssistantRun } from "../../../packages/ai/src/hosted-chat-orphaned-run.mjs";
+import { createHostedChatQueuedInput } from "../../../packages/ai/src/hosted-chat-queued-input.mjs";
 import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/src/hosted-chat-run-finalization-queue.mjs";
 import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
 import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
@@ -40,10 +41,8 @@ import {
 	getStoredHostedNoteContext,
 	HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
 	HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
-	isHostedChatQueuedMessageNotFoundError,
 	MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
 	prepareHostedChatBranch,
-	toHostedQueuedUserMessage,
 	validateHostedChatInput,
 	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
@@ -465,53 +464,35 @@ const handleChatRequest = async ({
 		}
 		throw error;
 	}
-	let claimedSteerQueuedMessageId = null;
-	let claimedSteerQueuedMessageIds = [];
+	const queuedInput = createHostedChatQueuedInput({
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+		claimReadyForRun: (args) =>
+			convexClient.mutation(api.assistantQueuedMessages.claimReadyForRun, args),
+		discardClaimed: (args) =>
+			convexClient.mutation(api.assistantQueuedMessages.discardClaimed, args),
+		getClaimedForChat: (args) =>
+			convexClient.query(api.assistantQueuedMessages.getClaimedForChat, args),
+	});
 	let steeredUserMessages = [];
 	let steeredUserMessage = null;
 	let replayedUserMessage = null;
 	let interruptedPendingInput = [];
 	const cleanupClaimedSteerQueuedMessage = async (message, options = {}) => {
-		const queuedMessageIds =
-			claimedSteerQueuedMessageIds.length > 0
-				? claimedSteerQueuedMessageIds
-				: claimedSteerQueuedMessageId
-					? [claimedSteerQueuedMessageId]
-					: [];
-		if (queuedMessageIds.length === 0) {
+		const cleanupResult = await queuedInput.cleanupClaimed({
+			tolerateMissing: options.tolerateMissing,
+		});
+		if (cleanupResult.ok) {
 			return true;
 		}
-		try {
-			await Promise.all(
-				queuedMessageIds.map((queuedMessageId) =>
-					convexClient.mutation(api.assistantQueuedMessages.discardClaimed, {
-						workspaceId: resolvedWorkspaceId,
-						chatId: id,
-						queuedMessageId,
-					}),
-				),
-			);
-			claimedSteerQueuedMessageId = null;
-			claimedSteerQueuedMessageIds = [];
-			return true;
-		} catch (cleanupError) {
-			if (
-				options.tolerateMissing &&
-				isHostedChatQueuedMessageNotFoundError(cleanupError)
-			) {
-				claimedSteerQueuedMessageId = null;
-				claimedSteerQueuedMessageIds = [];
-				return true;
-			}
-			logError({
-				error: cleanupError,
-				message,
-			});
-			sendJson(response, 500, {
-				error: "Failed to clean up claimed steered message.",
-			});
-			return false;
-		}
+		logError({
+			error: cleanupResult.error,
+			message,
+		});
+		sendJson(response, 500, {
+			error: "Failed to clean up claimed steered message.",
+		});
+		return false;
 	};
 	const failClaimedSteerPreparation = async (error, message) => {
 		if (!(await cleanupClaimedSteerQueuedMessage(message))) {
@@ -536,13 +517,13 @@ const handleChatRequest = async ({
 
 		let claimedSteerMessages = [];
 		try {
-			claimedSteerMessages = await convexClient.mutation(
-				api.assistantQueuedMessages.claimReadyForRun,
-				{
-					runId: continueRunId,
-					queuedMessageId: steerQueuedMessageId,
-				},
-			);
+			const claimedSteer = await queuedInput.claimSteer({
+				runId: continueRunId,
+				queuedMessageId: steerQueuedMessageId,
+			});
+			claimedSteerMessages = claimedSteer.claimedMessages;
+			steeredUserMessages = claimedSteer.userMessages;
+			steeredUserMessage = claimedSteer.userMessage;
 		} catch (error) {
 			if (sendConvexRouteError(error)) {
 				return;
@@ -557,15 +538,6 @@ const handleChatRequest = async ({
 			return;
 		}
 
-		claimedSteerQueuedMessageId = claimedSteerMessages[0]?._id ?? null;
-		claimedSteerQueuedMessageIds = claimedSteerMessages.map(
-			(queuedMessage) => queuedMessage._id,
-		);
-		steeredUserMessages = claimedSteerMessages.map((queuedMessage) =>
-			toHostedQueuedUserMessage(queuedMessage),
-		);
-		steeredUserMessage =
-			steeredUserMessages[steeredUserMessages.length - 1] ?? null;
 		if (attachableRun.status === "running") {
 			try {
 				interruptedPendingInput = await interruptActiveChatRun({
@@ -595,16 +567,10 @@ const handleChatRequest = async ({
 		}
 	}
 	if (replayQueuedMessageId && !continueRunId) {
-		let claimedReplayMessage = null;
 		try {
-			claimedReplayMessage = await convexClient.query(
-				api.assistantQueuedMessages.getClaimedForChat,
-				{
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-					queuedMessageId: replayQueuedMessageId,
-				},
-			);
+			replayedUserMessage = await queuedInput.loadClaimedReplay({
+				queuedMessageId: replayQueuedMessageId,
+			});
 		} catch (error) {
 			if (sendConvexRouteError(error)) {
 				return;
@@ -612,14 +578,12 @@ const handleChatRequest = async ({
 			throw error;
 		}
 
-		if (!claimedReplayMessage) {
+		if (!replayedUserMessage) {
 			sendJson(response, 409, {
 				error: "Queued message is no longer available.",
 			});
 			return;
 		}
-
-		replayedUserMessage = toHostedQueuedUserMessage(claimedReplayMessage);
 	}
 	const effectiveMessage = steeredUserMessage ?? replayedUserMessage ?? message;
 	const shouldLoadStoredChatMessages = Boolean(effectiveMessage);
@@ -726,7 +690,7 @@ const handleChatRequest = async ({
 			chatMessageCount: chatMessages.length,
 		});
 	} catch (error) {
-		if (claimedSteerQueuedMessageId) {
+		if (queuedInput.hasClaimed) {
 			await failClaimedSteerPreparation(
 				error,
 				"Failed to delete failed steered queue message after preparation failure",
@@ -880,7 +844,7 @@ const handleChatRequest = async ({
 			toolCount: finalizedToolSet.toolCount,
 		});
 	} catch (error) {
-		if (claimedSteerQueuedMessageId) {
+		if (queuedInput.hasClaimed) {
 			await failClaimedSteerPreparation(
 				error,
 				"Failed to delete failed steered queue message after preparation failure",
@@ -891,7 +855,7 @@ const handleChatRequest = async ({
 	}
 	if (lastUserMessage) {
 		const isQueuedAccept = Boolean(
-			(continueRunId && claimedSteerQueuedMessageId) ||
+			(continueRunId && queuedInput.hasClaimed) ||
 				(replayQueuedMessageId && !continueRunId),
 		);
 		try {
@@ -903,8 +867,11 @@ const handleChatRequest = async ({
 				reasoningEffort: resolvedReasoningEffort,
 				message: lastUserMessage,
 			});
-			if (continueRunId && claimedSteerQueuedMessageId) {
-				const acceptedQueuedMessageId = claimedSteerQueuedMessageId;
+			if (continueRunId && queuedInput.hasClaimed) {
+				const acceptedQueuedMessageId = queuedInput.claimedQueuedMessageId;
+				if (!acceptedQueuedMessageId) {
+					throw new Error("Claimed steered queued message is missing.");
+				}
 				await convexClient.mutation(api.chats.acceptSteeredUserMessages, {
 					workspaceId: saveMessageArgs.workspaceId,
 					chatId: saveMessageArgs.chatId,
@@ -915,7 +882,7 @@ const handleChatRequest = async ({
 					reasoningEffort: saveMessageArgs.reasoningEffort,
 					runId: continueRunId,
 					messages: steeredUserMessages.map((steeredMessage, index) => ({
-						queuedMessageId: claimedSteerQueuedMessageIds[index],
+						queuedMessageId: queuedInput.claimedQueuedMessageIds[index],
 						message: buildHostedChatSaveMessageArgs({
 							workspaceId: resolvedWorkspaceId,
 							chatId: id,
@@ -928,11 +895,10 @@ const handleChatRequest = async ({
 				});
 				pendingQueuedAcceptanceHeaders = getHostedChatSteerAcceptanceHeaders({
 					queuedMessageId: acceptedQueuedMessageId,
-					queuedMessageIds: claimedSteerQueuedMessageIds,
+					queuedMessageIds: queuedInput.claimedQueuedMessageIds,
 					turnId: continueRunId,
 				});
-				claimedSteerQueuedMessageId = null;
-				claimedSteerQueuedMessageIds = [];
+				queuedInput.clearClaimed();
 			} else if (replayQueuedMessageId && !continueRunId) {
 				await convexClient.mutation(api.chats.acceptQueuedUserMessage, {
 					...saveMessageArgs,
