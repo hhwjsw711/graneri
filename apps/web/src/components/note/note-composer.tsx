@@ -144,7 +144,10 @@ import {
 	removeChatMessageById,
 	submitChatTurn,
 } from "@/lib/chat-submit-session";
-import { getMessagesBefore } from "@/lib/chat-thread";
+import {
+	applyPendingMessageTruncation,
+	getMessagesBefore,
+} from "@/lib/chat-thread";
 import { getNoteComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { DESKTOP_MAIN_HEADER_CONTENT_CLASS } from "@/lib/desktop-chrome";
@@ -755,6 +758,23 @@ const useNoteComposerController = ({
 		() => toStoredChatMessages(storedMessages ?? []),
 		[storedMessages],
 	);
+	const [pendingTruncateMessageId, setPendingTruncateMessageId] =
+		React.useState<string | null>(null);
+	const visibleInitialMessages = React.useMemo(
+		() =>
+			applyPendingMessageTruncation(initialMessages, pendingTruncateMessageId),
+		[initialMessages, pendingTruncateMessageId],
+	);
+	React.useEffect(() => {
+		if (
+			pendingTruncateMessageId &&
+			initialMessages.every(
+				(message) => message.id !== pendingTruncateMessageId,
+			)
+		) {
+			setPendingTruncateMessageId(null);
+		}
+	}, [initialMessages, pendingTruncateMessageId]);
 	const latestRequestBodyRef = React.useRef<Record<string, unknown> | null>(
 		null,
 	);
@@ -819,14 +839,14 @@ const useNoteComposerController = ({
 		if (!activeAssistantMessageId || !displayActiveRun) {
 			return controllerMessages.length > 0
 				? controllerMessages
-				: initialMessages;
+				: visibleInitialMessages;
 		}
 
 		const activeControllerMessage = controllerMessages.find(
 			(message) =>
 				message.id === activeAssistantMessageId && message.role === "assistant",
 		);
-		const activeSnapshotMessage = initialMessages.find(
+		const activeSnapshotMessage = visibleInitialMessages.find(
 			(message) =>
 				message.id === activeAssistantMessageId && message.role === "assistant",
 		);
@@ -840,13 +860,13 @@ const useNoteComposerController = ({
 			activeAssistantMessage,
 			activeAssistantMessageId,
 			controllerMessages,
-			persistedMessages: initialMessages,
+			persistedMessages: visibleInitialMessages,
 		});
 	}, [
 		activeAssistantMessageId,
 		controllerMessages,
 		displayActiveRun,
-		initialMessages,
+		visibleInitialMessages,
 	]);
 	const displayChatMessages = React.useMemo(
 		() =>
@@ -856,13 +876,13 @@ const useNoteComposerController = ({
 					localOptimisticMessages?.chatId === currentChatId
 						? localOptimisticMessages.messages
 						: [],
-				resolvedMessages: initialMessages,
+				resolvedMessages: visibleInitialMessages,
 			}),
 		[
 			currentChatId,
-			initialMessages,
 			localOptimisticMessages,
 			mergedDisplayChatMessages,
+			visibleInitialMessages,
 		],
 	);
 
@@ -883,8 +903,8 @@ const useNoteComposerController = ({
 	});
 
 	const initialMessagesSeedKey = React.useMemo(
-		() => getUIMessageSeedKey(initialMessages),
-		[initialMessages],
+		() => getUIMessageSeedKey(visibleInitialMessages),
+		[visibleInitialMessages],
 	);
 	const appliedInitialMessagesSeedKeyRef = React.useRef(initialMessagesSeedKey);
 
@@ -898,7 +918,7 @@ const useNoteComposerController = ({
 			previousChatIdRef.current = currentChatId;
 			appliedInitialMessagesSeedKeyRef.current = initialMessagesSeedKey;
 			// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
-			setMessages(initialMessages);
+			setMessages(visibleInitialMessages);
 			return;
 		}
 
@@ -913,10 +933,10 @@ const useNoteComposerController = ({
 			if (
 				currentMessages.length === 0 ||
 				currentMessagesSeedKey === appliedInitialMessagesSeedKeyRef.current ||
-				(!activeRun && initialMessages.length > 0)
+				(!activeRun && visibleInitialMessages.length > 0)
 			) {
 				appliedInitialMessagesSeedKeyRef.current = initialMessagesSeedKey;
-				return initialMessages;
+				return visibleInitialMessages;
 			}
 
 			return normalizeChatMessages(currentMessages);
@@ -925,10 +945,10 @@ const useNoteComposerController = ({
 		activeRun,
 		chatStatus,
 		currentChatId,
-		initialMessages,
 		initialMessagesSeedKey,
 		isPreparingRequest,
 		setMessages,
+		visibleInitialMessages,
 	]);
 
 	const resetTextareaHeight = React.useCallback(() => {}, []);
@@ -1774,8 +1794,19 @@ const useNoteComposerController = ({
 				handleStop();
 			}
 
+			setPendingTruncateMessageId(messageId);
 			setMessages((currentMessages) =>
 				normalizeChatMessages(getMessagesBefore(currentMessages, messageId)),
+			);
+			setLocalOptimisticMessages((currentMessages) =>
+				currentMessages?.chatId === currentChatId
+					? {
+							chatId: currentChatId,
+							messages: normalizeChatMessages(
+								getMessagesBefore(currentMessages.messages, messageId),
+							),
+						}
+					: currentMessages,
 			);
 			setEditingMessageId(null);
 			clearDraft();
@@ -1797,6 +1828,7 @@ const useNoteComposerController = ({
 					message: "Failed to delete note chat message",
 				});
 				toast.error("Failed to delete message");
+				setPendingTruncateMessageId(null);
 			});
 		},
 		[

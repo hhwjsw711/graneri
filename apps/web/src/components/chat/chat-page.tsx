@@ -82,7 +82,10 @@ import {
 	removeChatMessageById,
 	submitChatTurn,
 } from "@/lib/chat-submit-session";
-import { getMessagesBefore } from "@/lib/chat-thread";
+import {
+	applyPendingMessageTruncation,
+	getMessagesBefore,
+} from "@/lib/chat-thread";
 import { getChatComposerDraftScope } from "@/lib/composer-draft";
 import { getCachedConvexToken, prefetchConvexToken } from "@/lib/convex-token";
 import { ensureCssHighlightStyles } from "@/lib/css-highlight-styles";
@@ -411,6 +414,8 @@ const useChatPageController = ({
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [localOptimisticMessages, setLocalOptimisticMessages] =
 		React.useState<ScopedLocalOptimisticMessages | null>(null);
+	const [pendingTruncateMessageId, setPendingTruncateMessageId] =
+		React.useState<string | null>(null);
 	const handleToolCall = React.useMemo(
 		() =>
 			createDesktopLocalToolCallHandler({
@@ -446,6 +451,24 @@ const useChatPageController = ({
 			storedMessages === undefined ? [] : toStoredChatMessages(storedMessages),
 		[storedMessages],
 	);
+	const visiblePersistedMessages = React.useMemo(
+		() =>
+			applyPendingMessageTruncation(
+				persistedMessages,
+				pendingTruncateMessageId,
+			),
+		[pendingTruncateMessageId, persistedMessages],
+	);
+	React.useEffect(() => {
+		if (
+			pendingTruncateMessageId &&
+			persistedMessages.every(
+				(message) => message.id !== pendingTruncateMessageId,
+			)
+		) {
+			setPendingTruncateMessageId(null);
+		}
+	}, [pendingTruncateMessageId, persistedMessages]);
 
 	React.useEffect(() => {
 		if (!activeWorkspaceId) {
@@ -475,8 +498,8 @@ const useChatPageController = ({
 	const activeAssistantMessageId = displayActiveRun?.assistantMessageId ?? null;
 
 	const persistedMessagesSeedKey = React.useMemo(
-		() => getUIMessageSeedKey(persistedMessages),
-		[persistedMessages],
+		() => getUIMessageSeedKey(visiblePersistedMessages),
+		[visiblePersistedMessages],
 	);
 	const appliedPersistedMessagesSeedKeyRef = React.useRef(
 		persistedMessagesSeedKey,
@@ -502,8 +525,11 @@ const useChatPageController = ({
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
 			const nextPersistedMessages = activeAssistantMessageId
-				? removeChatMessageById(persistedMessages, activeAssistantMessageId)
-				: persistedMessages;
+				? removeChatMessageById(
+						visiblePersistedMessages,
+						activeAssistantMessageId,
+					)
+				: visiblePersistedMessages;
 			const shouldUsePersistedMessages =
 				currentMessages.length === 0 ||
 				currentMessagesSeedKey === appliedPersistedMessagesSeedKeyRef.current ||
@@ -520,10 +546,10 @@ const useChatPageController = ({
 		activeRun,
 		activeAssistantMessageId,
 		isPreparingRequest,
-		persistedMessages,
 		persistedMessagesSeedKey,
 		setMessages,
 		status,
+		visiblePersistedMessages,
 	]);
 
 	const isAutomationRunning = Boolean(runningAutomationRun);
@@ -535,14 +561,14 @@ const useChatPageController = ({
 		if (!activeAssistantMessageId || !displayActiveRun) {
 			return controllerMessages.length > 0
 				? controllerMessages
-				: persistedMessages;
+				: visiblePersistedMessages;
 		}
 
 		const activeControllerMessage = controllerMessages.find(
 			(message) =>
 				message.id === activeAssistantMessageId && message.role === "assistant",
 		);
-		const activeSnapshotMessage = persistedMessages.find(
+		const activeSnapshotMessage = visiblePersistedMessages.find(
 			(message) =>
 				message.id === activeAssistantMessageId && message.role === "assistant",
 		);
@@ -556,13 +582,13 @@ const useChatPageController = ({
 			activeAssistantMessage,
 			activeAssistantMessageId,
 			controllerMessages,
-			persistedMessages,
+			persistedMessages: visiblePersistedMessages,
 		});
 	}, [
 		activeAssistantMessageId,
 		displayActiveRun,
 		controllerMessages,
-		persistedMessages,
+		visiblePersistedMessages,
 	]);
 	const displayMessages = React.useMemo(
 		() =>
@@ -572,9 +598,14 @@ const useChatPageController = ({
 					localOptimisticMessages?.chatId === chatId
 						? localOptimisticMessages.messages
 						: [],
-				resolvedMessages: persistedMessages,
+				resolvedMessages: visiblePersistedMessages,
 			}),
-		[chatId, localOptimisticMessages, mergedDisplayMessages, persistedMessages],
+		[
+			chatId,
+			localOptimisticMessages,
+			mergedDisplayMessages,
+			visiblePersistedMessages,
+		],
 	);
 	const hasMessages = displayMessages.length > 0 || isAutomationRunning;
 	const localMessageIds = React.useMemo(
@@ -1176,8 +1207,19 @@ const useChatPageController = ({
 				handleStop();
 			}
 
+			setPendingTruncateMessageId(messageId);
 			setMessages((currentMessages) =>
 				normalizeChatMessages(getMessagesBefore(currentMessages, messageId)),
+			);
+			setLocalOptimisticMessages((currentMessages) =>
+				currentMessages?.chatId === chatId
+					? {
+							chatId,
+							messages: normalizeChatMessages(
+								getMessagesBefore(currentMessages.messages, messageId),
+							),
+						}
+					: currentMessages,
 			);
 			setEditingMessageId(null);
 			clearDraft();
@@ -1197,6 +1239,7 @@ const useChatPageController = ({
 					message: "Failed to delete message",
 				});
 				toast.error("Failed to delete message");
+				setPendingTruncateMessageId(null);
 			});
 		},
 		[

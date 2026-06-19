@@ -5,6 +5,7 @@ import {
 	mergePersistedChatMessagesWithController,
 	normalizeChatMessages,
 } from "@/lib/chat-message-state";
+import { applyPendingMessageTruncation } from "@/lib/chat-thread";
 
 const textMessage = ({
 	id,
@@ -283,5 +284,28 @@ describe("appendLocalOptimisticChatMessages", () => {
 				resolvedMessages: [persistedFollowUpMessage],
 			}),
 		).toEqual([persistedFollowUpMessage]);
+	});
+});
+
+describe("applyPendingMessageTruncation", () => {
+	it("hides a pending deleted branch from stale persisted messages", () => {
+		const messages = [
+			textMessage({ id: "user-1", role: "user", text: "First" }),
+			textMessage({ id: "assistant-1", role: "assistant", text: "Answer" }),
+			textMessage({ id: "user-2", role: "user", text: "Delete me" }),
+		];
+
+		expect(applyPendingMessageTruncation(messages, "assistant-1")).toEqual([
+			messages[0],
+		]);
+	});
+
+	it("leaves messages unchanged without a pending delete boundary", () => {
+		const messages = [
+			textMessage({ id: "user-1", role: "user", text: "First" }),
+			textMessage({ id: "assistant-1", role: "assistant", text: "Answer" }),
+		];
+
+		expect(applyPendingMessageTruncation(messages, null)).toBe(messages);
 	});
 });
