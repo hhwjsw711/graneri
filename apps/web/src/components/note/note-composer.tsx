@@ -80,6 +80,7 @@ import {
 	useRevokeAttachmentObjectUrls,
 } from "@/components/ai-elements/file-attachment-controls";
 import { hasUploadingAttachments } from "@/components/ai-elements/file-attachment-utils";
+import { ChatQueuedFollowUpBar } from "@/components/chat/chat-queued-follow-up-bar";
 import {
 	ASSISTANT_CHAT_CONTENT_CLASS,
 	CHAT_MESSAGE_MAX_WIDTH_CLASS,
@@ -110,6 +111,7 @@ import {
 import { useComposerDraft } from "@/hooks/use-composer-draft";
 import { useNoteTranscriptSession } from "@/hooks/use-note-transcript-session";
 import { useQueuedChatDrain } from "@/hooks/use-queued-chat-drain";
+import { useQueuedFollowUpControls } from "@/hooks/use-queued-follow-up-controls";
 import { useResumeActiveChatRun } from "@/hooks/use-resume-active-chat-run";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import { useTranscriptionSession } from "@/hooks/use-transcription-session";
@@ -135,6 +137,7 @@ import {
 	mergePersistedChatMessagesWithController,
 	normalizeChatMessages,
 } from "@/lib/chat-message-state";
+import { toQueuedUserMessageInput } from "@/lib/chat-queue";
 import {
 	buildNoteChatRequestBody,
 	buildNoteChatRequestBodyFromLocalFolders,
@@ -584,6 +587,9 @@ const useNoteComposerController = ({
 	const persistChatSettings = useMutation(api.chats.setChatSettings);
 	const enqueueQueuedMessage = useMutation(
 		api.assistantQueuedMessages.enqueueForActiveRun,
+	);
+	const updateQueuedMessage = useMutation(
+		api.assistantQueuedMessages.updateQueued,
 	);
 	const handleSelectedModelChange = React.useCallback(
 		(model: ChatModel) => {
@@ -1211,7 +1217,7 @@ const useNoteComposerController = ({
 			]),
 		[controllerMessages, currentChatId, localOptimisticMessages],
 	);
-	useQueuedChatDrain({
+	const { queuedMessages, setQueuedMessages } = useQueuedChatDrain({
 		activeRun: displayActiveRun,
 		chatId: currentChatId,
 		contextLabel: "note chat",
@@ -1358,6 +1364,31 @@ const useNoteComposerController = ({
 			);
 		});
 	}, [stopCurrentStream]);
+	const {
+		editDraft: queuedMessageEditDraft,
+		finishQueuedMessageEdit,
+		onQueuedFollowUpsReorder,
+		queuedFollowUps,
+		restoreEditedQueuedMessage,
+	} = useQueuedFollowUpControls({
+		activeRun: displayActiveRun,
+		chatId: currentChatId,
+		contextLabel: "note chat",
+		latestRequestBodyRef,
+		localMessageIds,
+		onEditMessage: (queuedMessage) => {
+			setEditingMessageId(queuedMessage._id);
+			setMessage(queuedMessage.text);
+			setDraftMetadata(null);
+			setAttachedFiles([]);
+			resetTextareaHeight();
+			pendingComposerFocusRef.current = true;
+		},
+		queuedMessages,
+		sendMessage,
+		setQueuedMessages,
+		workspaceId: activeWorkspaceId,
+	});
 	const toggleTranscriptPanel = React.useCallback(() => {
 		closeComposerPopovers();
 		closeRightSidebar();
@@ -1645,6 +1676,46 @@ const useNoteComposerController = ({
 					}
 				: undefined;
 			setIsPreparingRequest(true);
+			if (queuedMessageEditDraft) {
+				if (!activeWorkspaceId) {
+					throw new Error("Cannot edit queued message without a workspace.");
+				}
+
+				const currentNoteContext = readNoteContext();
+				const requestBody = await buildNoteChatRequestBody({
+					localFolderStorageScope,
+					model: selectedModel.model,
+					noteContext: {
+						noteId: currentNoteContext.noteId,
+						title: currentNoteContext.title,
+						text: currentNoteContext.text,
+					},
+					reasoningEffort: selectedReasoningEffort,
+					recipeSlug: selectedRecipe?.slug ?? null,
+					resolveConvexToken: getCachedConvexToken,
+					text: outgoingText,
+				});
+				const updatedQueuedMessage = await updateQueuedMessage({
+					queuedMessageId: queuedMessageEditDraft.message._id,
+					message: toQueuedUserMessageInput({
+						messageId: queuedMessageEditDraft.message.messageId,
+						metadata: recipeMetadata,
+						requestBody,
+						text: outgoingText,
+					}),
+				});
+
+				latestRequestBodyRef.current = requestBody;
+				finishQueuedMessageEdit(updatedQueuedMessage);
+				setEditingMessageId(null);
+				clearDraft();
+				setAttachedFiles([]);
+				resetTextareaHeight();
+				setIsPreparingRequest(false);
+				requestComposerFocus();
+				return;
+			}
+
 			if (presentationMode === "inline") {
 				setPanelMode("chat");
 			} else {
@@ -1714,7 +1785,6 @@ const useNoteComposerController = ({
 				await waitForBrowserPaint();
 				setIsPreparingRequest(false);
 				requestComposerFocus();
-				toast.success("Follow-up queued");
 				return;
 			}
 			setIsPreparingRequest(false);
@@ -1762,11 +1832,13 @@ const useNoteComposerController = ({
 		currentChatId,
 		displayActiveRun,
 		enqueueQueuedMessage,
+		finishQueuedMessageEdit,
 		isPreparingRequest,
 		getDraftSnapshot,
 		localFolderStorageScope,
 		openRightSidebar,
 		presentationMode,
+		queuedMessageEditDraft,
 		readNoteContext,
 		resetTextareaHeight,
 		selectedRecipe,
@@ -1777,6 +1849,7 @@ const useNoteComposerController = ({
 		setPanelMode,
 		setMessages,
 		setMessage,
+		updateQueuedMessage,
 		requestComposerFocus,
 	]);
 
@@ -1818,12 +1891,18 @@ const useNoteComposerController = ({
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
+		restoreEditedQueuedMessage();
 		setEditingMessageId(null);
 		clearDraft();
 		setAttachedFiles([]);
 		resetTextareaHeight();
 		requestComposerFocus();
-	}, [clearDraft, requestComposerFocus, resetTextareaHeight]);
+	}, [
+		clearDraft,
+		requestComposerFocus,
+		resetTextareaHeight,
+		restoreEditedQueuedMessage,
+	]);
 
 	const buildRequestBody = React.useCallback(async () => {
 		const currentNoteContext = readNoteContext();
@@ -2148,6 +2227,8 @@ const useNoteComposerController = ({
 		setSelectedRecipeSlug,
 		reasoningEffort: selectedReasoningEffort,
 		selectedModel,
+		queuedFollowUps,
+		onQueuedFollowUpsReorder,
 		suppressRecipePickerUntilUserActionRef,
 		handleStop,
 		shouldShowInlinePanel,
@@ -3494,6 +3575,12 @@ function ChatComposerForm({
 				<div className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-3 flex justify-center">
 					<div className="pointer-events-auto">{topAccessory}</div>
 				</div>
+			) : null}
+			{controller.queuedFollowUps.length > 0 ? (
+				<ChatQueuedFollowUpBar
+					queuedFollowUps={controller.queuedFollowUps}
+					onReorder={controller.onQueuedFollowUpsReorder}
+				/>
 			) : null}
 			<ChatInlinePopoverFooter
 				composerEditorRef={controller.composerEditorRef}

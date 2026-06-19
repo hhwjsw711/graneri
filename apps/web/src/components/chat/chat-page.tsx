@@ -42,6 +42,7 @@ import { useActiveWorkspaceId } from "@/hooks/use-active-workspace";
 import { useAppSources } from "@/hooks/use-app-sources";
 import { useComposerDraft } from "@/hooks/use-composer-draft";
 import { useQueuedChatDrain } from "@/hooks/use-queued-chat-drain";
+import { useQueuedFollowUpControls } from "@/hooks/use-queued-follow-up-controls";
 import { useResumeActiveChatRun } from "@/hooks/use-resume-active-chat-run";
 import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import { useWorkspaceChatTransport } from "@/hooks/use-workspace-chat-transport";
@@ -72,10 +73,7 @@ import {
 	mergePersistedChatMessagesWithController,
 	normalizeChatMessages,
 } from "@/lib/chat-message-state";
-import {
-	fromQueuedUserMessage,
-	toQueuedUserMessageInput,
-} from "@/lib/chat-queue";
+import { toQueuedUserMessageInput } from "@/lib/chat-queue";
 import {
 	buildWorkspaceChatRequestBody,
 	buildWorkspaceChatRequestBodyFromLocalFolders,
@@ -378,23 +376,8 @@ const useChatPageController = ({
 	const enqueueQueuedMessage = useMutation(
 		api.assistantQueuedMessages.enqueueForActiveRun,
 	);
-	const claimQueuedMessageForRun = useMutation(
-		api.assistantQueuedMessages.claimNextForRun,
-	);
-	const requeueClaimedMessage = useMutation(
-		api.assistantQueuedMessages.requeueClaimed,
-	);
-	const discardClaimedMessage = useMutation(
-		api.assistantQueuedMessages.discardClaimed,
-	);
-	const discardQueuedMessage = useMutation(
-		api.assistantQueuedMessages.discardQueued,
-	);
 	const updateQueuedMessage = useMutation(
 		api.assistantQueuedMessages.updateQueued,
-	);
-	const reorderQueuedMessages = useMutation(
-		api.assistantQueuedMessages.reorderQueuedForChat,
 	);
 	const userPreferences = useQuery(api.userPreferences.get, {});
 	const storedMessages = useQuery(
@@ -630,222 +613,31 @@ const useChatPageController = ({
 		sendMessage,
 		workspaceId: activeWorkspaceId,
 	});
-	// react-doctor-disable-next-line react-doctor/no-event-handler
-	const [queuedMessageSendingNowId, setQueuedMessageSendingNowId] =
-		React.useState<string | null>(null);
-	// react-doctor-disable-next-line react-doctor/no-event-handler
-	const [queuedMessageEditingId, setQueuedMessageEditingId] = React.useState<
-		string | null
-	>(null);
-	// react-doctor-disable-next-line react-doctor/no-event-handler
-	const [queuedMessageDeletingId, setQueuedMessageDeletingId] = React.useState<
-		string | null
-	>(null);
-	// react-doctor-disable-next-line react-doctor/no-event-handler
-	const [queuedMessageEditDraft, setQueuedMessageEditDraft] = React.useState<{
-		index: number;
-		message: Doc<"assistantQueuedMessages">;
-	} | null>(null);
-	const queuedFollowUp = queuedMessages[0] ?? null;
-	const handleSendQueuedFollowUpNow = React.useCallback(
-		async (queuedMessageId?: string) => {
-			if (
-				!activeWorkspaceId ||
-				!displayActiveRun ||
-				queuedMessageSendingNowId
-			) {
-				return;
-			}
-
-			let claimedQueuedMessageId: Doc<"assistantQueuedMessages">["_id"] | null =
-				null;
-			let claimedQueuedMessage: Doc<"assistantQueuedMessages"> | null = null;
-			try {
-				const queuedMessage = await claimQueuedMessageForRun({
-					runId: displayActiveRun._id,
-					queuedMessageId: queuedMessageId as
-						| Doc<"assistantQueuedMessages">["_id"]
-						| undefined,
-				});
-
-				if (!queuedMessage) {
-					return;
-				}
-
-				claimedQueuedMessageId = queuedMessage._id;
-				claimedQueuedMessage = queuedMessage;
-				setQueuedMessages((messages) =>
-					messages.filter((message) => message._id !== queuedMessage._id),
-				);
-				setQueuedMessageSendingNowId(queuedMessage._id);
-				const preparedQueuedMessage = await fromQueuedUserMessage({
-					hasMessageId: (messageId) => localMessageIds.has(messageId),
-					queuedMessage,
-					resolveConvexToken: getCachedConvexToken,
-				});
-				const outgoingRequestBody = {
-					...preparedQueuedMessage.body,
-					supersedeActiveRun: true,
-				};
-				latestRequestBodyRef.current = outgoingRequestBody;
-				await sendMessage(preparedQueuedMessage.message, {
-					body: outgoingRequestBody,
-				});
-				await discardClaimedMessage({
-					queuedMessageId: claimedQueuedMessageId,
-				});
-				claimedQueuedMessageId = null;
-			} catch (error) {
-				if (claimedQueuedMessageId) {
-					await requeueClaimedMessage({
-						queuedMessageId: claimedQueuedMessageId,
-					}).catch((requeueError) => {
-						logError({
-							event: "client.error",
-							error: requeueError,
-							message: "Failed to requeue steered chat message",
-						});
-					});
-					if (claimedQueuedMessage) {
-						const requeuedMessage = claimedQueuedMessage;
-						setQueuedMessages((messages) =>
-							messages.some((message) => message._id === requeuedMessage._id)
-								? messages
-								: [requeuedMessage, ...messages],
-						);
-					}
-				}
-				logError({
-					event: "client.error",
-					error,
-					message: "Failed to send queued chat message now",
-				});
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to send queued message now",
-				);
-			} finally {
-				setQueuedMessageSendingNowId(null);
-			}
-		},
-		[
-			activeWorkspaceId,
-			claimQueuedMessageForRun,
-			discardClaimedMessage,
-			displayActiveRun,
-			localMessageIds,
-			queuedMessageSendingNowId,
-			requeueClaimedMessage,
-			sendMessage,
-			setQueuedMessages,
-		],
-	);
-	const handleEditQueuedFollowUp = React.useCallback(
-		async (queuedMessageId: string) => {
-			const queuedMessageIndex = queuedMessages.findIndex(
-				(message) => message._id === queuedMessageId,
-			);
-			if (queuedMessageIndex < 0) {
-				return;
-			}
-
-			const queuedMessage = queuedMessages[queuedMessageIndex];
-			setQueuedMessageEditingId(queuedMessage._id);
-			setQueuedMessageEditDraft({
-				index: queuedMessageIndex,
-				message: queuedMessage,
-			});
-			setQueuedMessages((messages) =>
-				messages.filter((message) => message._id !== queuedMessage._id),
-			);
+	const {
+		editDraft: queuedMessageEditDraft,
+		finishQueuedMessageEdit,
+		onQueuedFollowUpsReorder,
+		queuedFollowUps,
+		restoreEditedQueuedMessage,
+		sendQueuedFollowUpNow,
+	} = useQueuedFollowUpControls({
+		activeRun: displayActiveRun,
+		chatId,
+		contextLabel: "chat",
+		latestRequestBodyRef,
+		localMessageIds,
+		onEditMessage: (queuedMessage) => {
 			setEditingMessageId(queuedMessage._id);
 			setDraft(queuedMessage.text);
 			setDraftMetadata(null);
 			setAttachedFiles([]);
 		},
-		[queuedMessages, setDraft, setDraftMetadata, setQueuedMessages],
-	);
-	const handleDeleteQueuedFollowUp = React.useCallback(
-		async (queuedMessageId: string) => {
-			const queuedMessage = queuedMessages.find(
-				(message) => message._id === queuedMessageId,
-			);
-			if (!queuedMessage) {
-				return;
-			}
-
-			setQueuedMessageDeletingId(queuedMessage._id);
-			try {
-				await discardQueuedMessage({
-					queuedMessageId: queuedMessage._id,
-				});
-				setQueuedMessages((messages) =>
-					messages.filter((message) => message._id !== queuedMessage._id),
-				);
-			} catch (error) {
-				logError({
-					event: "client.error",
-					error,
-					message: "Failed to delete queued chat message",
-				});
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to delete queued message",
-				);
-			} finally {
-				setQueuedMessageDeletingId(null);
-			}
-		},
-		[discardQueuedMessage, queuedMessages, setQueuedMessages],
-	);
-	const handleQueuedFollowUpsReorder = React.useCallback(
-		(queuedMessageIds: Array<string>) => {
-			if (!activeWorkspaceId) {
-				return;
-			}
-
-			setQueuedMessages((messages) => {
-				const messagesById = new Map(
-					messages.map((message) => [message._id, message]),
-				);
-				const reorderedMessages = queuedMessageIds
-					.map((queuedMessageId) =>
-						messagesById.get(
-							queuedMessageId as Doc<"assistantQueuedMessages">["_id"],
-						),
-					)
-					.filter(
-						(message): message is (typeof messages)[number] =>
-							message !== undefined,
-					);
-
-				return reorderedMessages.length === messages.length
-					? reorderedMessages
-					: messages;
-			});
-			void reorderQueuedMessages({
-				workspaceId: activeWorkspaceId,
-				chatId,
-				queuedMessageIds: queuedMessageIds as Array<
-					Doc<"assistantQueuedMessages">["_id"]
-				>,
-			}).catch((error) => {
-				logError({
-					event: "client.error",
-					error,
-					message: "Failed to reorder queued chat messages",
-				});
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to reorder queued messages",
-				);
-			});
-		},
-		[activeWorkspaceId, chatId, reorderQueuedMessages, setQueuedMessages],
-	);
+		queuedMessages,
+		sendMessage,
+		setQueuedMessages,
+		workspaceId: activeWorkspaceId,
+	});
+	const queuedFollowUp = queuedMessages[0] ?? null;
 	const isNotesLoading = notes === undefined;
 	const selectedModel =
 		(selectedModelOverride?.chatId === chatId
@@ -1000,19 +792,7 @@ const useChatPageController = ({
 				});
 
 				latestRequestBodyRef.current = requestBody;
-				setQueuedMessages((messages) => {
-					const nextMessages = messages.filter(
-						(message) => message._id !== updatedQueuedMessage._id,
-					);
-					nextMessages.splice(
-						queuedMessageEditDraft.index,
-						0,
-						updatedQueuedMessage,
-					);
-					return nextMessages;
-				});
-				setQueuedMessageEditDraft(null);
-				setQueuedMessageEditingId(null);
+				finishQueuedMessageEdit(updatedQueuedMessage);
 				setEditingMessageId(null);
 				clearDraft();
 				setAttachedFiles([]);
@@ -1084,7 +864,6 @@ const useChatPageController = ({
 				setAttachedFiles([]);
 				await waitForBrowserPaint();
 				setIsPreparingRequest(false);
-				toast.success("Follow-up queued");
 				return;
 			}
 			setIsPreparingRequest(false);
@@ -1129,6 +908,7 @@ const useChatPageController = ({
 		displayActiveRun,
 		editingMessageId,
 		enqueueQueuedMessage,
+		finishQueuedMessageEdit,
 		getDraftSnapshot,
 		isAutomationRunning,
 		isChatRequestPending,
@@ -1139,7 +919,6 @@ const useChatPageController = ({
 		clearDraft,
 		setDraft,
 		setDraftMetadata,
-		setQueuedMessages,
 		selectedReasoningEffort,
 		selectedModel.model,
 		sendMessage,
@@ -1182,7 +961,7 @@ const useChatPageController = ({
 
 	const handleStop = React.useCallback(() => {
 		const stopPromise = queuedFollowUp
-			? handleSendQueuedFollowUpNow()
+			? sendQueuedFollowUpNow()
 			: stopCurrentStream();
 
 		void stopPromise.catch((error) => {
@@ -1195,7 +974,7 @@ const useChatPageController = ({
 				error instanceof Error ? error.message : "Failed to stop chat stream",
 			);
 		});
-	}, [handleSendQueuedFollowUpNow, queuedFollowUp, stopCurrentStream]);
+	}, [queuedFollowUp, sendQueuedFollowUpNow, stopCurrentStream]);
 
 	const handleEditMessage = React.useCallback(
 		(
@@ -1218,32 +997,11 @@ const useChatPageController = ({
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
-		if (queuedMessageEditDraft) {
-			setQueuedMessages((messages) => {
-				if (
-					messages.some(
-						(message) => message._id === queuedMessageEditDraft.message._id,
-					)
-				) {
-					return messages;
-				}
-
-				const nextMessages = [...messages];
-				nextMessages.splice(
-					queuedMessageEditDraft.index,
-					0,
-					queuedMessageEditDraft.message,
-				);
-				return nextMessages;
-			});
-			setQueuedMessageEditDraft(null);
-			setQueuedMessageEditingId(null);
-		}
-
+		restoreEditedQueuedMessage();
 		setEditingMessageId(null);
 		clearDraft();
 		setAttachedFiles([]);
-	}, [clearDraft, queuedMessageEditDraft, setQueuedMessages]);
+	}, [clearDraft, restoreEditedQueuedMessage]);
 
 	const buildRequestBody = React.useCallback(async () => {
 		const { mentionIds, requestSelectedSourceIds } =
@@ -1420,17 +1178,8 @@ const useChatPageController = ({
 		editingMessageId,
 		mentions,
 		handleCancelEdit,
-		queuedFollowUps: queuedMessages.map((queuedMessage) => ({
-			id: queuedMessage._id,
-			isDeleting: queuedMessageDeletingId === queuedMessage._id,
-			isEditing: queuedMessageEditingId === queuedMessage._id,
-			isSendingNow: queuedMessageSendingNowId === queuedMessage._id,
-			onDelete: () => handleDeleteQueuedFollowUp(queuedMessage._id),
-			onEdit: () => handleEditQueuedFollowUp(queuedMessage._id),
-			onSendNow: () => handleSendQueuedFollowUpNow(queuedMessage._id),
-			text: queuedMessage.text,
-		})),
-		onQueuedFollowUpsReorder: handleQueuedFollowUpsReorder,
+		queuedFollowUps,
+		onQueuedFollowUpsReorder,
 		onDeleteMessage: handleDeleteMessage,
 		onOpenMention: handleOpenMention,
 		onEditMessage: handleEditMessage,
