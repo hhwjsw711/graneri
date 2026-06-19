@@ -12,6 +12,7 @@ describe("chat submit session", () => {
 	it("sends a prepared turn with an optimistic message", async () => {
 		const optimisticMessages: unknown[] = [];
 		const preparedRequests: unknown[] = [];
+		const events: string[] = [];
 		const sendMessage = vi.fn(async () => undefined);
 
 		const result = await submitChatTurn({
@@ -37,14 +38,21 @@ describe("chat submit session", () => {
 			editingMessageId: null,
 			enqueueQueuedMessage: vi.fn(),
 			metadata: { source: "test" },
-			onOptimisticMessage: (message) => optimisticMessages.push(message),
-			onRequestPrepared: (request) => preparedRequests.push(request),
+			onOptimisticMessage: (message) => {
+				events.push("optimistic");
+				optimisticMessages.push(message);
+			},
+			onRequestPrepared: (request) => {
+				events.push("prepared");
+				preparedRequests.push(request);
+			},
 			sendMessage,
 			text: "Summarize this",
 			workspaceId,
 		});
 
 		expect(result.status).toBe("sent");
+		expect(events).toEqual(["prepared", "optimistic"]);
 		expect(optimisticMessages).toHaveLength(1);
 		expect(preparedRequests).toEqual([
 			{

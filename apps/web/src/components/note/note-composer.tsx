@@ -1586,16 +1586,11 @@ const useNoteComposerController = ({
 					}
 				: undefined;
 			setIsPreparingRequest(true);
-			setEditingMessageId(null);
-			clearDraft();
-			setAttachedFiles([]);
-			resetTextareaHeight();
 			if (presentationMode === "inline") {
 				setPanelMode("chat");
 			} else {
 				openRightSidebar(presentationMode);
 			}
-			await waitForBrowserPaint();
 
 			const currentNoteContext = readNoteContext();
 			const result = await submitChatTurn({
@@ -1624,6 +1619,10 @@ const useNoteComposerController = ({
 					optimisticMessageId = message.id;
 					// react-doctor-disable-next-line react-doctor/no-flush-sync
 					flushSync(() => {
+						setEditingMessageId(null);
+						clearDraft();
+						setAttachedFiles([]);
+						resetTextareaHeight();
 						setLocalOptimisticMessages((currentState) => ({
 							chatId: currentChatId,
 							messages: normalizeChatMessages([
@@ -1648,6 +1647,11 @@ const useNoteComposerController = ({
 			});
 
 			if (result.status === "queued") {
+				setEditingMessageId(null);
+				clearDraft();
+				setAttachedFiles([]);
+				resetTextareaHeight();
+				await waitForBrowserPaint();
 				setIsPreparingRequest(false);
 				toast.success("Follow-up queued");
 				return;

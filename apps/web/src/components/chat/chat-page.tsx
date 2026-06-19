@@ -984,10 +984,6 @@ const useChatPageController = ({
 			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onChatPersisted?.(chatId);
 			setIsPreparingRequest(true);
-			setEditingMessageId(null);
-			clearDraft();
-			setAttachedFiles([]);
-			await waitForBrowserPaint();
 
 			const { mentionIds, requestSelectedSourceIds } =
 				getMentionRequestContext(mentions);
@@ -1016,6 +1012,9 @@ const useChatPageController = ({
 					optimisticMessageId = message.id;
 					// react-doctor-disable-next-line react-doctor/no-flush-sync
 					flushSync(() => {
+						setEditingMessageId(null);
+						clearDraft();
+						setAttachedFiles([]);
 						setLocalOptimisticMessages((currentState) => ({
 							chatId,
 							messages: normalizeChatMessages([
@@ -1041,6 +1040,10 @@ const useChatPageController = ({
 			});
 
 			if (result.status === "queued") {
+				setEditingMessageId(null);
+				clearDraft();
+				setAttachedFiles([]);
+				await waitForBrowserPaint();
 				setIsPreparingRequest(false);
 				toast.success("Follow-up queued");
 				return;

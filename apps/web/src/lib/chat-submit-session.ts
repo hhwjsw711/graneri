@@ -103,10 +103,6 @@ export const submitChatTurn = async <
 			})
 		: null;
 
-	if (optimisticMessage && (!displayActiveRun || optimisticQueuedMessage)) {
-		onOptimisticMessage(optimisticMessage);
-	}
-
 	const requestBody = await buildRequestBody();
 	const outgoingRequestBody =
 		activeRun && !displayActiveRun
@@ -116,6 +112,10 @@ export const submitChatTurn = async <
 		localFolders: requestBody.localFolders,
 		requestBody: outgoingRequestBody,
 	});
+
+	if (optimisticMessage && (!displayActiveRun || optimisticQueuedMessage)) {
+		onOptimisticMessage(optimisticMessage);
+	}
 
 	const outgoingMessage = editingMessageId
 		? {
