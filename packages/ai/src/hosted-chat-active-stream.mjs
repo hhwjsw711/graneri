@@ -1,4 +1,6 @@
 export const HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
+export const HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX = "mailbox";
+export const HOSTED_ACTIVE_STREAM_ACTIVITY_STEER = "steer";
 
 export const createHostedActiveStreamKey = ({ workspaceId, chatId }) =>
 	`${workspaceId}:${chatId}`;
@@ -197,9 +199,44 @@ export const createHostedActiveStreamSession = ({
 	const abortController = new AbortController();
 	const subscribers = new Set();
 	const replayChunks = [];
+	const pendingSteerInput = [];
+	const pendingMailboxInput = [];
+	const activitySubscribers = new Set();
 	let broadcastStarted = false;
 	let broadcastClosed = false;
 	let broadcastError = null;
+	let acceptsMailboxDelivery = true;
+
+	const notifyActivity = (activity) => {
+		for (const subscriber of activitySubscribers) {
+			subscriber(activity);
+		}
+	};
+
+	const getPendingActivity = () => {
+		if (pendingSteerInput.length > 0) {
+			return HOSTED_ACTIVE_STREAM_ACTIVITY_STEER;
+		}
+		if (pendingMailboxInput.length > 0) {
+			return HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX;
+		}
+		return null;
+	};
+
+	const extendPendingSteerInput = (input) => {
+		if (Array.isArray(input)) {
+			pendingSteerInput.push(...input);
+		} else {
+			pendingSteerInput.push(input);
+		}
+		acceptsMailboxDelivery = true;
+		notifyActivity(HOSTED_ACTIVE_STREAM_ACTIVITY_STEER);
+	};
+
+	const drainAllPendingInputForReplacement = () => [
+		...pendingSteerInput.splice(0),
+		...pendingMailboxInput.splice(0),
+	];
 
 	const removeSubscriber = (controller) => {
 		subscribers.delete(controller);
@@ -251,6 +288,11 @@ export const createHostedActiveStreamSession = ({
 		async start() {
 			const existingSession = controllers.get(streamKey);
 			if (existingSession && !existingSession.isBroadcastClosed?.()) {
+				session.extendPendingInput(
+					existingSession.takeAllPendingInputForReplacement?.() ??
+						existingSession.takePendingInput?.() ??
+						[],
+				);
 				existingSession.abort("superseded");
 				existingSession.cleanup?.();
 			}
@@ -259,6 +301,59 @@ export const createHostedActiveStreamSession = ({
 		},
 		isBroadcastClosed() {
 			return broadcastClosed;
+		},
+		extendPendingInput(input) {
+			extendPendingSteerInput(input);
+		},
+		enqueueMailboxInput(input) {
+			if (Array.isArray(input)) {
+				pendingMailboxInput.push(...input);
+			} else {
+				pendingMailboxInput.push(input);
+			}
+			notifyActivity(HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX);
+		},
+		subscribePendingInputActivity(listener) {
+			activitySubscribers.add(listener);
+			return {
+				pendingActivity: getPendingActivity(),
+				unsubscribe: () => {
+					activitySubscribers.delete(listener);
+				},
+			};
+		},
+		takePendingInput() {
+			const pendingInput = pendingSteerInput.splice(0);
+			if (acceptsMailboxDelivery) {
+				pendingInput.push(...pendingMailboxInput.splice(0));
+			}
+			return pendingInput;
+		},
+		takeAllPendingInputForReplacement() {
+			return drainAllPendingInputForReplacement();
+		},
+		hasPendingInput() {
+			return (
+				pendingSteerInput.length > 0 ||
+				(acceptsMailboxDelivery && pendingMailboxInput.length > 0)
+			);
+		},
+		hasPendingMailboxInput() {
+			return pendingMailboxInput.length > 0;
+		},
+		deferMailboxDeliveryToNextTurn() {
+			if (pendingSteerInput.length > 0) {
+				return;
+			}
+			acceptsMailboxDelivery = false;
+		},
+		acceptMailboxDeliveryForCurrentTurn() {
+			acceptsMailboxDelivery = true;
+		},
+		clearPendingInput() {
+			pendingSteerInput.length = 0;
+			pendingMailboxInput.length = 0;
+			acceptsMailboxDelivery = true;
 		},
 		append(delta) {
 			persister.append(delta);
@@ -286,6 +381,7 @@ export const createHostedActiveStreamSession = ({
 			}
 		},
 		cleanup() {
+			session.clearPendingInput();
 			persister.discardPending?.();
 			closeBroadcast();
 			if (controllers.get(streamKey) === session) {
@@ -441,20 +537,43 @@ const persistHostedActiveStreamToolChunk = async ({ chunk, persister }) => {
 	}
 };
 
-export const pipeHostedActiveStreamEvents = ({ onFlush, persister, stream }) =>
+const reportHostedActiveStreamPipeError = async ({ error, onError }) => {
+	if (!onError) {
+		return;
+	}
+
+	await onError(error);
+};
+
+export const pipeHostedActiveStreamEvents = ({
+	onError,
+	onFlush,
+	persister,
+	stream,
+}) =>
 	stream.pipeThrough(
 		new TransformStream({
 			async transform(chunk, controller) {
-				if (chunk.type === "text-delta") {
-					persister?.append(chunk.delta);
-				}
+				try {
+					if (chunk.type === "text-delta") {
+						persister?.append(chunk.delta);
+					}
 
-				await persistHostedActiveStreamToolChunk({ chunk, persister });
-				controller.enqueue(chunk);
+					await persistHostedActiveStreamToolChunk({ chunk, persister });
+					controller.enqueue(chunk);
+				} catch (error) {
+					await reportHostedActiveStreamPipeError({ error, onError });
+					throw error;
+				}
 			},
 			async flush() {
-				await persister?.flush?.();
-				await onFlush?.();
+				try {
+					await persister?.flush?.();
+					await onFlush?.();
+				} catch (error) {
+					await reportHostedActiveStreamPipeError({ error, onError });
+					throw error;
+				}
 			},
 		}),
 	);

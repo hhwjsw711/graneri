@@ -29,10 +29,54 @@ loadSelectedEnvFile({
 });
 
 const expectedDeployment = getExpectedConvexDeployment();
+const expectedSiteUrl =
+	process.env.GRANERI_HOSTED_SITE_URL?.trim() ||
+	process.env.SITE_URL?.trim() ||
+	"";
+export const forbiddenLifecycleFallbacks = [
+	{
+		label: "concurrent assistant-run request flag",
+		pattern: ["allow", "Concurrent", "Run"].join(""),
+	},
+	{
+		label: "legacy concurrent assistant-run start policy",
+		pattern: ["allow", "concurrent"].join("_"),
+	},
+	{
+		label: "legacy return-existing assistant-run start policy",
+		pattern: ["return", "existing"].join("_"),
+	},
+	{
+		label: "legacy queued assistant-run transition mutation",
+		pattern: ["mark", "Assistant", "Run", "Running"].join(""),
+	},
+	{
+		label: "legacy claimed queue requeue mutation",
+		pattern: ["requeue", "Claimed"].join(""),
+	},
+	{
+		label: "legacy queued assistant-run camel-case state",
+		pattern: ["queued", "Assistant", "Run"].join(""),
+	},
+	{
+		label: "legacy queued assistant-run snake-case state",
+		pattern: ["queued", "assistant", "run"].join("_"),
+	},
+	{
+		label: "legacy discarded queued-message status",
+		pattern: ["status", ":", '"discarded"'].join(""),
+	},
+];
 
 if (!expectedDeployment) {
 	throw new Error(
 		"Expected Convex deployment is not configured. Set GRANERI_EXPECTED_CONVEX_DEPLOYMENT, GRANERI_HOSTED_CONVEX_URL, VITE_CONVEX_URL, or CONVEX_URL before verifying a package.",
+	);
+}
+
+if (!expectedSiteUrl) {
+	throw new Error(
+		"Expected hosted site URL is not configured. Set GRANERI_HOSTED_SITE_URL or SITE_URL before verifying a package.",
 	);
 }
 
@@ -245,6 +289,20 @@ const scanRuntimeImports = (packagedResources) => {
 		);
 	}
 
+	if (!allText.includes(expectedSiteUrl)) {
+		throw new Error(
+			`Packaged app does not contain expected hosted site URL "${expectedSiteUrl}".`,
+		);
+	}
+
+	for (const fallback of forbiddenLifecycleFallbacks) {
+		if (allText.includes(fallback.pattern)) {
+			throw new Error(
+				`Packaged app contains forbidden lifecycle fallback "${fallback.pattern}" (${fallback.label}).`,
+			);
+		}
+	}
+
 	const { convexServerImports, missing, runtimeFileCount } =
 		scanRuntimeImports(packagedResources);
 
@@ -277,6 +335,7 @@ const scanRuntimeImports = (packagedResources) => {
 			expectedDeployment
 				? `Expected Convex deployment: ${expectedDeployment}`
 				: "Expected Convex deployment: not configured",
+			`Expected hosted site URL: ${expectedSiteUrl}`,
 		].join("\n"),
 	);
 }

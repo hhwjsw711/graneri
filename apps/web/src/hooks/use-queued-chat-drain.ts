@@ -50,9 +50,6 @@ export const useQueuedChatDrain = ({
 	const claimQueuedMessage = useMutation(
 		api.assistantQueuedMessages.claimNextForChat,
 	);
-	const requeueClaimedMessage = useMutation(
-		api.assistantQueuedMessages.requeueClaimed,
-	);
 	const discardClaimedMessage = useMutation(
 		api.assistantQueuedMessages.discardClaimed,
 	);
@@ -79,6 +76,8 @@ export const useQueuedChatDrain = ({
 		getVisibleQueuedMessagesSnapshot,
 	);
 	const isDrainingQueuedMessageRef = React.useRef(false);
+	const pendingDiscardClaimedMessageIdRef =
+		React.useRef<Id<"assistantQueuedMessages"> | null>(null);
 	const retryTimerRef = React.useRef<number | null>(null);
 	const [retryNonce, setRetryNonce] = React.useState(0);
 
@@ -123,7 +122,12 @@ export const useQueuedChatDrain = ({
 
 	React.useEffect(() => {
 		void retryNonce;
-		const hasQueuedMessage = (queuedMessages?.length ?? 0) > 0;
+		const queuedMessageCount = queuedMessages?.length ?? 0;
+		const hasPendingClaimedMessageCleanup = Boolean(
+			pendingDiscardClaimedMessageIdRef.current,
+		);
+		const hasQueuedMessage =
+			queuedMessageCount > 0 || hasPendingClaimedMessageCleanup;
 
 		if (
 			!shouldDrainQueuedFollowUp({
@@ -146,6 +150,37 @@ export const useQueuedChatDrain = ({
 		void (async () => {
 			let claimedQueuedMessageId: Id<"assistantQueuedMessages"> | null = null;
 			try {
+				const convexToken = await getCachedConvexToken();
+				if (!convexToken) {
+					scheduleRetry();
+					return;
+				}
+
+				const pendingDiscardClaimedMessageId =
+					pendingDiscardClaimedMessageIdRef.current;
+				if (pendingDiscardClaimedMessageId) {
+					try {
+						await discardClaimedMessage({
+							workspaceId: resolvedWorkspaceId,
+							chatId,
+							queuedMessageId: pendingDiscardClaimedMessageId,
+						});
+						pendingDiscardClaimedMessageIdRef.current = null;
+					} catch (discardError) {
+						logError({
+							event: "client.error",
+							error: discardError,
+							message: `Failed to discard failed ${contextLabel} message`,
+						});
+						toast.error("Failed to clean up queued follow-up");
+						scheduleRetry();
+						return;
+					}
+					if (queuedMessageCount === 0) {
+						return;
+					}
+				}
+
 				// react-doctor-disable-next-line react-doctor/no-event-handler
 				const queuedMessage = await claimQueuedMessage({
 					workspaceId: resolvedWorkspaceId,
@@ -162,27 +197,33 @@ export const useQueuedChatDrain = ({
 				const preparedQueuedMessage = await fromQueuedUserMessage({
 					hasMessageId: (messageId) => localMessageIds.has(messageId),
 					queuedMessage,
-					resolveConvexToken: getCachedConvexToken,
+					resolveConvexToken: async () => convexToken,
 				});
 				latestRequestBodyRef.current = preparedQueuedMessage.body;
 				await sendMessage(preparedQueuedMessage.message, {
 					body: preparedQueuedMessage.body,
 				});
-				await discardClaimedMessage({
-					queuedMessageId: claimedQueuedMessageId,
-				});
 				claimedQueuedMessageId = null;
 			} catch (error) {
 				if (claimedQueuedMessageId) {
-					await requeueClaimedMessage({
-						queuedMessageId: claimedQueuedMessageId,
-					}).catch((requeueError) => {
+					pendingDiscardClaimedMessageIdRef.current = claimedQueuedMessageId;
+					try {
+						await discardClaimedMessage({
+							workspaceId: resolvedWorkspaceId,
+							chatId,
+							queuedMessageId: claimedQueuedMessageId,
+						});
+						pendingDiscardClaimedMessageIdRef.current = null;
+					} catch (discardError) {
 						logError({
 							event: "client.error",
-							error: requeueError,
-							message: `Failed to requeue ${contextLabel} message`,
+							error: discardError,
+							message: `Failed to discard failed ${contextLabel} message`,
 						});
-					});
+						toast.error("Failed to clean up queued follow-up");
+						scheduleRetry();
+						return;
+					}
 				}
 				logError({
 					event: "client.error",
@@ -208,7 +249,6 @@ export const useQueuedChatDrain = ({
 		latestRequestBodyRef,
 		localMessageIds,
 		queuedMessages,
-		requeueClaimedMessage,
 		retryNonce,
 		scheduleRetry,
 		sendMessage,

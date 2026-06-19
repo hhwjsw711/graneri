@@ -40,9 +40,30 @@ the renderer/local-server bridge.
 `assistantRunEvents` is the durable ordered timeline for a run. It records typed
 events such as run start/stop/fail/complete, tool lifecycle changes, completed
 assistant messages, and human-input requests. Events are append-only per run and
-queried by `runId` plus `eventIndex`. High-frequency streamed text belongs in
-the active stream snapshot during the run and in the saved assistant message
-after completion; it should not be duplicated as per-token event rows.
+queried by `runId` plus `eventIndex`. Tool lifecycle events must be
+self-contained for replay/debugging: started events carry the serialized tool
+input when available, and completed events carry serialized output or error
+details when available. High-frequency streamed text belongs in the active
+stream snapshot during the run and in the saved assistant message after
+completion; it should not be duplicated as per-token event rows.
+Active stream snapshot writes are fail-closed runtime state. Appending text or
+tool lifecycle updates to a missing snapshot, wrong run, or non-running run is a
+producer/state divergence and must surface as a stream failure that terminalizes
+the run; it must not silently drop output.
+The client stream must not close as successful until completed-run finalization
+has saved the assistant message, closed temporary stream/tool snapshots, and
+terminalized the `assistantRuns` record. Finalization failures are request
+failures, not background cleanup. A failed finalization attempt must leave the
+same terminalization pending so a later flush can retry; it must not poison the
+finalization queue with a permanently rejected in-flight promise.
+Reconnect recovery follows the same no-leftover rule: when a reconnect finds a
+non-terminal run without a live in-process stream producer, the route must mark
+the run stopping, attempt to save/delete the active stream snapshot, and
+terminalize the run in a `finally` path. Snapshot cleanup failures may still
+surface to the caller, but they must not leave the run blocking future queue
+drain or chat sends. Manual stop uses the same shape: record durable stop
+intent before stream cleanup, and terminalize in `finally` after cleanup is
+attempted.
 Snapshots remain the live render surface; historical inspection, future missed
 event replay, and debugging should use run events plus saved messages rather
 than preserved snapshot rows.
@@ -57,18 +78,119 @@ Human-blocking assistant work uses `waiting_for_user` plus a typed
 `pendingDecision` on the run. Producers must resume the same run after the
 decision instead of creating a second active run. Normal duplicate sends must
 reject before persisting a new user message when a chat already has a
-non-terminal run; regenerate is the explicit supersede path. Stop requests are
+non-terminal run; clients must queue follow-ups against the active run.
+`startAssistantRun` only supports reject or explicit supersede policies;
+it must never return an existing active run as a fallback. Assistant runs are
+created directly as `running`; queued work is represented by
+`assistantQueuedMessages`, not by a queued assistant-run status. Queries that
+attach to or report the active run must fail closed if more than one
+non-terminal run exists for a chat, because choosing a winner would hide a
+broken single-flight invariant. Regenerate is the explicit supersede path. Stop requests are
 idempotent at the HTTP boundary: no attachable run means there is nothing left
 to stop, so the route may return success without creating synthetic run state.
 Follow-up queueing is durable run state, not UI-local buffering.
-`assistantQueuedMessages` stores queued user messages and request context scoped
-to the active run. Completed runs leave queued follow-ups for the client drain
-path, which claims the next queued item only after no non-terminal run remains
-for the chat. Stop, failure, and supersede cleanup may discard still-queued work
-for that run. If a producer fails before handing a claimed item to the chat
-transport, it must requeue the item rather than losing it. Durable queued
-request state must not persist desktop-local folder scope or absolute paths;
-follow-ups that need local-folder tools must wait for the current run to finish.
+`assistantQueuedMessages` stores queued user messages and durable request
+context scoped to the active run. It must not persist desktop-local folder
+selections; follow-ups that need local folders must wait for the active answer
+instead of entering the durable queue. Completed runs leave queued follow-ups
+for the client drain path, which claims the next queued item only after no
+non-terminal run remains for the chat. User input uses Codex app-server input
+gates: HTTP chat routes, client queue serialization, `saveMessage`, and
+queued-message mutations reject empty user text and more than 1,048,576 text
+characters before the input can enter the AI SDK loop or durable queue state.
+Claimed replay is still server-owned: the client
+rebuilds request state with a fresh Convex token and sends
+`replayQueuedMessageId`; `/api/chat` must load the claimed durable queue row
+and reconstruct the user message from that row before branch, tool-policy, or
+persistence preparation. It must then atomically save the user message and
+delete the claimed queue row through `acceptQueuedUserMessage` before starting
+the assistant run. A client may call `discardClaimed` only when submission fails
+before the server accepts the replay; successful replay must not depend on a
+second client cleanup mutation. Post-accept replay setup failures must carry
+`X-Graneri-Replay-Accepted: true` and
+`X-Graneri-Replay-Queued-Message-Id` so the transport can resolve the already
+accepted input as an empty successful stream instead of rolling it back. Manual
+steer must use `/api/chat/steer` with both `steerQueuedMessageId` and the
+expected active `continueRunId`; ordinary `/api/chat` requests must reject steer
+payloads instead of falling back to implicit behavior. Hosted web and desktop
+direct routes must return the same structured `{ error, errorCode }` JSON body
+for queued replay and steer validation failures, and must reject malformed IDs
+before Convex state lookup or mutation. Steer input is queue-id driven: the
+server reconstructs the user message from the claimed durable queue row and must
+not require or trust a client-supplied `message` body. The server claims the
+queued message, interrupts an actively running stream and saves partial
+assistant output, or resumes the same run directly when the run is
+`waiting_for_user`. It then atomically accepts the claimed queue row by saving
+the user message, recording
+`turn.steer.accepted` plus `user.message.appended` on the same `assistantRuns`
+timeline, clearing any pending decision, deleting the claimed queue row, and
+starting the next assistant stream without terminalizing the run. Both replay
+and steer accept mutations validate the saved user message id, text, and model
+text parts against the claimed durable queue row; callers must not trust
+client-supplied message bodies over durable queue state. The streaming response
+carries `X-Graneri-Steer-Accepted: true`, `X-Graneri-Turn-Id`,
+`X-Graneri-Queued-Message-Id`, and `X-Graneri-Queued-Message-Ids` headers after
+the atomic accept succeeds so clients can distinguish accepted steering from
+ordinary sends without changing the AI SDK stream body; the singular queued id
+identifies the targeted steer row and the plural header lists the full accepted
+batch. Post-accept setup failures must preserve these headers because the steer
+was already accepted by the active turn. The web transport
+must treat non-2xx steer responses with these headers as accepted empty streams
+instead of rolling back the queued UI item; pre-accept failures without the
+headers still surface as normal send failures. Stop, supersede, and
+completed-run cleanup remove claimed queue rows for terminalized run state.
+Any chat-level cleanup path that stops an active run, including branch
+truncation and chat removal, must also append the stopped run event, delete live
+snapshots, and discard both queued and claimed follow-ups for the stopped run.
+Client cleanup mutations for individual queued or claimed rows must be scoped
+by workspace and chat and must fail closed when the row belongs to another chat
+or is in the wrong queue state; wrong-scope cleanup must preserve the row rather
+than hide a stale client or cross-session bug.
+Chat deletion and branch truncation must fail closed on invalid persisted
+attachment metadata or storage ids; cleanup must not silently skip malformed
+stored attachment references and continue deleting surrounding chat state.
+Otherwise stale claimed rows are requeued by Convex claim mutations before the
+next claim attempt, because `claimed` represents an unaccepted in-flight
+operation and must not become an invisible durable leftover after a client or
+transport crash. Durable queued request state must not persist desktop-local
+folder scope or absolute paths; follow-ups that need local-folder tools must
+wait for the current run to finish.
+
+### Codex Queue Parity
+
+Codex is the reference for active-turn user input semantics. Graneri keeps the
+same separation of responsibilities with its stack: AI SDK routes own the
+stream/tool loop and acceptance headers, while Convex owns durable coordination,
+atomic queue claims, lifecycle invariants, and replayable state. The parity
+target is behavior, not identical storage.
+
+| Codex behavior | Graneri implementation | Status |
+| --- | --- | --- |
+| One active turn owns in-flight user input. | `assistantRuns` enforces one non-terminal run per chat; duplicate active-run queries and queue claims fail closed with `ASSISTANT_RUN_INVARIANT_VIOLATION`. | Implemented |
+| User input can be accepted during an active turn without trusting the client copy. | `/api/chat/steer` claims `assistantQueuedMessages` by id and reconstructs the user message from Convex before acceptance. | Implemented |
+| Replay after a completed turn uses server-owned queued input. | `/api/chat` accepts only `replayQueuedMessageId`, loads the claimed row, saves the user message, and deletes the claim before starting a new run. | Implemented |
+| Accepted input remains accepted even if later stream setup fails. | Replay and steer routes emit accepted headers and the web transport resolves post-accept failures as empty successful streams. | Implemented |
+| Stale or wrong targeted input does not silently disappear. | Targeted queue claims throw Convex errors for missing rows, wrong run, inactive turns, existing claims, wrong chat, or wrong queue state. | Implemented |
+| No queued assistant-run fallback exists. | Runs start directly as `running`; durable follow-ups live only in `assistantQueuedMessages`. | Implemented |
+| Stale claimed input is not an invisible leftover. | Claim mutations requeue stale claimed rows before attempting the next claim; terminal run cleanup deletes queued and claimed rows for that run. | Implemented |
+| Waiting-for-user input resumes the same turn. | `waiting_for_user` runs can claim and accept steered input, clear `pendingDecision`, append `turn.steer.accepted`, and continue without creating a second run. | Implemented |
+| Pending input is local to a turn and can be drained into the next turn state. | Hosted active stream sessions expose `extendPendingInput`, `takePendingInput`, `hasPendingInput`, and `clearPendingInput`; running steer interruptions append the steered message, drain the active session, and feed ordered pending user messages into the next AI SDK prompt branch with message-id de-duplication against persisted history. | Implemented |
+| Multiple active-turn inputs can accumulate before the model loop drains them. | Graneri can persist multiple queued follow-ups, the renderer accepts distinct manual steer intents into a FIFO while one steer request is in flight, `claimReadyForRun` claims the targeted row plus ready queued rows for the same active run, `acceptSteeredUserMessages` atomically saves/deletes the accepted batch, and active stream replacement carries ordered pending input until it is drained into the next prompt branch. | Implemented |
+| Activity subscribers can distinguish mailbox work from steered input. | Hosted active stream sessions expose `subscribePendingInputActivity`; pending steered input reports `steer`, queued mailbox-style input reports `mailbox`, and subscribing after input is already pending returns the pending activity. | Implemented |
+| A model tool can wait for mailbox or steer activity. | Graneri exposes a runtime-only AI SDK `wait_agent` tool. It subscribes to hosted active stream activity, wakes immediately on already-pending activity, returns Codex-compatible `{ message, timed_out }` results for mailbox, steer, and timeout, and aborts with the active turn. | Implemented |
+| A model can create and manage live subagents. | Graneri exposes runtime-only AI SDK tools matching Codex v2 names: `spawn_agent`, `send_message`, `followup_task`, `list_agents`, and `interrupt_agent`. The hosted multi-agent runtime tracks canonical `/root/...` task paths, live statuses, follow-up task queues, non-triggering messages, interrupts, and list filtering for the active turn. | Implemented |
+| Subagent completion wakes the parent mailbox. | Hosted multi-agent completion and failure create server-owned mailbox UI messages, enqueue them into the active stream session as `mailbox` activity, and make the content available to the next AI SDK prompt branch without trusting a client copy. | Implemented |
+| Mailbox delivery is accepted into turn state. | Hosted active stream sessions keep mailbox-style pending input separate from steered input, can defer mailbox delivery after an answer boundary, and reopen delivery when steered input arrives. Replacement sessions carry both steer and mailbox pending input forward. Multi-agent runtime mailbox messages are accepted as server-owned pending input. | Implemented |
+| Multi-agent state survives process loss. | User steer/replay state remains durable in Convex. Multi-agent runtime state is currently turn-scoped in the AI SDK host process; a future Convex `assistantAgents`/`assistantAgentMailbox` layer is required for Codex-level recovery of spawned agent trees and undelivered mailbox rows after server loss. | Partial |
+
+The current queue, steering, replay, and run-lifecycle slice is close to Codex
+for durable correctness and fail-closed behavior. Graneri now has Codex v2-style
+runtime multi-agent producer, mailbox activity, and wait primitives for active
+turn behavior. The remaining parity gap is durable recovery for spawned
+multi-agent trees and undelivered mailbox rows after process loss. Graneri drains
+accepted input at the AI SDK stream restart boundary into the next prompt branch,
+while Convex remains the durable source of truth for user input, chat runs, crash
+recovery, and cross-process coordination.
 
 Connected app AI capabilities are declared in
 `packages/ai/src/capability-registry.mjs`. The registry is the source of truth
@@ -79,7 +201,12 @@ capabilities.
 
 `convex/`
 : Server functions, schema, HTTP actions, auth, and server-only integrations.
-Read `convex/_generated/ai/guidelines.md` before changing Convex code.
+Read `convex/_generated/ai/guidelines.md` before changing Convex code. Convex
+derives ownership from server-side identity; client arguments may select
+resources such as workspace or chat ids, but they must not be trusted as owner
+identity. Hosted auth provider configuration is fail-closed: missing OAuth
+provider credentials must reject configuration instead of substituting
+placeholder client ids or secrets.
 
 ## Release Configuration
 
@@ -118,19 +245,22 @@ identity.
 The desktop local server owns renderer-facing AI HTTP routes:
 
 - `/api/chat`
+- `/api/chat/steer`
 - `/api/apply-template`
 - `/api/enhance-note`
 - `/api/realtime-transcription-session`
 
-Packaged desktop apps must not embed `OPENAI_API_KEY`. If hosted Convex/site
-config is present and no process-local OpenAI key exists, the desktop local
-server proxies AI routes to the hosted Convex site URL. Release behavior must
-not depend on terminal-inherited shell environment.
+Packaged desktop apps must not embed `OPENAI_API_KEY`. If hosted site config is
+present and no process-local OpenAI key exists, the desktop local server proxies
+AI routes to `GRANERI_HOSTED_SITE_URL`/`SITE_URL`. Convex HTTP is not an AI SDK
+streaming fallback; it remains the durable backend, auth/OAuth callback surface,
+and state coordination layer. Release behavior must not depend on
+terminal-inherited shell environment.
 
 Local-folder chat uses a hosted-model, desktop-tool bridge:
 
-1. Hosted Convex owns the OpenAI key and model loop.
-2. Hosted Convex declares local folder tools without server-side executors.
+1. The hosted web AI route owns the OpenAI key and model loop.
+2. The hosted web AI route declares local folder tools without server-side executors.
 3. The desktop renderer receives client-side local tool calls.
 4. The renderer executes those calls through the desktop local server against
    folders explicitly shared through the desktop bridge.
@@ -139,7 +269,9 @@ Local-folder chat uses a hosted-model, desktop-tool bridge:
 
 Client-side local tool outputs must resubmit with the same chat request body,
 including `localFolders`, so subsequent hosted model steps keep the same desktop
-tool context.
+tool context. Durable queued replay and steer are the exception: queued request
+state is stored in Convex and must reject non-empty `localFolders` rather than
+persisting local filesystem selections.
 
 Hosted handlers must never claim direct access to the user's Mac filesystem.
 Desktop-local capabilities must fail visibly when the desktop bridge contract is

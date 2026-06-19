@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	createQueuedUserMessageId,
 	fromQueuedUserMessage,
+	MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
 	toQueuedUserMessageInput,
 } from "@/lib/chat-queue";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -78,6 +79,53 @@ describe("chat queue serialization", () => {
 		});
 	});
 
+	it("canonicalizes queued text before it crosses the durable replay boundary", () => {
+		const queuedMessage = toQueuedUserMessageInput({
+			requestBody: {
+				convexToken: "token",
+				localFolders: [],
+				model: "gpt-5",
+				timezone: "UTC",
+			},
+			text: "  Follow   this\n\nup  ",
+		});
+
+		expect(queuedMessage.text).toBe("Follow this up");
+		expect(JSON.parse(queuedMessage.partsJson)).toEqual([
+			{ type: "text", text: "Follow this up" },
+		]);
+	});
+
+	it("rejects empty queued message text", () => {
+		expect(() =>
+			toQueuedUserMessageInput({
+				requestBody: {
+					convexToken: "token",
+					localFolders: [],
+					model: "gpt-5",
+					timezone: "UTC",
+				},
+				text: "   ",
+			}),
+		).toThrow("Queued chat message cannot be empty.");
+	});
+
+	it("rejects queued message text above the Codex input cap", () => {
+		expect(() =>
+			toQueuedUserMessageInput({
+				requestBody: {
+					convexToken: "token",
+					localFolders: [],
+					model: "gpt-5",
+					timezone: "UTC",
+				},
+				text: "x".repeat(MAX_HOSTED_CHAT_INPUT_TEXT_CHARS + 1),
+			}),
+		).toThrow(
+			`Input exceeds the maximum length of ${MAX_HOSTED_CHAT_INPUT_TEXT_CHARS} characters.`,
+		);
+	});
+
 	it("restores queued request state with a fresh Convex token", async () => {
 		const queuedMessage = toQueuedUserMessageInput({
 			metadata: { selectedModel: "gpt-5" },
@@ -91,17 +139,67 @@ describe("chat queue serialization", () => {
 		});
 
 		const prepared = await fromQueuedUserMessage({
-			queuedMessage,
+			queuedMessage: {
+				...queuedMessage,
+				_id: "queued-message-1",
+			},
 			resolveConvexToken: async () => "fresh-token",
 		});
 
 		expect(prepared.body).toMatchObject({
 			convexToken: "fresh-token",
 			model: "gpt-5",
+			replayQueuedMessageId: "queued-message-1",
 		});
 		expect(prepared.message.messageId).toBeUndefined();
 		expect(prepared.message.metadata).toEqual({ selectedModel: "gpt-5" });
 		expect(prepared.message.text).toBe("Follow up");
+	});
+
+	it("rejects queued request replay without a fresh Convex token", async () => {
+		const queuedMessage = toQueuedUserMessageInput({
+			requestBody: {
+				convexToken: "stale-token",
+				localFolders: [],
+				model: "gpt-5",
+				timezone: "UTC",
+			},
+			text: "Follow up",
+		});
+
+		await expect(
+			fromQueuedUserMessage({
+				queuedMessage: {
+					...queuedMessage,
+					_id: "queued-message-1",
+				},
+				resolveConvexToken: async () => null,
+			}),
+		).rejects.toThrow(
+			"Cannot send queued chat message without a Convex token.",
+		);
+	});
+
+	it("rejects queued request replay without a durable queue id", async () => {
+		const queuedMessage = toQueuedUserMessageInput({
+			requestBody: {
+				convexToken: "stale-token",
+				localFolders: [],
+				model: "gpt-5",
+				timezone: "UTC",
+			},
+			text: "Follow up",
+		});
+
+		await expect(
+			fromQueuedUserMessage({
+				queuedMessage: {
+					...queuedMessage,
+					_id: "",
+				},
+				resolveConvexToken: async () => "fresh-token",
+			}),
+		).rejects.toThrow("Queued chat message requires a durable queue id.");
 	});
 
 	it("preserves explicit queued message ids for edit replays", async () => {
@@ -117,7 +215,10 @@ describe("chat queue serialization", () => {
 		});
 
 		const prepared = await fromQueuedUserMessage({
-			queuedMessage,
+			queuedMessage: {
+				...queuedMessage,
+				_id: "queued-message-1",
+			},
 			resolveConvexToken: async () => "fresh-token",
 		});
 
@@ -140,7 +241,10 @@ describe("chat queue serialization", () => {
 
 		const prepared = await fromQueuedUserMessage({
 			hasMessageId: (candidateMessageId) => candidateMessageId === messageId,
-			queuedMessage,
+			queuedMessage: {
+				...queuedMessage,
+				_id: "queued-message-1",
+			},
 			resolveConvexToken: async () => "fresh-token",
 		});
 
@@ -152,6 +256,7 @@ describe("chat queue serialization", () => {
 		await expect(
 			fromQueuedUserMessage({
 				queuedMessage: {
+					_id: "queued-message-1",
 					messageId: "queued-1",
 					requestBodyJson: "[]",
 					text: "Follow up",

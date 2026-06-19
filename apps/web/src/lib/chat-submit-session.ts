@@ -7,6 +7,7 @@ import {
 	createQueuedUserMessageId,
 	toQueuedUserMessageInput,
 } from "@/lib/chat-queue";
+import type { QueuedFollowUpMessage } from "@/lib/chat-queued-followups";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
 type ActiveRun =
@@ -28,7 +29,7 @@ type EnqueueQueuedChatTurn = (args: {
 	chatId: string;
 	runId: Id<"assistantRuns">;
 	message: ReturnType<typeof toQueuedUserMessageInput>;
-}) => Promise<unknown>;
+}) => Promise<QueuedFollowUpMessage>;
 
 type SendChatTurn = (
 	message: SubmitChatTurnMessage,
@@ -51,7 +52,6 @@ export const removeChatMessageById = (
 export const submitChatTurn = async <
 	TRequestBody extends Record<string, unknown>,
 >({
-	activeRun,
 	attachedFiles,
 	buildRequestBody,
 	chatId,
@@ -61,12 +61,12 @@ export const submitChatTurn = async <
 	metadata,
 	onOptimisticMessage,
 	onRequestPrepared,
-	optimisticQueuedMessage = true,
+	onQueuedMessageSaved,
+	queueActiveRun,
 	sendMessage,
 	text,
 	workspaceId,
 }: {
-	activeRun: ActiveRun;
 	attachedFiles: ChatAttachment[];
 	buildRequestBody: () => Promise<
 		TRequestBody & { localFolders: DesktopLocalFolder[] }
@@ -81,16 +81,21 @@ export const submitChatTurn = async <
 		localFolders: DesktopLocalFolder[];
 		requestBody: Record<string, unknown>;
 	}) => void;
-	optimisticQueuedMessage?: boolean;
+	onQueuedMessageSaved?: (args: {
+		optimisticMessageId: string;
+		queuedMessage: QueuedFollowUpMessage;
+	}) => void;
+	queueActiveRun?: ActiveRun;
 	sendMessage: SendChatTurn;
 	text: string;
 	workspaceId: Id<"workspaces"> | null;
 }): Promise<SubmitChatTurnResult> => {
+	const queuedActiveRun = queueActiveRun ?? displayActiveRun;
 	const readyFiles = getReadyFileParts(attachedFiles);
 	const filePayload = readyFiles.length > 0 ? { files: readyFiles } : {};
 	const optimisticMessageId =
 		editingMessageId === null
-			? displayActiveRun
+			? queuedActiveRun
 				? createQueuedUserMessageId()
 				: crypto.randomUUID()
 			: null;
@@ -104,16 +109,12 @@ export const submitChatTurn = async <
 		: null;
 
 	const requestBody = await buildRequestBody();
-	const outgoingRequestBody =
-		activeRun && !displayActiveRun
-			? { ...requestBody, allowConcurrentRun: true }
-			: requestBody;
 	onRequestPrepared({
 		localFolders: requestBody.localFolders,
-		requestBody: outgoingRequestBody,
+		requestBody,
 	});
 
-	if (optimisticMessage && (!displayActiveRun || optimisticQueuedMessage)) {
+	if (optimisticMessage && !queuedActiveRun) {
 		onOptimisticMessage(optimisticMessage);
 	}
 
@@ -131,24 +132,29 @@ export const submitChatTurn = async <
 				...filePayload,
 			};
 
-	if (displayActiveRun && workspaceId) {
-		await enqueueQueuedMessage({
+	if (queuedActiveRun && workspaceId) {
+		const queuedMessageInput = toQueuedUserMessageInput({
+			messageId: editingMessageId ?? optimisticMessageId ?? undefined,
+			metadata,
+			requestBody,
+			text,
+		});
+
+		const queuedMessage = await enqueueQueuedMessage({
 			workspaceId,
 			chatId,
-			runId: displayActiveRun._id,
-			message: toQueuedUserMessageInput({
-				messageId: editingMessageId ?? optimisticMessageId ?? undefined,
-				metadata,
-				requestBody: outgoingRequestBody,
-				text,
-			}),
+			runId: queuedActiveRun._id,
+			message: queuedMessageInput,
 		});
+		if (optimisticMessageId && onQueuedMessageSaved) {
+			onQueuedMessageSaved({ optimisticMessageId, queuedMessage });
+		}
 		return { status: "queued" };
 	}
 
 	await Promise.resolve(
 		sendMessage(outgoingMessage, {
-			body: outgoingRequestBody,
+			body: requestBody,
 		}),
 	);
 	return { status: "sent" };

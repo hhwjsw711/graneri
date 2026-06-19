@@ -133,6 +133,7 @@ export const startActiveStreamToolCall = mutation({
 				type: "tool.started",
 				toolCallId: args.toolCallId,
 				toolName: args.toolName,
+				inputJson: args.inputJson,
 			});
 
 			return await requireToolCall(ctx, existingToolCall._id);
@@ -152,6 +153,7 @@ export const startActiveStreamToolCall = mutation({
 			type: "tool.started",
 			toolCallId: args.toolCallId,
 			toolName: args.toolName,
+			inputJson: args.inputJson,
 		});
 
 		return await requireToolCall(ctx, toolCallId);
@@ -198,6 +200,8 @@ export const finishActiveStreamToolCall = mutation({
 			type: "tool.completed",
 			toolCallId: args.toolCallId,
 			status: args.status,
+			outputJson: args.outputJson,
+			errorText: args.errorText,
 		});
 
 		return await requireToolCall(ctx, toolCall._id);

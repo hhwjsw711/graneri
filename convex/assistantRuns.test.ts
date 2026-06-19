@@ -82,6 +82,7 @@ const startRunWithSnapshots = async ({
 		workspaceId,
 		chatId,
 		runId: run._id,
+		assistantMessageId: run.assistantMessageId,
 	});
 	await asOwner.mutation(api.chats.appendActiveStreamText, {
 		workspaceId,
@@ -99,6 +100,13 @@ const startRunWithSnapshots = async ({
 
 	return run;
 };
+
+const queuedMessageInput = (messageId: string, text: string) => ({
+	messageId,
+	partsJson: JSON.stringify([{ type: "text", text }]),
+	text,
+	requestBodyJson: JSON.stringify({ model: "gpt-5" }),
+});
 
 const listRunEventTypes = async ({
 	asOwner,
@@ -236,9 +244,9 @@ test("assistant run events record ordered stream lifecycle", async () => {
 	]);
 	expect(events.map((eventRecord) => eventRecord.event.type)).toEqual([
 		"run.started",
+		"assistant.message.started",
 		"tool.started",
 		"tool.completed",
-		"message.completed",
 		"run.completed",
 	]);
 
@@ -251,8 +259,8 @@ test("assistant run events record ordered stream lifecycle", async () => {
 		},
 	);
 	expect(resumedEvents.map((eventRecord) => eventRecord.event.type)).toEqual([
+		"tool.started",
 		"tool.completed",
-		"message.completed",
 	]);
 });
 
@@ -379,6 +387,174 @@ test("finishStoppedAssistantRun leaves no snapshots for runId", async () => {
 	);
 });
 
+test("finishStoppedAssistantRun idempotently removes stale queued rows", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-stop-stale-queue", workspaceId });
+	const run = await startRunWithSnapshots({
+		asOwner,
+		chatId: "chat-stop-stale-queue",
+		workspaceId,
+	});
+
+	await asOwner.mutation(api.assistantQueuedMessages.enqueueForActiveRun, {
+		workspaceId,
+		chatId: "chat-stop-stale-queue",
+		runId: run._id,
+		message: queuedMessageInput("queued-1", "Queued"),
+	});
+	await asOwner.mutation(api.assistantQueuedMessages.enqueueForActiveRun, {
+		workspaceId,
+		chatId: "chat-stop-stale-queue",
+		runId: run._id,
+		message: queuedMessageInput("queued-2", "Claimed"),
+	});
+	const claimedMessage = await asOwner.mutation(
+		api.assistantQueuedMessages.claimNextForRun,
+		{ runId: run._id },
+	);
+	if (!claimedMessage) {
+		throw new Error("Expected queued message to be claimed.");
+	}
+
+	await asOwner.mutation(api.assistantRuns.requestStopAssistantRun, {
+		runId: run._id,
+	});
+	await asOwner.mutation(api.assistantRuns.finishStoppedAssistantRun, {
+		runId: run._id,
+	});
+	await t.run(async (ctx) => {
+		await ctx.db.insert("assistantQueuedMessages", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: run.chatId,
+			runId: run._id,
+			messageId: "stale-queued",
+			partsJson: JSON.stringify([{ type: "text", text: "Stale queued" }]),
+			text: "Stale queued",
+			requestBodyJson: JSON.stringify({ model: "gpt-5" }),
+			status: "queued",
+			createdAt: 3_000,
+			updatedAt: 3_000,
+			claimedAt: undefined,
+		});
+		await ctx.db.insert("assistantQueuedMessages", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: run.chatId,
+			runId: run._id,
+			messageId: "stale-claimed",
+			partsJson: JSON.stringify([{ type: "text", text: "Stale claimed" }]),
+			text: "Stale claimed",
+			requestBodyJson: JSON.stringify({ model: "gpt-5" }),
+			status: "claimed",
+			createdAt: 3_001,
+			updatedAt: 3_001,
+			claimedAt: 3_001,
+		});
+	});
+
+	const stoppedRun = await asOwner.mutation(
+		api.assistantRuns.finishStoppedAssistantRun,
+		{ runId: run._id },
+	);
+
+	expect(stoppedRun.status).toBe("stopped");
+	const leftoverRows = await t.run(async (ctx) => {
+		const [queued, claimed] = await Promise.all([
+			ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_runId_and_status", (q) =>
+					q.eq("runId", run._id).eq("status", "queued"),
+				)
+				.take(10),
+			ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_runId_and_status", (q) =>
+					q.eq("runId", run._id).eq("status", "claimed"),
+				)
+				.take(10),
+		]);
+		return [...queued, ...claimed];
+	});
+	expect(leftoverRows).toHaveLength(0);
+});
+
+test("waitForUserDecision cleans stale queued rows on terminal re-entry", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-terminal-wait-cleanup", workspaceId });
+	const run = await startRunWithSnapshots({
+		asOwner,
+		chatId: "chat-terminal-wait-cleanup",
+		workspaceId,
+	});
+
+	await asOwner.mutation(api.assistantRuns.failAssistantRun, {
+		runId: run._id,
+		errorText: "failed",
+	});
+	await t.run(async (ctx) => {
+		await ctx.db.insert("assistantQueuedMessages", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: run.chatId,
+			runId: run._id,
+			messageId: "stale-terminal-queued",
+			partsJson: JSON.stringify([{ type: "text", text: "Stale queued" }]),
+			text: "Stale queued",
+			requestBodyJson: JSON.stringify({ model: "gpt-5" }),
+			status: "queued",
+			createdAt: 4_000,
+			updatedAt: 4_000,
+			claimedAt: undefined,
+		});
+		await ctx.db.insert("assistantQueuedMessages", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: run.chatId,
+			runId: run._id,
+			messageId: "stale-terminal-claimed",
+			partsJson: JSON.stringify([{ type: "text", text: "Stale claimed" }]),
+			text: "Stale claimed",
+			requestBodyJson: JSON.stringify({ model: "gpt-5" }),
+			status: "claimed",
+			createdAt: 4_001,
+			updatedAt: 4_001,
+			claimedAt: 4_001,
+		});
+	});
+
+	const failedRun = await asOwner.mutation(
+		api.assistantRuns.waitForUserDecision,
+		{
+			runId: run._id,
+			pendingDecision: {
+				type: "clarify_scope",
+				question: "Clarify?",
+			},
+		},
+	);
+
+	expect(failedRun.status).toBe("failed");
+	const leftoverRows = await t.run(async (ctx) => {
+		const [queued, claimed] = await Promise.all([
+			ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_runId_and_status", (q) =>
+					q.eq("runId", run._id).eq("status", "queued"),
+				)
+				.take(10),
+			ctx.db
+				.query("assistantQueuedMessages")
+				.withIndex("by_runId_and_status", (q) =>
+					q.eq("runId", run._id).eq("status", "claimed"),
+				)
+				.take(10),
+		]);
+		return [...queued, ...claimed];
+	});
+	expect(leftoverRows).toHaveLength(0);
+});
+
 test("supersede stops old run and deletes old snapshots before creating new run", async () => {
 	const { asOwner, t, workspaceId } = await createWorkspace();
 	await createChat({ asOwner, chatId: "chat-supersede", workspaceId });
@@ -426,7 +602,7 @@ test("supersede stops old run and deletes old snapshots before creating new run"
 	});
 });
 
-test("allow concurrent starts a newer run without stopping the previous finalizing run", async () => {
+test("assistant runs reject concurrent starts instead of leaving two active runs", async () => {
 	const { asOwner, t, workspaceId } = await createWorkspace();
 	await createChat({ asOwner, chatId: "chat-concurrent", workspaceId });
 	const oldRun = await startRunWithSnapshots({
@@ -435,13 +611,15 @@ test("allow concurrent starts a newer run without stopping the previous finalizi
 		workspaceId,
 	});
 
-	const newRun = await asOwner.mutation(api.assistantRuns.startAssistantRun, {
-		workspaceId,
-		chatId: "chat-concurrent",
-		assistantMessageId: "chat-concurrent-assistant-2",
-		model: "gpt-5",
-		policy: "allow_concurrent",
-	});
+	await expect(
+		asOwner.mutation(api.assistantRuns.startAssistantRun, {
+			workspaceId,
+			chatId: "chat-concurrent",
+			assistantMessageId: "chat-concurrent-assistant-2",
+			model: "gpt-5",
+			policy: "reject",
+		}),
+	).rejects.toThrow("Chat already has an active assistant run.");
 
 	const attachableRun = await asOwner.query(api.assistantRuns.getAttachableRun, {
 		workspaceId,
@@ -459,8 +637,7 @@ test("allow concurrent starts a newer run without stopping the previous finalizi
 			.take(10),
 	}));
 
-	expect(newRun._id).not.toBe(oldRun._id);
-	expect(attachableRun?._id).toBe(newRun._id);
+	expect(attachableRun?._id).toBe(oldRun._id);
 	expect(rows.oldRun?.status).toBe("running");
 	expect(rows.oldRun?.stopReason).toBeUndefined();
 	expect(rows.oldStreams).toHaveLength(1);
@@ -468,6 +645,56 @@ test("allow concurrent starts a newer run without stopping the previous finalizi
 	expect(await listRunEventTypes({ asOwner, runId: oldRun._id })).not.toContain(
 		"run.stopped",
 	);
+});
+
+test("attachable run query fails closed when multiple active runs exist", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-multiple-active", workspaceId });
+	const run = await startRunWithSnapshots({
+		asOwner,
+		chatId: "chat-multiple-active",
+		workspaceId,
+	});
+
+	await t.run(async (ctx) => {
+		await ctx.db.insert("assistantRuns", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: run.chatId,
+			assistantMessageId: "chat-multiple-active-assistant-2",
+			status: "waiting_for_user",
+			model: "gpt-5",
+			reasoningEffort: undefined,
+			phase: undefined,
+			pendingDecision: {
+				type: "clarify_scope",
+				question: "Choose a scope.",
+			},
+			stopReason: undefined,
+			errorText: undefined,
+			startedAt: run.startedAt + 1,
+			updatedAt: run.updatedAt + 1,
+			finishedAt: undefined,
+		});
+	});
+
+	await expect(
+		asOwner.query(api.assistantRuns.getAttachableRun, {
+			workspaceId,
+			chatId: "chat-multiple-active",
+		}),
+	).rejects.toThrow("ASSISTANT_RUN_INVARIANT_VIOLATION");
+	await expect(
+		asOwner.query(api.assistantRuns.getActiveRunStatus, {
+			workspaceId,
+			chatId: "chat-multiple-active",
+		}),
+	).rejects.toThrow("ASSISTANT_RUN_INVARIANT_VIOLATION");
+	await expect(
+		asOwner.query(api.assistantRuns.listActiveChatIds, {
+			workspaceId,
+		}),
+	).rejects.toThrow("ASSISTANT_RUN_INVARIANT_VIOLATION");
 });
 
 test("attachable run query returns only non-terminal runs", async () => {
@@ -613,6 +840,82 @@ test("assistant runs can durably wait for and resume from user decisions", async
 	expect(resumedRun.status).toBe("running");
 	expect(resumedRun.pendingDecision).toBeUndefined();
 	expect(resumedRun.phase).toBe("running-tools");
+});
+
+test("appended user input resumes a waiting run", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-append-decision", workspaceId });
+	const run = await asOwner.mutation(api.assistantRuns.startAssistantRun, {
+		workspaceId,
+		chatId: "chat-append-decision",
+		assistantMessageId: "chat-append-decision-assistant-1",
+		model: "gpt-5",
+		policy: "reject",
+	});
+	await asOwner.mutation(api.assistantRuns.waitForUserDecision, {
+		runId: run._id,
+		pendingDecision: {
+			type: "clarify_scope",
+			question: "Which scope should I use?",
+		},
+	});
+
+	const resumedRun = await asOwner.mutation(
+		api.assistantRuns.appendUserMessageToAssistantRun,
+		{
+			runId: run._id,
+			messageId: "msg-user-answer",
+		},
+	);
+
+	expect(resumedRun.status).toBe("running");
+	expect(resumedRun.pendingDecision).toBeUndefined();
+	expect(await listRunEventTypes({ asOwner, runId: run._id })).toEqual([
+		"run.started",
+		"input.requested",
+		"user.message.appended",
+	]);
+});
+
+test("stopping a waiting-for-user run clears the pending decision", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-stop-decision", workspaceId });
+	const run = await asOwner.mutation(api.assistantRuns.startAssistantRun, {
+		workspaceId,
+		chatId: "chat-stop-decision",
+		assistantMessageId: "chat-stop-decision-assistant-1",
+		model: "gpt-5",
+		policy: "reject",
+	});
+	await asOwner.mutation(api.assistantRuns.waitForUserDecision, {
+		runId: run._id,
+		pendingDecision: {
+			type: "clarify_scope",
+			question: "Which notes should I search?",
+		},
+	});
+
+	const stoppingRun = await asOwner.mutation(
+		api.assistantRuns.requestStopAssistantRun,
+		{
+			runId: run._id,
+			stopReason: "user_requested",
+		},
+	);
+	expect(stoppingRun.status).toBe("stopping");
+	expect(stoppingRun.pendingDecision).toBeUndefined();
+
+	const stoppedRun = await asOwner.mutation(
+		api.assistantRuns.finishStoppedAssistantRun,
+		{ runId: run._id },
+	);
+	expect(stoppedRun.status).toBe("stopped");
+	expect(stoppedRun.pendingDecision).toBeUndefined();
+	expect(await listRunEventTypes({ asOwner, runId: run._id })).toEqual([
+		"run.started",
+		"input.requested",
+		"run.stopped",
+	]);
 });
 
 test("cleanupExpiredAssistantRuns fails stale running runs and deletes snapshots", async () => {

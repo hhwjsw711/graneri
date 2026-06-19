@@ -14,6 +14,9 @@ const createConvexError = (code: string) =>
 		data: { code },
 	});
 
+const createSerializedConvexError = (code: string) =>
+	new Error(`Uncaught ConvexError: {"code":"${code}"} at mutation`);
+
 const createFinalizerHarness = () => {
 	const calls: string[] = [];
 	const activeStreamSession = {
@@ -148,11 +151,15 @@ describe("hosted assistant run finalizer", () => {
 
 		expect(harness.finishAssistantRun).not.toHaveBeenCalled();
 		expect(harness.failAssistantRun).not.toHaveBeenCalled();
-		expect(harness.activeStreamSession.closePersistence).not.toHaveBeenCalled();
-		expect(harness.calls).toEqual(["saveAssistantMessageForRun", "cleanup"]);
+		expect(harness.activeStreamSession.closePersistence).toHaveBeenCalledOnce();
+		expect(harness.calls).toEqual([
+			"saveAssistantMessageForRun",
+			"closePersistence",
+			"cleanup",
+		]);
 	});
 
-	it("finishes completed runs when stream persistence was already removed", async () => {
+	it("fails closed when completed-run stream persistence is missing", async () => {
 		const harness = createFinalizerHarness();
 		harness.activeStreamSession.closePersistence.mockImplementationOnce(
 			async () => {
@@ -161,21 +168,24 @@ describe("hosted assistant run finalizer", () => {
 			},
 		);
 
-		await harness.finalizeAssistantRun({
-			responseMessage: createMessage(),
-			status: "completed",
-		});
+		await expect(
+			harness.finalizeAssistantRun({
+				responseMessage: createMessage(),
+				status: "completed",
+			}),
+		).rejects.toThrow("ACTIVE_STREAM_NOT_FOUND");
 
-		expect(harness.finishAssistantRun).toHaveBeenCalledWith({
+		expect(harness.finishAssistantRun).not.toHaveBeenCalled();
+		expect(harness.failAssistantRun).toHaveBeenCalledWith({
+			errorText: "ACTIVE_STREAM_NOT_FOUND",
 			runId: "assistant-run-1",
 		});
-		expect(harness.failAssistantRun).not.toHaveBeenCalled();
-		expect(harness.logError).not.toHaveBeenCalled();
+		expect(harness.logError).toHaveBeenCalledOnce();
+		expect(harness.onFinalizeError).toHaveBeenCalledOnce();
 		expect(harness.calls).toEqual([
 			"saveAssistantMessageForRun",
 			"closePersistence",
-			"finishAssistantRun",
-			"onCompleted",
+			"failAssistantRun",
 			"cleanup",
 		]);
 	});
@@ -213,6 +223,37 @@ describe("hosted assistant run finalizer", () => {
 		harness.failAssistantRun.mockImplementationOnce(async () => {
 			harness.calls.push("failAssistantRun");
 			throw createConvexError("INVALID_ASSISTANT_RUN_TRANSITION");
+		});
+
+		await harness.finalizeAssistantRun({
+			responseMessage: createMessage(),
+			status: "completed",
+		});
+
+		expect(harness.onFinalizeError).toHaveBeenCalledOnce();
+		expect(harness.failAssistantRun).toHaveBeenCalledWith({
+			errorText: "persistence failed",
+			runId: "assistant-run-1",
+		});
+		expect(harness.calls).toEqual([
+			"saveAssistantMessageForRun",
+			"closePersistence",
+			"failAssistantRun",
+			"cleanup",
+		]);
+	});
+
+	it("does not throw when terminal-run race arrives as a serialized Convex error", async () => {
+		const harness = createFinalizerHarness();
+		harness.activeStreamSession.closePersistence.mockImplementationOnce(
+			async () => {
+				harness.calls.push("closePersistence");
+				throw new Error("persistence failed");
+			},
+		);
+		harness.failAssistantRun.mockImplementationOnce(async () => {
+			harness.calls.push("failAssistantRun");
+			throw createSerializedConvexError("INVALID_ASSISTANT_RUN_TRANSITION");
 		});
 
 		await harness.finalizeAssistantRun({
@@ -287,12 +328,63 @@ describe("hosted assistant run finalization queue", () => {
 		await firstFlush;
 	});
 
-	it("does not block the client stream while completed runs finalize", async () => {
+	it("clears pending terminalization after a successful flush", async () => {
+		const finalizeAssistantRun = vi.fn(async () => {});
+		const queue = createHostedAssistantRunFinalizationQueue({
+			finalizeAssistantRun,
+			logLatency: vi.fn(),
+			runId: "assistant-run-1",
+		});
+
+		queue.setTerminalization({
+			responseMessage: createMessage(),
+			status: "completed",
+		});
+
+		await queue.flush();
+		await queue.flush();
+
+		expect(queue.hasTerminalization()).toBe(false);
+		expect(finalizeAssistantRun).toHaveBeenCalledOnce();
+	});
+
+	it("keeps failed terminalization pending so a later flush can retry", async () => {
+		const finalizeAssistantRun = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("transient finalize failure"))
+			.mockResolvedValueOnce(undefined);
+		const queue = createHostedAssistantRunFinalizationQueue({
+			finalizeAssistantRun,
+			logLatency: vi.fn(),
+			runId: "assistant-run-1",
+		});
+		const terminalization = {
+			responseMessage: createMessage(),
+			status: "completed" as const,
+		};
+
+		queue.setTerminalization(terminalization);
+
+		await expect(queue.flush()).rejects.toThrow("transient finalize failure");
+		expect(queue.hasTerminalization()).toBe(true);
+
+		await queue.flush();
+
+		expect(queue.hasTerminalization()).toBe(false);
+		expect(finalizeAssistantRun).toHaveBeenCalledTimes(2);
+		expect(finalizeAssistantRun).toHaveBeenNthCalledWith(2, terminalization);
+	});
+
+	it("awaits completed terminalization before the client stream closes", async () => {
 		let resolveFinalize: (() => void) | null = null;
+		let didFinalize = false;
 		const finalizeAssistantRun = vi.fn(
 			() =>
 				new Promise<void>((resolve) => {
-					resolveFinalize = resolve;
+					resolveFinalize = () => {
+						didFinalize = true;
+						resolve();
+					};
 				}),
 		);
 		const queue = createHostedAssistantRunFinalizationQueue({
@@ -307,12 +399,35 @@ describe("hosted assistant run finalization queue", () => {
 
 		queue.setTerminalization(terminalization);
 
-		await expect(queue.flushAfterClientStream()).resolves.toBeUndefined();
+		const flushPromise = queue.flushAfterClientStream();
 		expect(finalizeAssistantRun).toHaveBeenCalledOnce();
 		expect(finalizeAssistantRun).toHaveBeenCalledWith(terminalization);
+		expect(didFinalize).toBe(false);
 
 		resolveFinalize?.();
-		await queue.flush();
+		await flushPromise;
+		expect(didFinalize).toBe(true);
+	});
+
+	it("propagates completed finalization failures before the client stream closes", async () => {
+		const finalizeAssistantRun = vi.fn(async () => {
+			throw new Error("finalize failed");
+		});
+		const queue = createHostedAssistantRunFinalizationQueue({
+			finalizeAssistantRun,
+			logLatency: vi.fn(),
+			runId: "assistant-run-1",
+		});
+
+		queue.setTerminalization({
+			responseMessage: createMessage(),
+			status: "completed",
+		});
+
+		await expect(queue.flushAfterClientStream()).rejects.toThrow(
+			"finalize failed",
+		);
+		expect(finalizeAssistantRun).toHaveBeenCalledOnce();
 	});
 
 	it("awaits failed terminalization before the client stream closes", async () => {

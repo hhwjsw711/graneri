@@ -177,9 +177,7 @@ export const loadSelectedAppSourceConnections = async ({
 	const appConnectionSourceIds = sourceIds.filter(
 		(sourceId) => !GOOGLE_APP_SOURCE_IDS.has(sourceId),
 	);
-	const googleSources = listGoogleSources
-		? await listGoogleSources().catch(() => [])
-		: [];
+	const googleSources = listGoogleSources ? await listGoogleSources() : [];
 	const selectedGoogleSources = googleSources.filter((source) =>
 		allSelectedSourceIds.includes(source.id),
 	);

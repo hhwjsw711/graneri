@@ -27,6 +27,7 @@ export type NoteChatMessagesProps = {
 	onDeleteMessage?: (messageId: string) => void;
 	onEditMessage?: (messageId: string, text: string) => void;
 	onRegenerateMessage?: (messageId: string) => void;
+	streamingMessageIds?: ReadonlySet<string>;
 };
 
 // react-doctor-disable-next-line deslop/unused-export
@@ -41,6 +42,7 @@ export default function NoteChatMessages({
 	onDeleteMessage,
 	onEditMessage,
 	onRegenerateMessage,
+	streamingMessageIds,
 }: NoteChatMessagesProps) {
 	const getTurnClassName = React.useCallback(() => "flex flex-col gap-3", []);
 	const renderAssistantActions = React.useCallback(
@@ -92,6 +94,7 @@ export default function NoteChatMessages({
 				turnClassName={getTurnClassName}
 				renderAssistantActions={renderAssistantActions}
 				renderUserActions={renderUserActions}
+				streamingMessageIds={streamingMessageIds}
 			/>
 		</ScrollArea>
 	);

@@ -3,6 +3,7 @@ import type { ChatAppSourceProvider } from "@/lib/chat-source-display";
 import type { RecipeSlug } from "@/lib/recipes";
 
 export type ChatMessageMetadata = {
+	interrupted?: boolean;
 	recipe?: {
 		slug: RecipeSlug;
 		name: string;

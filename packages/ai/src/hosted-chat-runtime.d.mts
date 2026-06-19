@@ -1,5 +1,83 @@
 import type { UIMessage } from "ai";
 
+export declare const hostedChatSteerAcceptedHeader: "X-Graneri-Steer-Accepted";
+export declare const hostedChatReplayAcceptedHeader: "X-Graneri-Replay-Accepted";
+export declare const hostedChatSteerTurnIdHeader: "X-Graneri-Turn-Id";
+export declare const hostedChatSteerQueuedMessageIdHeader: "X-Graneri-Queued-Message-Id";
+export declare const hostedChatSteerQueuedMessageIdsHeader: "X-Graneri-Queued-Message-Ids";
+export declare const hostedChatReplayQueuedMessageIdHeader: "X-Graneri-Replay-Queued-Message-Id";
+export declare const MAX_HOSTED_CHAT_INPUT_TEXT_CHARS: 1048576;
+export declare const HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE: "input_too_large";
+export declare const HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE: "input_empty";
+export declare const getHostedChatSteerAcceptanceHeaders: (args: {
+	queuedMessageId: string;
+	queuedMessageIds?: string[];
+	turnId: string;
+}) => Record<string, string>;
+export declare const getHostedChatReplayAcceptanceHeaders: (args: {
+	queuedMessageId: string;
+}) => Record<string, string>;
+export declare const getHostedChatConvexErrorData: (
+	error: unknown,
+) => Record<string, unknown> | null;
+export declare const getHostedChatConvexRouteError: (
+	error: unknown,
+) => null | {
+	error: string;
+	errorCode: string;
+	statusCode: 400 | 409;
+};
+export declare const getHostedChatSteerTelemetry: (args: {
+	acceptedTurnId?: string | null;
+	errorCode?: string | null;
+	expectedTurnId?: string | null;
+	isSteerRoute: boolean;
+	outcome?: "error" | "success" | null;
+	queuedMessageId?: string | null;
+}) => null | {
+	turn_steer_accepted_turn_id: string | null;
+	turn_steer_expected_turn_id: string | null;
+	turn_steer_num_input_images: 0;
+	turn_steer_queued_message_id: string | null;
+	turn_steer_rejection_reason: string | null;
+	turn_steer_result: "accepted" | "rejected";
+};
+export declare const validateHostedChatSteerRoute: (args: {
+	continueRunId?: string | null;
+	hasMessage?: boolean;
+	isSteerRoute: boolean;
+	replayQueuedMessageId?: string | null;
+	steerQueuedMessageId?: string | null;
+}) => null | {
+	error: string;
+	errorCode:
+		| "continue_run_id_invalid"
+		| "queued_message_body_conflict"
+		| "queued_message_mode_conflict"
+		| "queued_replay_active_run_conflict"
+		| "replay_queued_message_id_invalid"
+		| "steer_context_missing"
+		| "steer_queued_message_id_invalid"
+		| "steer_route_required";
+	statusCode: 400;
+};
+export declare const getHostedChatMessageTextCharCount: (
+	message: UIMessage,
+) => number;
+export declare const createHostedChatInputTooLargeError: (
+	actualChars: number,
+) => Error & {
+	code: typeof HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE;
+	maxChars: typeof MAX_HOSTED_CHAT_INPUT_TEXT_CHARS;
+	actualChars: number;
+};
+export declare const createHostedChatInputEmptyError: () => Error & {
+	code: typeof HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE;
+};
+export declare const validateHostedChatInputTextLimit: (
+	message: UIMessage,
+) => void;
+export declare const validateHostedChatInput: (message: UIMessage) => void;
 export declare const clampHostedChatWhitespace: (value: string) => string;
 export declare const clampHostedNoteContext: (value: string) => string;
 export declare const generateHostedChatMessageId: () => string;
@@ -15,6 +93,11 @@ export declare const toHostedStoredMessage: (message: UIMessage) => {
 	text: string;
 	createdAt: number;
 };
+export declare const toHostedQueuedUserMessage: (queuedMessage: {
+	messageId: string;
+	metadataJson?: string;
+	partsJson: string;
+}) => UIMessage;
 export declare const buildHostedChatSaveMessageArgs: <
 	WorkspaceId extends string,
 	NoteId extends string,
@@ -46,6 +129,7 @@ export declare const fromHostedStoredMessages: (
 	}>,
 ) => UIMessage[];
 export declare const prepareHostedChatBranch: (args: {
+	interruptedAssistantMessageIds?: string[];
 	message?: UIMessage;
 	messageId?: string;
 	messages?: UIMessage[];

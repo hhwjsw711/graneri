@@ -9,68 +9,85 @@ import {
 import { handleEnhanceNoteRequest } from "./enhance-note-handler";
 import { handleRealtimeTranscriptionSessionRequest } from "./realtime-transcription-session-handler";
 
-const isChatRoute = (url: string | undefined) =>
-	Boolean(url && url.split("?")[0] === "/api/chat");
-const isChatStopRoute = (url: string | undefined) =>
-	Boolean(url && url.split("?")[0] === "/api/chat/stop");
-const isChatReconnectRoute = (url: string | undefined) =>
-	Boolean(url && /^\/api\/chat\/[^/]+\/stream$/.test(url.split("?")[0] ?? ""));
-const isEnhanceNoteRoute = (url: string | undefined) =>
-	Boolean(url && url.split("?")[0] === "/api/enhance-note");
-const isApplyTemplateRoute = (url: string | undefined) =>
-	Boolean(url && url.split("?")[0] === "/api/apply-template");
-const isRealtimeTranscriptionSessionRoute = (url: string | undefined) =>
-	Boolean(url && url.split("?")[0] === "/api/realtime-transcription-session");
+type ChatApiHandler = (
+	request: IncomingMessage,
+	response: ServerResponse,
+) => Promise<void>;
+type ChatApiRoute = {
+	method: "GET" | "POST";
+	matches: (pathname: string) => boolean;
+	handler: ChatApiHandler;
+};
+
+const chatApiRoutes: Array<ChatApiRoute> = [
+	{
+		method: "POST",
+		matches: (pathname) => pathname === "/api/chat",
+		handler: handleChatRequest,
+	},
+	{
+		method: "POST",
+		matches: (pathname) => pathname === "/api/chat/steer",
+		handler: (request, response) =>
+			handleChatRequest(request, response, { isSteerRoute: true }),
+	},
+	{
+		method: "POST",
+		matches: (pathname) => pathname === "/api/chat/stop",
+		handler: handleChatStopRequest,
+	},
+	{
+		method: "GET",
+		matches: (pathname) => /^\/api\/chat\/[^/]+\/stream$/.test(pathname),
+		handler: handleChatReconnectRequest,
+	},
+	{
+		method: "POST",
+		matches: (pathname) => pathname === "/api/enhance-note",
+		handler: handleEnhanceNoteRequest,
+	},
+	{
+		method: "POST",
+		matches: (pathname) => pathname === "/api/apply-template",
+		handler: handleApplyTemplateRequest,
+	},
+	{
+		method: "POST",
+		matches: (pathname) => pathname === "/api/realtime-transcription-session",
+		handler: handleRealtimeTranscriptionSessionRequest,
+	},
+];
+
+const getRequestPathname = (url: string | undefined) =>
+	url?.split("?")[0] ?? "";
 
 const createChatMiddleware = (): Connect.NextHandleFunction => {
 	return (request, response, next) => {
-		if (
-			!isChatRoute(request.url) &&
-			!isChatStopRoute(request.url) &&
-			!isChatReconnectRoute(request.url) &&
-			!isEnhanceNoteRoute(request.url) &&
-			!isApplyTemplateRoute(request.url) &&
-			!isRealtimeTranscriptionSessionRoute(request.url)
-		) {
+		const pathname = getRequestPathname(request.url);
+		const route = chatApiRoutes.find((candidate) =>
+			candidate.matches(pathname),
+		);
+		if (!route) {
 			next();
 			return;
 		}
 
-		if (isChatReconnectRoute(request.url) && request.method !== "GET") {
+		if (request.method !== route.method) {
 			response.statusCode = 405;
 			response.setHeader("Content-Type", "application/json");
 			response.end(JSON.stringify({ error: "Method not allowed." }));
 			return;
 		}
 
-		if (!isChatReconnectRoute(request.url) && request.method !== "POST") {
-			response.statusCode = 405;
-			response.setHeader("Content-Type", "application/json");
-			response.end(JSON.stringify({ error: "Method not allowed." }));
-			return;
-		}
-
-		const handler = isChatRoute(request.url)
-			? handleChatRequest
-			: isChatStopRoute(request.url)
-				? handleChatStopRequest
-				: isChatReconnectRoute(request.url)
-					? handleChatReconnectRequest
-					: isEnhanceNoteRoute(request.url)
-						? handleEnhanceNoteRequest
-						: isApplyTemplateRoute(request.url)
-							? handleApplyTemplateRequest
-							: handleRealtimeTranscriptionSessionRequest;
-
-		void handler(request as IncomingMessage, response as ServerResponse).catch(
-			(error: unknown) => {
+		void route
+			.handler(request as IncomingMessage, response as ServerResponse)
+			.catch((error: unknown) => {
 				const message =
 					error instanceof Error ? error.message : "Unexpected server error.";
 				response.statusCode = 500;
 				response.setHeader("Content-Type", "application/json");
 				response.end(JSON.stringify({ error: message }));
-			},
-		);
+			});
 	};
 };
 

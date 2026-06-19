@@ -139,8 +139,9 @@ export const validateProductionRuntimeConfig = (config, env = process.env) => {
 
 	requiredHostedEnv("CONVEX_URL", env);
 	requiredHostedEnv("CONVEX_SITE_URL", env);
+	requiredHostedEnv("SITE_URL", env);
 
-	if (!config.convexUrl || !config.convexSiteUrl) {
+	if (!config.convexUrl || !config.convexSiteUrl || !config.siteUrl) {
 		throw new Error("Production desktop runtime config is incomplete.");
 	}
 };

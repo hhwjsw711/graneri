@@ -30,6 +30,10 @@ import {
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
+import {
+	createHostedMultiAgentRuntime,
+	createHostedMultiAgentTools,
+} from "../../../packages/ai/src/hosted-chat-multi-agent-tools.mjs";
 import { stopOrphanedHostedAssistantRun } from "../../../packages/ai/src/hosted-chat-orphaned-run.mjs";
 import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/src/hosted-chat-run-finalization-queue.mjs";
 import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
@@ -37,11 +41,22 @@ import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run
 import {
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
+	getHostedChatConvexRouteError,
 	getHostedChatRecipeContext,
+	getHostedChatReplayAcceptanceHeaders,
+	getHostedChatSteerAcceptanceHeaders,
+	getHostedChatSteerTelemetry,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
+	HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
+	HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
+	MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
 	prepareHostedChatBranch,
+	toHostedQueuedUserMessage,
+	validateHostedChatInput,
+	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
+import { createHostedWaitAgentTool } from "../../../packages/ai/src/hosted-chat-wait-agent-tool.mjs";
 import {
 	buildLocalFolderSystemContext,
 	buildLocalFolderTools,
@@ -79,8 +94,25 @@ type ChatRequestBody = {
 		title?: string;
 		text?: string;
 	};
-	allowConcurrentRun?: boolean;
+	continueRunId?: Id<"assistantRuns">;
+	interruptActiveRun?: boolean;
+	replayQueuedMessageId?: Id<"assistantQueuedMessages">;
+	steerQueuedMessageId?: Id<"assistantQueuedMessages">;
 	supersedeActiveRun?: boolean;
+};
+
+type AttachableAssistantRun = {
+	_id: Id<"assistantRuns">;
+	chatId: Id<"chats">;
+	status?: string;
+};
+
+type HostedQueuedUserMessage = {
+	_id: Id<"assistantQueuedMessages">;
+	messageId: string;
+	partsJson: string;
+	metadataJson?: string;
+	text: string;
 };
 
 const activeChatStreamControllers = new Map<
@@ -90,6 +122,54 @@ const activeChatStreamControllers = new Map<
 const AI_LATENCY_DEBUG_ENABLED = process.env.GRANERI_AI_LATENCY_DEBUG === "1";
 
 const canUseLocalFolderTools = () => process.env.GRANERI_ENV_MODE === "local";
+
+const interruptActiveChatRun = async ({
+	chatId,
+	client,
+	pendingInput = [],
+	runId,
+	workspaceId,
+}: {
+	chatId: string;
+	client: ConvexHttpClient;
+	pendingInput?: readonly unknown[];
+	runId: Id<"assistantRuns">;
+	workspaceId: Id<"workspaces">;
+}) => {
+	const streamKey = createHostedActiveStreamKey({
+		workspaceId,
+		chatId,
+	});
+	const activeSession = activeChatStreamControllers.get(streamKey);
+	if (pendingInput.length > 0) {
+		activeSession?.extendPendingInput([...pendingInput]);
+	}
+	const drainedPendingInput = activeSession?.takePendingInput() ?? [];
+	activeSession?.abort("stopped");
+	if (activeSession) {
+		activeSession.cleanup();
+	}
+
+	await client.mutation(api.chats.stopActiveStream, {
+		workspaceId,
+		chatId,
+		runId,
+	});
+
+	return drainedPendingInput;
+};
+
+const isPendingUserMessage = (input: unknown): input is UIMessage => {
+	if (!input || typeof input !== "object") {
+		return false;
+	}
+	const maybeMessage = input as Partial<UIMessage>;
+	return (
+		typeof maybeMessage.id === "string" &&
+		maybeMessage.role === "user" &&
+		Array.isArray(maybeMessage.parts)
+	);
+};
 
 const getConvexUrl = () => {
 	const value = process.env.CONVEX_URL ?? process.env.VITE_CONVEX_URL;
@@ -191,27 +271,56 @@ const sendJson = (
 	response: ServerResponse,
 	statusCode: number,
 	payload: Record<string, unknown>,
+	headers?: Record<string, string> | null,
 ) => {
 	response.statusCode = statusCode;
 	response.setHeader("Content-Type", "application/json");
+	for (const [header, value] of Object.entries(headers ?? {})) {
+		response.setHeader(header, value);
+	}
 	response.end(JSON.stringify(payload));
 };
 
-const getConvexErrorCode = (error: unknown) => {
-	if (!error || typeof error !== "object" || !("data" in error)) {
-		return null;
+const sendHostedChatConvexRouteError = (
+	response: ServerResponse,
+	error: unknown,
+) => {
+	const routeError = getHostedChatConvexRouteError(error);
+	if (!routeError) {
+		return false;
 	}
-
-	const data = error.data;
-	if (!data || typeof data !== "object" || !("code" in data)) {
-		return null;
-	}
-
-	return typeof data.code === "string" ? data.code : null;
+	sendJson(response, routeError.statusCode, {
+		error: routeError.error,
+		errorCode: routeError.errorCode,
+	});
+	return true;
 };
 
-const isConvexErrorCode = (error: unknown, code: string) =>
-	getConvexErrorCode(error) === code;
+const getHostedChatInputValidationErrorResponse = (error: unknown) => {
+	const code = (error as { code?: unknown } | null)?.code;
+	if (code === HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE) {
+		return {
+			errorCode: HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
+			payload: {
+				error: "input must not be empty",
+			},
+		};
+	}
+
+	const actualChars =
+		typeof (error as { actualChars?: unknown }).actualChars === "number"
+			? (error as { actualChars: number }).actualChars
+			: undefined;
+	return {
+		errorCode: HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
+		payload: {
+			error: `Input exceeds the maximum length of ${MAX_HOSTED_CHAT_INPUT_TEXT_CHARS} characters.`,
+			input_error_code: HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
+			max_chars: MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
+			actual_chars: actualChars,
+		},
+	};
+};
 
 const getStoredNoteContext = async ({
 	client,
@@ -234,16 +343,40 @@ const getStoredNoteContext = async ({
 export const handleChatRequest = async (
 	request: IncomingMessage,
 	response: ServerResponse,
+	options: { isSteerRoute?: boolean } = {},
 ) => {
 	const startedAt = Date.now();
 	const wideEvent = createServerWideEvent({
 		event: "chat.request",
 		request,
 	});
+	let acceptedSteerTurnId: string | null = null;
 	let wideEventEmitted = false;
 	const emitWideEvent = (level: "error" | "info") => {
 		if (wideEventEmitted) {
 			return;
+		}
+
+		const steerTelemetry = getHostedChatSteerTelemetry({
+			acceptedTurnId: acceptedSteerTurnId,
+			errorCode:
+				typeof wideEvent.error_code === "string" ? wideEvent.error_code : null,
+			expectedTurnId:
+				typeof wideEvent.continue_run_id === "string"
+					? wideEvent.continue_run_id
+					: null,
+			isSteerRoute: wideEvent.is_steer_route === true,
+			outcome:
+				wideEvent.outcome === "success" || wideEvent.outcome === "error"
+					? wideEvent.outcome
+					: null,
+			queuedMessageId:
+				typeof wideEvent.steer_queued_message_id === "string"
+					? wideEvent.steer_queued_message_id
+					: null,
+		});
+		if (steerTelemetry) {
+			Object.assign(wideEvent, steerTelemetry);
 		}
 
 		wideEventEmitted = true;
@@ -278,14 +411,38 @@ export const handleChatRequest = async (
 		convexToken,
 		recipeSlug,
 		noteContext,
-		allowConcurrentRun = false,
+		continueRunId,
+		replayQueuedMessageId,
 		supersedeActiveRun = false,
+		steerQueuedMessageId,
 	} = await readJsonBody(request);
 	wideEvent.chat_id = id ?? null;
 	wideEvent.workspace_id = workspaceId ?? null;
 	wideEvent.trigger = trigger ?? null;
 	wideEvent.model = model ?? null;
 	wideEvent.reasoning_effort = reasoningEffort ?? null;
+	wideEvent.is_steer_route = options.isSteerRoute === true;
+	wideEvent.continue_run_id = continueRunId ?? null;
+	wideEvent.replay_queued_message_id = replayQueuedMessageId ?? null;
+	wideEvent.steer_queued_message_id = steerQueuedMessageId ?? null;
+	const steerRouteValidation = validateHostedChatSteerRoute({
+		continueRunId,
+		hasMessage: Boolean(message),
+		isSteerRoute: options.isSteerRoute === true,
+		replayQueuedMessageId,
+		steerQueuedMessageId,
+	});
+	if (steerRouteValidation) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = steerRouteValidation.statusCode;
+		wideEvent.error_code = steerRouteValidation.errorCode;
+		emitWideEvent("error");
+		sendJson(response, steerRouteValidation.statusCode, {
+			error: steerRouteValidation.error,
+			errorCode: steerRouteValidation.errorCode,
+		});
+		return;
+	}
 	wideEvent.web_search_enabled = webSearchEnabled;
 	wideEvent.apps_enabled = appsEnabled;
 	wideEvent.mention_count = mentions?.length ?? 0;
@@ -310,7 +467,7 @@ export const handleChatRequest = async (
 		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
 	const resolvedTimezone = timezone?.trim() || "UTC";
 
-	if (!message) {
+	if (!message && !steerQueuedMessageId && !replayQueuedMessageId) {
 		wideEvent.outcome = "error";
 		wideEvent.status_code = 400;
 		wideEvent.error_code = "message_missing";
@@ -319,6 +476,19 @@ export const handleChatRequest = async (
 			error: "message is required.",
 		});
 		return;
+	}
+	if (message && !steerQueuedMessageId && !replayQueuedMessageId) {
+		try {
+			validateHostedChatInput(message);
+		} catch (error) {
+			const validationError = getHostedChatInputValidationErrorResponse(error);
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 400;
+			wideEvent.error_code = validationError.errorCode;
+			emitWideEvent("error");
+			sendJson(response, 400, validationError.payload);
+			return;
+		}
 	}
 
 	if (!id || !convexToken || !resolvedWorkspaceId) {
@@ -386,130 +556,468 @@ export const handleChatRequest = async (
 		(noteContext?.noteId as Id<"notes"> | null | undefined) ??
 		storedChat?.noteId ??
 		null;
-	const storedChatMessages = await convexClient.query(
-		api.chats.getMessagesSnapshot,
-		{
-			workspaceId: resolvedWorkspaceId,
-			chatId: id,
-		},
-	);
-	logLatency("convex.messages_loaded", {
-		messageCount: storedChatMessages.length,
-	});
-	const preparedBranch = prepareHostedChatBranch({
-		message,
-		messageId,
-		storedMessages: storedChatMessages,
-		trigger,
-	});
-	const shouldTruncateChatBranch = preparedBranch.shouldTruncateChatBranch;
-
-	if (shouldTruncateChatBranch && preparedBranch.truncateMessageId) {
-		try {
-			await convexClient.mutation(api.chats.truncateFromMessage, {
+	let attachableRun: AttachableAssistantRun | null;
+	try {
+		attachableRun = await convexClient.query(
+			api.assistantRuns.getAttachableRun,
+			{
 				workspaceId: resolvedWorkspaceId,
 				chatId: id,
-				messageId: preparedBranch.truncateMessageId,
-			});
-		} catch (error) {
+			},
+		);
+	} catch (error) {
+		const routeError = getHostedChatConvexRouteError(error);
+		if (!routeError) {
+			throw error;
+		}
+		wideEvent.outcome = "error";
+		wideEvent.status_code = routeError.statusCode;
+		wideEvent.error_code = routeError.errorCode;
+		emitWideEvent("error");
+		sendJson(response, routeError.statusCode, {
+			error: routeError.error,
+			errorCode: routeError.errorCode,
+		});
+		return;
+	}
+	let claimedSteerQueuedMessageId: Id<"assistantQueuedMessages"> | null = null;
+	let claimedSteerQueuedMessageIds: Array<Id<"assistantQueuedMessages">> = [];
+	let steeredUserMessages: UIMessage[] = [];
+	let steeredUserMessage: UIMessage | null = null;
+	let replayedUserMessage: UIMessage | null = null;
+	let interruptedPendingInput: unknown[] = [];
+	const cleanupClaimedSteerQueuedMessage = async (operation: string) => {
+		const queuedMessageIds =
+			claimedSteerQueuedMessageIds.length > 0
+				? claimedSteerQueuedMessageIds
+				: claimedSteerQueuedMessageId
+					? [claimedSteerQueuedMessageId]
+					: [];
+		if (queuedMessageIds.length === 0) {
+			return true;
+		}
+		try {
+			await Promise.all(
+				queuedMessageIds.map((queuedMessageId) =>
+					convexClient.mutation(api.assistantQueuedMessages.discardClaimed, {
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+						queuedMessageId,
+					}),
+				),
+			);
+			claimedSteerQueuedMessageId = null;
+			claimedSteerQueuedMessageIds = [];
+			return true;
+		} catch (cleanupError) {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 500;
+			wideEvent.error_code = "steer_queue_cleanup_failed";
 			recordServerError({
 				details: {
-					message_id: preparedBranch.truncateMessageId,
+					queued_message_ids: queuedMessageIds,
 				},
-				error,
+				error: cleanupError,
 				event: wideEvent,
-				operation: "branch_truncate",
+				operation,
 			});
+			emitWideEvent("error");
+			sendJson(response, 500, {
+				error: "Failed to clean up claimed steered message.",
+			});
+			return false;
+		}
+	};
+	const failClaimedSteerPreparation = async (
+		error: unknown,
+		operation: string,
+	) => {
+		if (!(await cleanupClaimedSteerQueuedMessage(`${operation}_cleanup`))) {
+			return;
+		}
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "steer_preparation_failed";
+		recordServerError({
+			error,
+			event: wideEvent,
+			operation,
+		});
+		emitWideEvent("error");
+		sendJson(response, 500, {
+			error: "Failed to prepare steered assistant run.",
+		});
+	};
+	if (steerQueuedMessageId) {
+		if (!continueRunId || attachableRun?._id !== continueRunId) {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 409;
+			wideEvent.error_code = "active_run_mismatch";
+			emitWideEvent("error");
+			sendJson(response, 409, {
+				error:
+					"Active assistant run changed before the queued message could steer.",
+			});
+			return;
+		}
+
+		let claimedSteerMessages: HostedQueuedUserMessage[];
+		try {
+			claimedSteerMessages = await convexClient.mutation(
+				api.assistantQueuedMessages.claimReadyForRun,
+				{
+					runId: continueRunId,
+					queuedMessageId: steerQueuedMessageId,
+				},
+			);
+		} catch (error) {
+			const routeError = getHostedChatConvexRouteError(error);
+			if (!routeError) {
+				throw error;
+			}
+			wideEvent.outcome = "error";
+			wideEvent.status_code = routeError.statusCode;
+			wideEvent.error_code = routeError.errorCode;
+			emitWideEvent("error");
+			sendJson(response, routeError.statusCode, {
+				error: routeError.error,
+				errorCode: routeError.errorCode,
+			});
+			return;
+		}
+
+		if (claimedSteerMessages.length === 0) {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 409;
+			wideEvent.error_code = "queued_message_unavailable";
+			emitWideEvent("error");
+			sendJson(response, 409, {
+				error: "Queued message is no longer available.",
+			});
+			return;
+		}
+
+		claimedSteerQueuedMessageId = claimedSteerMessages[0]?._id ?? null;
+		claimedSteerQueuedMessageIds = claimedSteerMessages.map(
+			(queuedMessage) => queuedMessage._id,
+		);
+		steeredUserMessages = claimedSteerMessages.map((queuedMessage) =>
+			toHostedQueuedUserMessage(queuedMessage),
+		);
+		steeredUserMessage =
+			steeredUserMessages[steeredUserMessages.length - 1] ?? null;
+		if (attachableRun.status === "running") {
+			try {
+				interruptedPendingInput = await interruptActiveChatRun({
+					chatId: id,
+					client: convexClient,
+					pendingInput: steeredUserMessages,
+					runId: continueRunId,
+					workspaceId: resolvedWorkspaceId,
+				});
+			} catch (error) {
+				if (
+					!(await cleanupClaimedSteerQueuedMessage(
+						"steer_queue_interrupt_cleanup",
+					))
+				) {
+					return;
+				}
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 500;
+				wideEvent.error_code = "active_run_interrupt_failed";
+				recordServerError({
+					details: {
+						run_id: continueRunId,
+					},
+					error,
+					event: wideEvent,
+					operation: "active_run_interrupt",
+				});
+				emitWideEvent("error");
+				sendJson(response, 500, {
+					error: "Failed to interrupt active assistant run.",
+				});
+				return;
+			}
 		}
 	}
-	logLatency("chat.branch_ready", {
-		incomingMessageCount: preparedBranch.incomingMessages.length,
-		shouldTruncateChatBranch,
-	});
-
-	const notesContext = await getNotesContext({
-		convexToken,
-		mentions,
-		workspaceId,
-	});
-	const attachedNoteContext = resolvedNoteId
-		? await getStoredNoteContext({
-				client: convexClient,
-				noteId: resolvedNoteId,
-				workspaceId: resolvedWorkspaceId,
-			})
-		: getInlineHostedNoteContext({
-				title: noteContext?.title,
-				text: noteContext?.text,
+	if (replayQueuedMessageId && !continueRunId) {
+		let claimedReplayMessage: HostedQueuedUserMessage | null;
+		try {
+			claimedReplayMessage = await convexClient.query(
+				api.assistantQueuedMessages.getClaimedForChat,
+				{
+					workspaceId: resolvedWorkspaceId,
+					chatId: id,
+					queuedMessageId: replayQueuedMessageId,
+				},
+			);
+		} catch (error) {
+			const routeError = getHostedChatConvexRouteError(error);
+			if (!routeError) {
+				throw error;
+			}
+			wideEvent.outcome = "error";
+			wideEvent.status_code = routeError.statusCode;
+			wideEvent.error_code = routeError.errorCode;
+			emitWideEvent("error");
+			sendJson(response, routeError.statusCode, {
+				error: routeError.error,
+				errorCode: routeError.errorCode,
 			});
-	const selectedRecipe = await getSelectedRecipe({
-		convexToken,
-		recipeSlug,
-		workspaceId: resolvedWorkspaceId,
-	});
-	const recipeContext = getHostedChatRecipeContext(selectedRecipe);
-	const userProfileContext = await convexClient.query(
-		api.userPreferences.getAiProfileContext,
-		{},
-	);
-	const selectedAppConnections = appsEnabled
-		? await getSelectedAppConnections({
-				convexToken,
-				selectedSourceIds,
-				workspaceId,
-			})
-		: [];
-	const selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
-		selectedAppConnections,
-	);
-	logLatency("context.sources_loaded", {
-		appConnectionCount: selectedAppConnections.length,
-		hasAttachedNoteContext: attachedNoteContext.length > 0,
-		hasNotesContext: notesContext.length > 0,
-		hasRecipeContext: recipeContext.length > 0,
-		hasUserProfileContext: Boolean(userProfileContext),
-	});
-	const appTools = await buildConvexWorkspaceToolSet({
-		connections: selectedAppConnections,
-		convexClient,
-		workspaceId: resolvedWorkspaceId,
-	});
-	const localFolderRoots = canUseLocalFolderTools()
-		? await resolveLocalFolderRoots(
-				localFolders.reduce<string[]>((paths, folder) => {
-					if (typeof folder?.path === "string" && folder.path.length > 0) {
-						paths.push(folder.path);
-					}
-					return paths;
-				}, []),
-			)
-		: [];
-	const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
-	logLatency("tools.workspace_ready", {
-		appToolCount: Object.keys(appTools).length,
-		localFolderCount: localFolderRoots.length,
-	});
-	const coreToolPolicy = buildCoreChatToolPolicy({
-		chatAttachmentsApi: api.chatAttachments,
-		convexClient,
-		message,
-		webSearchEnabled,
-	});
-	const automationContext = buildChatAutomationContext({
-		appConnections: selectedAppConnections,
-		chatId: id,
-		createAutomation: async (automation) =>
-			await convexClient.mutation(api.automations.create, {
+			return;
+		}
+
+		if (!claimedReplayMessage) {
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 409;
+			wideEvent.error_code = "queued_message_unavailable";
+			emitWideEvent("error");
+			sendJson(response, 409, {
+				error: "Queued message is no longer available.",
+			});
+			return;
+		}
+
+		replayedUserMessage = toHostedQueuedUserMessage(claimedReplayMessage);
+	}
+	const effectiveMessage = steeredUserMessage ?? replayedUserMessage ?? message;
+	if (!effectiveMessage) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 400;
+		wideEvent.error_code = "message_missing";
+		emitWideEvent("error");
+		sendJson(response, 400, {
+			error: "message is required.",
+		});
+		return;
+	}
+	try {
+		validateHostedChatInput(effectiveMessage);
+	} catch (error) {
+		const validationError = getHostedChatInputValidationErrorResponse(error);
+		if (
+			!(await cleanupClaimedSteerQueuedMessage(
+				"steer_queue_input_size_cleanup",
+			))
+		) {
+			return;
+		}
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 400;
+		wideEvent.error_code = validationError.errorCode;
+		emitWideEvent("error");
+		sendJson(response, 400, validationError.payload);
+		return;
+	}
+	type HostedChatBranchInput = Parameters<typeof prepareHostedChatBranch>[0] & {
+		pendingMessages?: UIMessage[];
+	};
+	let storedChatMessages: NonNullable<HostedChatBranchInput["storedMessages"]>;
+	let preparedBranch: ReturnType<typeof prepareHostedChatBranch>;
+	let shouldTruncateChatBranch: boolean;
+	let notesContext: string;
+	let attachedNoteContext: string;
+	let recipeContext: string;
+	let userProfileContext: unknown;
+	let selectedAppConnections: Awaited<
+		ReturnType<typeof getSelectedAppConnections>
+	>;
+	let selectedAppSourceInstructions: string;
+	let appTools: Awaited<ReturnType<typeof buildConvexWorkspaceToolSet>>;
+	let localFolderRoots: Awaited<ReturnType<typeof resolveLocalFolderRoots>>;
+	let localFolderContext: string;
+	let coreToolPolicy: ReturnType<typeof buildCoreChatToolPolicy>;
+	let automationContext: ReturnType<typeof buildChatAutomationContext>;
+	let agent: ReturnType<typeof buildHostedChatRunPlan>["agent"];
+	let finalizedToolSet: ReturnType<
+		typeof buildHostedChatRunPlan
+	>["finalizedToolSet"];
+	let systemPrompt: string;
+	let tools: ReturnType<typeof buildHostedChatRunPlan>["tools"];
+	let chatMessages: UIMessage<unknown, never, InferUITools<typeof tools>>[];
+	let lastUserMessage: UIMessage | undefined;
+	let shouldGenerateChatTitle: boolean;
+	let activeStreamSession: HostedActiveStreamSession | null = null;
+	let multiAgentRuntime: ReturnType<
+		typeof createHostedMultiAgentRuntime
+	> | null = null;
+	const durableAgentIdsByPath = new Map<string, Id<"assistantAgents">>();
+	try {
+		storedChatMessages = await convexClient.query(
+			api.chats.getMessagesSnapshot,
+			{
 				workspaceId: resolvedWorkspaceId,
-				...automation,
-			}),
-		defaultModel: resolvedModel.model,
-		defaultReasoningEffort: resolvedReasoningEffort,
-		defaultTimezone: resolvedTimezone,
-		webSearchEnabled,
-	});
-	const { agent, finalizedToolSet, systemPrompt, tools } =
-		buildHostedChatRunPlan({
+				chatId: id,
+			},
+		);
+		const runEvents =
+			continueRunId && attachableRun?._id === continueRunId
+				? await convexClient.query(api.assistantRunEvents.listRunEventsAfter, {
+						runId: continueRunId,
+						limit: 500,
+					})
+				: [];
+		const interruptedAssistantMessageIds = runEvents.flatMap((runEvent) =>
+			runEvent.event.type === "assistant.message.interrupted"
+				? [runEvent.event.assistantMessageId]
+				: [],
+		);
+		logLatency("convex.messages_loaded", {
+			messageCount: storedChatMessages.length,
+		});
+		const pendingSteerMessages =
+			interruptedPendingInput.length > 0
+				? interruptedPendingInput.filter(isPendingUserMessage)
+				: steeredUserMessages;
+		const branchInput: HostedChatBranchInput = {
+			interruptedAssistantMessageIds,
+			message: effectiveMessage,
+			messageId,
+			pendingMessages: pendingSteerMessages,
+			storedMessages: storedChatMessages,
+			trigger,
+		};
+		preparedBranch = prepareHostedChatBranch(branchInput);
+		shouldTruncateChatBranch = preparedBranch.shouldTruncateChatBranch;
+
+		if (shouldTruncateChatBranch && preparedBranch.truncateMessageId) {
+			try {
+				await convexClient.mutation(api.chats.truncateFromMessage, {
+					workspaceId: resolvedWorkspaceId,
+					chatId: id,
+					messageId: preparedBranch.truncateMessageId,
+				});
+			} catch (error) {
+				if (
+					claimedSteerQueuedMessageId &&
+					!(await cleanupClaimedSteerQueuedMessage(
+						"steer_queue_branch_truncate_cleanup",
+					))
+				) {
+					return;
+				}
+				recordServerError({
+					details: {
+						message_id: preparedBranch.truncateMessageId,
+					},
+					error,
+					event: wideEvent,
+					operation: "branch_truncate",
+				});
+				wideEvent.outcome = "error";
+				wideEvent.status_code = 500;
+				wideEvent.error_code = "branch_truncate_failed";
+				emitWideEvent("error");
+				sendJson(response, 500, {
+					error: "Failed to prepare edited chat branch.",
+				});
+				return;
+			}
+		}
+		logLatency("chat.branch_ready", {
+			incomingMessageCount: preparedBranch.incomingMessages.length,
+			shouldTruncateChatBranch,
+		});
+
+		notesContext = await getNotesContext({
+			convexToken,
+			mentions,
+			workspaceId,
+		});
+		attachedNoteContext = resolvedNoteId
+			? await getStoredNoteContext({
+					client: convexClient,
+					noteId: resolvedNoteId,
+					workspaceId: resolvedWorkspaceId,
+				})
+			: getInlineHostedNoteContext({
+					title: noteContext?.title,
+					text: noteContext?.text,
+				});
+		const selectedRecipe = await getSelectedRecipe({
+			convexToken,
+			recipeSlug,
+			workspaceId: resolvedWorkspaceId,
+		});
+		recipeContext = getHostedChatRecipeContext(selectedRecipe);
+		userProfileContext = await convexClient.query(
+			api.userPreferences.getAiProfileContext,
+			{},
+		);
+		selectedAppConnections = appsEnabled
+			? await getSelectedAppConnections({
+					convexToken,
+					selectedSourceIds,
+					workspaceId,
+				})
+			: [];
+		selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
+			selectedAppConnections,
+		);
+		logLatency("context.sources_loaded", {
+			appConnectionCount: selectedAppConnections.length,
+			hasAttachedNoteContext: attachedNoteContext.length > 0,
+			hasNotesContext: notesContext.length > 0,
+			hasRecipeContext: recipeContext.length > 0,
+			hasUserProfileContext: Boolean(userProfileContext),
+		});
+		appTools = await buildConvexWorkspaceToolSet({
+			connections: selectedAppConnections,
+			convexClient,
+			workspaceId: resolvedWorkspaceId,
+		});
+		localFolderRoots = canUseLocalFolderTools()
+			? await resolveLocalFolderRoots(
+					localFolders.reduce<string[]>((paths, folder) => {
+						if (typeof folder?.path === "string" && folder.path.length > 0) {
+							paths.push(folder.path);
+						}
+						return paths;
+					}, []),
+				)
+			: [];
+		localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
+		logLatency("tools.workspace_ready", {
+			appToolCount: Object.keys(appTools).length,
+			localFolderCount: localFolderRoots.length,
+		});
+		coreToolPolicy = buildCoreChatToolPolicy({
+			chatAttachmentsApi: api.chatAttachments,
+			convexClient,
+			message: effectiveMessage,
+			webSearchEnabled,
+		});
+		automationContext = buildChatAutomationContext({
+			appConnections: selectedAppConnections,
+			chatId: id,
+			createAutomation: async (automation) =>
+				await convexClient.mutation(api.automations.create, {
+					workspaceId: resolvedWorkspaceId,
+					...automation,
+				}),
+			defaultModel: resolvedModel.model,
+			defaultReasoningEffort: resolvedReasoningEffort,
+			defaultTimezone: resolvedTimezone,
+			webSearchEnabled,
+		});
+		({ agent, finalizedToolSet, systemPrompt, tools } = buildHostedChatRunPlan({
+			additionalAgentTools: {
+				...createHostedMultiAgentTools({
+					getRuntime: () => {
+						if (!multiAgentRuntime) {
+							throw new Error(
+								"multi-agent tools require an active assistant turn.",
+							);
+						}
+						return multiAgentRuntime;
+					},
+				}),
+				wait_agent: createHostedWaitAgentTool({
+					getActiveStreamSession: () => activeStreamSession,
+				}),
+			},
 			appTools,
 			automationContext,
 			context: {
@@ -528,42 +1036,42 @@ export const handleChatRequest = async (
 			providerOptions,
 			selectedAppSourceInstructions,
 			webSearchEnabled,
+		}));
+		logLatency("tools.finalized", {
+			deferredToolCount: finalizedToolSet.deferredToolCount,
+			hasEnabledTools: finalizedToolSet.hasTools,
+			hasToolSearch: finalizedToolSet.hasToolSearch,
+			toolCount: finalizedToolSet.toolCount,
 		});
-	logLatency("tools.finalized", {
-		deferredToolCount: finalizedToolSet.deferredToolCount,
-		hasEnabledTools: finalizedToolSet.hasTools,
-		hasToolSearch: finalizedToolSet.hasToolSearch,
-		toolCount: finalizedToolSet.toolCount,
-	});
-	const chatMessages = await validateUIMessages<
-		UIMessage<unknown, never, InferUITools<typeof tools>>
-	>({
-		messages: preparedBranch.incomingMessages,
-		tools,
-	});
-	logLatency("chat.messages_validated", {
-		chatMessageCount: chatMessages.length,
-	});
-	const lastUserMessage =
-		message.role === "user"
-			? message
-			: [...chatMessages]
-					.reverse()
-					.find((currentMessage) => currentMessage.role === "user");
-	const shouldGenerateChatTitle = Boolean(
-		lastUserMessage && (!storedChat || storedChat.title === "New chat"),
-	);
-	const attachableRun = await convexClient.query(
-		api.assistantRuns.getAttachableRun,
-		{
-			workspaceId: resolvedWorkspaceId,
-			chatId: id,
-		},
-	);
+		chatMessages = await validateUIMessages<
+			UIMessage<unknown, never, InferUITools<typeof tools>>
+		>({
+			messages: preparedBranch.incomingMessages,
+			tools,
+		});
+		logLatency("chat.messages_validated", {
+			chatMessageCount: chatMessages.length,
+		});
+		lastUserMessage =
+			effectiveMessage.role === "user"
+				? effectiveMessage
+				: [...chatMessages]
+						.reverse()
+						.find((currentMessage) => currentMessage.role === "user");
+		shouldGenerateChatTitle = Boolean(
+			lastUserMessage && (!storedChat || storedChat.title === "New chat"),
+		);
+	} catch (error) {
+		if (claimedSteerQueuedMessageId) {
+			await failClaimedSteerPreparation(error, "steer_run_prepare");
+			return;
+		}
+		throw error;
+	}
 
 	if (
 		trigger !== "regenerate-message" &&
-		!allowConcurrentRun &&
+		!continueRunId &&
 		!supersedeActiveRun
 	) {
 		if (attachableRun) {
@@ -578,20 +1086,111 @@ export const handleChatRequest = async (
 			return;
 		}
 	}
+	if (continueRunId && attachableRun?._id !== continueRunId) {
+		if (
+			!(await cleanupClaimedSteerQueuedMessage(
+				"steer_queue_active_run_cleanup",
+			))
+		) {
+			return;
+		}
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 409;
+		wideEvent.error_code = "active_run_mismatch";
+		emitWideEvent("error");
+		sendJson(response, 409, {
+			error:
+				"Active assistant run changed before the queued message could steer.",
+		});
+		return;
+	}
+	let pendingQueuedAcceptanceHeaders: Record<string, string> | null = null;
 	if (lastUserMessage) {
+		const isQueuedAccept = Boolean(
+			(continueRunId && claimedSteerQueuedMessageId) ||
+				(replayQueuedMessageId && !continueRunId),
+		);
 		try {
-			await convexClient.mutation(
-				api.chats.saveMessage,
-				buildHostedChatSaveMessageArgs({
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-					noteId: resolvedNoteId,
-					model: resolvedModel.model,
-					reasoningEffort: resolvedReasoningEffort,
-					message: lastUserMessage,
-				}),
-			);
+			const saveMessageArgs = buildHostedChatSaveMessageArgs({
+				workspaceId: resolvedWorkspaceId,
+				chatId: id,
+				noteId: resolvedNoteId,
+				model: resolvedModel.model,
+				reasoningEffort: resolvedReasoningEffort,
+				message: lastUserMessage,
+			});
+			if (continueRunId && claimedSteerQueuedMessageId) {
+				const acceptedQueuedMessageId = claimedSteerQueuedMessageId;
+				await convexClient.mutation(api.chats.acceptSteeredUserMessages, {
+					workspaceId: saveMessageArgs.workspaceId,
+					chatId: saveMessageArgs.chatId,
+					noteId: saveMessageArgs.noteId,
+					title: saveMessageArgs.title,
+					preview: saveMessageArgs.preview,
+					model: saveMessageArgs.model,
+					reasoningEffort: saveMessageArgs.reasoningEffort,
+					runId: continueRunId,
+					messages: steeredUserMessages.map((steeredMessage, index) => ({
+						queuedMessageId: claimedSteerQueuedMessageIds[index],
+						message: buildHostedChatSaveMessageArgs({
+							workspaceId: resolvedWorkspaceId,
+							chatId: id,
+							noteId: resolvedNoteId,
+							model: resolvedModel.model,
+							reasoningEffort: resolvedReasoningEffort,
+							message: steeredMessage,
+						}).message,
+					})),
+				});
+				pendingQueuedAcceptanceHeaders = getHostedChatSteerAcceptanceHeaders({
+					queuedMessageId: acceptedQueuedMessageId,
+					queuedMessageIds: claimedSteerQueuedMessageIds,
+					turnId: continueRunId,
+				});
+				acceptedSteerTurnId = continueRunId;
+				claimedSteerQueuedMessageId = null;
+				claimedSteerQueuedMessageIds = [];
+			} else if (replayQueuedMessageId && !continueRunId) {
+				await convexClient.mutation(api.chats.acceptQueuedUserMessage, {
+					...saveMessageArgs,
+					queuedMessageId: replayQueuedMessageId,
+				});
+				pendingQueuedAcceptanceHeaders = getHostedChatReplayAcceptanceHeaders({
+					queuedMessageId: replayQueuedMessageId,
+				});
+			} else {
+				await convexClient.mutation(api.chats.saveMessage, saveMessageArgs);
+				if (continueRunId) {
+					await convexClient.mutation(
+						api.assistantRuns.appendUserMessageToAssistantRun,
+						{
+							runId: continueRunId,
+							messageId: lastUserMessage.id,
+						},
+					);
+				}
+			}
 		} catch (error) {
+			if (!(await cleanupClaimedSteerQueuedMessage("steer_queue_cleanup"))) {
+				return;
+			}
+			const routeError = isQueuedAccept
+				? getHostedChatConvexRouteError(error)
+				: null;
+			if (routeError) {
+				wideEvent.outcome = "error";
+				wideEvent.status_code = routeError.statusCode;
+				wideEvent.error_code = routeError.errorCode;
+				emitWideEvent("error");
+				sendJson(response, routeError.statusCode, {
+					error: routeError.error,
+					errorCode: routeError.errorCode,
+				});
+				return;
+			}
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 500;
+			wideEvent.error_code = "user_message_persist_failed";
 			recordServerError({
 				details: {
 					message_id: lastUserMessage.id,
@@ -600,6 +1199,11 @@ export const handleChatRequest = async (
 				event: wideEvent,
 				operation: "user_message_persist",
 			});
+			emitWideEvent("error");
+			sendJson(response, 500, {
+				error: "Failed to persist user chat message.",
+			});
+			return;
 		}
 	}
 	logLatency("convex.user_message_saved", {
@@ -607,69 +1211,179 @@ export const handleChatRequest = async (
 	});
 
 	const assistantMessageId = `stream-${crypto.randomUUID()}`;
-	const assistantRun = await convexClient.mutation(
-		api.assistantRuns.startAssistantRun,
-		{
+	let assistantRun: {
+		_id: Id<"assistantRuns">;
+		chatId: Id<"chats">;
+	} | null = null;
+	try {
+		assistantRun =
+			continueRunId && attachableRun?._id === continueRunId
+				? attachableRun
+				: await convexClient.mutation(api.assistantRuns.startAssistantRun, {
+						workspaceId: resolvedWorkspaceId,
+						chatId: id,
+						assistantMessageId,
+						model: resolvedModel.model,
+						reasoningEffort: resolvedReasoningEffort,
+						policy:
+							trigger === "regenerate-message" || supersedeActiveRun
+								? "supersede"
+								: "reject",
+					});
+		activeStreamSession = createHostedActiveChatStreamSession({
+			controllers: activeChatStreamControllers,
 			workspaceId: resolvedWorkspaceId,
 			chatId: id,
-			assistantMessageId,
-			model: resolvedModel.model,
-			reasoningEffort: resolvedReasoningEffort,
-			policy:
-				trigger === "regenerate-message" || supersedeActiveRun
-					? "supersede"
-					: allowConcurrentRun
-						? "allow_concurrent"
-						: "reject",
-		},
-	);
-
-	const activeStreamSession = createHostedActiveChatStreamSession({
-		controllers: activeChatStreamControllers,
-		workspaceId: resolvedWorkspaceId,
-		chatId: id,
-		messageId: assistantMessageId,
-		runId: assistantRun._id,
-		callbacks: {
-			startActiveStream: (args) =>
-				convexClient.mutation(api.chats.startActiveStream, args),
-			appendActiveStreamText: (args) =>
-				convexClient.mutation(api.chats.appendActiveStreamText, args),
-			finishActiveStream: (args) =>
-				convexClient.mutation(api.chats.deleteActiveStreamSnapshot, args),
-			startActiveStreamToolCall: (args) =>
-				convexClient.mutation(
-					api.chatToolCalls.startActiveStreamToolCall,
-					args,
-				),
-			finishActiveStreamToolCall: (args) =>
-				convexClient.mutation(
-					api.chatToolCalls.finishActiveStreamToolCall,
-					args,
-				),
-		},
-	});
-
-	if (allowConcurrentRun && attachableRun) {
-		try {
-			await convexClient.mutation(api.chats.deleteActiveStreamSnapshot, {
-				workspaceId: resolvedWorkspaceId,
-				chatId: id,
-				runId: attachableRun._id,
-			});
-		} catch (error) {
-			if (!isConvexErrorCode(error, "ACTIVE_STREAM_NOT_FOUND")) {
-				throw error;
-			}
+			messageId: assistantMessageId,
+			runId: assistantRun._id,
+			callbacks: {
+				startActiveStream: (args) =>
+					convexClient.mutation(api.chats.startActiveStream, {
+						...args,
+						assistantMessageId,
+					}),
+				appendActiveStreamText: (args) =>
+					convexClient.mutation(api.chats.appendActiveStreamText, args),
+				finishActiveStream: (args) =>
+					convexClient.mutation(api.chats.deleteActiveStreamSnapshot, args),
+				startActiveStreamToolCall: (args) =>
+					convexClient.mutation(
+						api.chatToolCalls.startActiveStreamToolCall,
+						args,
+					),
+				finishActiveStreamToolCall: (args) =>
+					convexClient.mutation(
+						api.chatToolCalls.finishActiveStreamToolCall,
+						args,
+					),
+			},
+		});
+		await activeStreamSession.start();
+	} catch (error) {
+		if (assistantRun) {
+			await convexClient
+				.mutation(api.assistantRuns.failAssistantRun, {
+					runId: assistantRun._id,
+					errorText:
+						error instanceof Error
+							? error.message
+							: "Unknown stream start error",
+				})
+				.catch((failError) => {
+					recordServerError({
+						error: failError,
+						event: wideEvent,
+						operation: "assistant_run_start_failure_terminalize",
+					});
+				});
 		}
+		activeStreamSession?.cleanup();
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "stream_start_failed";
+		recordServerError({
+			error,
+			event: wideEvent,
+			operation: "stream_start",
+		});
+		emitWideEvent("error");
+		sendJson(
+			response,
+			500,
+			{
+				error: "Failed to start assistant stream.",
+			},
+			pendingQueuedAcceptanceHeaders,
+		);
+		return;
 	}
-
-	await activeStreamSession.start();
+	if (!assistantRun || !activeStreamSession) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = 500;
+		wideEvent.error_code = "stream_start_failed";
+		emitWideEvent("error");
+		sendJson(
+			response,
+			500,
+			{
+				error: "Failed to start assistant stream.",
+			},
+			pendingQueuedAcceptanceHeaders,
+		);
+		return;
+	}
 	wideEvent.assistant_run_id = assistantRun._id;
 	wideEvent.assistant_message_id = assistantMessageId;
 	logLatency("convex.active_stream_started", {
 		enabled: true,
 		runId: assistantRun._id,
+	});
+	multiAgentRuntime = createHostedMultiAgentRuntime({
+		activeStreamSession,
+		baseTools: tools,
+		model: resolvedModel.model,
+		onAgentCompleted: async ({ durableAgentId, message, path }) => {
+			if (!durableAgentId) {
+				return;
+			}
+			const parentPath = path.slice(0, path.lastIndexOf("/")) || "/root";
+			await convexClient.mutation(api.assistantAgents.markAgentCompleted, {
+				agentId: durableAgentId as Id<"assistantAgents">,
+				message,
+				notifyAgentId: durableAgentIdsByPath.get(parentPath),
+			});
+		},
+		onAgentCreated: async ({ message, parentPath, path }) => {
+			const created = await convexClient.mutation(
+				api.assistantAgents.createAgent,
+				{
+					workspaceId: resolvedWorkspaceId,
+					rootChatId: assistantRun.chatId,
+					parentAgentId: parentPath
+						? durableAgentIdsByPath.get(parentPath)
+						: undefined,
+					agentPath: path,
+					model: resolvedModel.model,
+					reasoningEffort: resolvedReasoningEffort,
+					initialTaskMessage: message,
+				},
+			);
+			durableAgentIdsByPath.set(path, created.agentId);
+			return {
+				durableAgentId: created.agentId,
+			};
+		},
+		onAgentErrored: async ({ durableAgentId, errorText, path }) => {
+			if (!durableAgentId) {
+				return;
+			}
+			const parentPath = path.slice(0, path.lastIndexOf("/")) || "/root";
+			await convexClient.mutation(api.assistantAgents.markAgentErrored, {
+				agentId: durableAgentId as Id<"assistantAgents">,
+				errorText,
+				notifyAgentId: durableAgentIdsByPath.get(parentPath),
+			});
+		},
+		onAgentInterrupted: async ({ durableAgentId, path }) => {
+			if (!durableAgentId) {
+				return;
+			}
+			await convexClient.mutation(api.assistantAgents.interruptAgent, {
+				rootChatId: assistantRun.chatId,
+				targetAgentPath: path,
+			});
+		},
+		onAgentRunning: async ({ activeRunId, durableAgentId }) => {
+			if (!durableAgentId) {
+				return;
+			}
+			await convexClient.mutation(api.assistantAgents.markAgentRunning, {
+				agentId: durableAgentId as Id<"assistantAgents">,
+				activeRunId,
+			});
+		},
+		providerOptions,
+		systemPrompt,
 	});
 
 	let finalizationQueue: ReturnType<
@@ -720,9 +1434,23 @@ export const handleChatRequest = async (
 				errorText: error instanceof Error ? error.message : "Unknown error",
 			});
 			activeStreamSession.cleanup();
+			if (pendingQueuedAcceptanceHeaders) {
+				sendJson(
+					response,
+					500,
+					{
+						error: "Failed to create assistant stream.",
+					},
+					pendingQueuedAcceptanceHeaders,
+				);
+				return null;
+			}
 			throw error;
 		}
 	})();
+	if (!stream) {
+		return;
+	}
 	logLatency("ai.stream_created");
 	const finalizeAssistantRun = createHostedAssistantRunFinalizer({
 		activeStreamSession,
@@ -796,6 +1524,16 @@ export const handleChatRequest = async (
 		runId: assistantRun._id,
 	});
 	const persistedStream = pipeHostedActiveStreamText({
+		onError: async (error) => {
+			finalizationQueue?.setTerminalization({
+				errorText:
+					error instanceof Error
+						? error.message
+						: "Unknown active stream persistence error",
+				status: "failed",
+			});
+			await finalizationQueue?.flushAfterClientStream();
+		},
 		onFlush: async () => {
 			await finalizationQueue?.flushAfterClientStream();
 		},
@@ -807,6 +1545,13 @@ export const handleChatRequest = async (
 	wideEvent.deferred_tool_count = finalizedToolSet.deferredToolCount;
 	wideEvent.local_folder_root_count = localFolderRoots.length;
 	wideEvent.app_connection_count = selectedAppConnections.length;
+	if (pendingQueuedAcceptanceHeaders) {
+		for (const [header, value] of Object.entries(
+			pendingQueuedAcceptanceHeaders,
+		)) {
+			response.setHeader(header, value);
+		}
+	}
 
 	pipeUIMessageStreamToResponse({
 		response,
@@ -819,7 +1564,12 @@ export const handleChatStopRequest = async (
 	request: IncomingMessage,
 	response: ServerResponse,
 ) => {
-	const { id, workspaceId, convexToken } = await readJsonBody(request);
+	const {
+		id,
+		workspaceId,
+		convexToken,
+		interruptActiveRun = false,
+	} = await readJsonBody(request);
 	const resolvedWorkspaceId =
 		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
 
@@ -834,47 +1584,48 @@ export const handleChatStopRequest = async (
 		auth: convexToken,
 	});
 
-	const attachableRun = await convexClient.query(
-		api.assistantRuns.getAttachableRun,
-		{
-			workspaceId: resolvedWorkspaceId,
-			chatId: id,
-		},
-	);
+	let attachableRun: AttachableAssistantRun | null;
+	try {
+		attachableRun = await convexClient.query(
+			api.assistantRuns.getAttachableRun,
+			{
+				workspaceId: resolvedWorkspaceId,
+				chatId: id,
+			},
+		);
+	} catch (error) {
+		if (sendHostedChatConvexRouteError(response, error)) {
+			return;
+		}
+		throw error;
+	}
 
 	if (!attachableRun) {
 		sendJson(response, 200, { ok: true });
 		return;
 	}
 
-	const stopIntentPromise =
-		attachableRun.status === "stopping"
-			? Promise.resolve()
-			: convexClient.mutation(api.assistantRuns.requestStopAssistantRun, {
-					runId: attachableRun._id,
-					stopReason: "user_requested",
-				});
-	const streamKey = createHostedActiveStreamKey({
-		workspaceId: resolvedWorkspaceId,
-		chatId: id,
-	});
-	const activeSession = activeChatStreamControllers.get(streamKey);
-	activeSession?.abort("stopped");
-	if (activeSession) {
-		activeSession.cleanup();
+	if (!interruptActiveRun && attachableRun.status !== "stopping") {
+		await convexClient.mutation(api.assistantRuns.requestStopAssistantRun, {
+			runId: attachableRun._id,
+			stopReason: "user_requested",
+		});
 	}
 
-	await Promise.all([
-		stopIntentPromise,
-		convexClient.mutation(api.chats.stopActiveStream, {
+	try {
+		await interruptActiveChatRun({
 			workspaceId: resolvedWorkspaceId,
 			chatId: id,
+			client: convexClient,
 			runId: attachableRun._id,
-		}),
-	]);
-	await convexClient.mutation(api.assistantRuns.finishStoppedAssistantRun, {
-		runId: attachableRun._id,
-	});
+		});
+	} finally {
+		if (!interruptActiveRun) {
+			await convexClient.mutation(api.assistantRuns.finishStoppedAssistantRun, {
+				runId: attachableRun._id,
+			});
+		}
+	}
 
 	sendJson(response, 200, { ok: true });
 };
@@ -903,13 +1654,21 @@ export const handleChatReconnectRequest = async (
 	const convexClient = new ConvexHttpClient(getConvexUrl(), {
 		auth: convexToken,
 	});
-	const attachableRun = await convexClient.query(
-		api.assistantRuns.getAttachableRun,
-		{
-			workspaceId,
-			chatId: id,
-		},
-	);
+	let attachableRun: AttachableAssistantRun | null;
+	try {
+		attachableRun = await convexClient.query(
+			api.assistantRuns.getAttachableRun,
+			{
+				workspaceId,
+				chatId: id,
+			},
+		);
+	} catch (error) {
+		if (sendHostedChatConvexRouteError(response, error)) {
+			return;
+		}
+		throw error;
+	}
 
 	if (!attachableRun) {
 		response.statusCode = 204;

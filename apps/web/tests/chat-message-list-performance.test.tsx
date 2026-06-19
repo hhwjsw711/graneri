@@ -21,14 +21,17 @@ vi.mock("streamdown", () => ({
 
 const createTextMessage = ({
 	id,
+	metadata,
 	role,
 	text,
 }: {
 	id: string;
+	metadata?: UIMessage["metadata"];
 	role: UIMessage["role"];
 	text: string;
 }): UIMessage => ({
 	id,
+	metadata,
 	role,
 	parts: [{ type: "text", text }],
 });
@@ -81,6 +84,7 @@ describe("ChatMessageListContent performance", () => {
 		);
 
 		expect(streamdownRenderCounts.get(longHistoricalText)).toBe(1);
+		expect(streamdownRenderCounts.get("The morning starts softly.")).toBe(1);
 
 		rerender(
 			<ChatMessageListContent
@@ -100,6 +104,39 @@ describe("ChatMessageListContent performance", () => {
 		);
 
 		expect(streamdownRenderCounts.get(longHistoricalText)).toBe(1);
+		expect(
+			streamdownRenderCounts.get(
+				"The morning starts softly. More light gathers on the street.",
+			),
+		).toBe(1);
+	});
+
+	it("renders interrupted assistant markdown through the markdown renderer", () => {
+		const interruptedText = [
+			"# Interrupted answer",
+			"",
+			"- first point",
+			"- second point",
+		].join("\n");
+		const interruptedAssistantMessage = createTextMessage({
+			id: "assistant-1",
+			metadata: { interrupted: true },
+			role: "assistant",
+			text: interruptedText,
+		});
+
+		render(
+			<TooltipProvider>
+				<ChatMessageListContent
+					messages={[interruptedAssistantMessage]}
+					isLoading={false}
+					renderAssistantActions={() => null}
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(streamdownRenderCounts.get(interruptedText)).toBe(1);
+		expect(document.body.textContent).toContain("# Interrupted answer");
 	});
 
 	it("keeps historical markdown stable through the production chat message wrapper", () => {
@@ -149,6 +186,7 @@ describe("ChatMessageListContent performance", () => {
 		);
 
 		expect(streamdownRenderCounts.get(longHistoricalText)).toBe(1);
+		expect(streamdownRenderCounts.get("The morning starts softly.")).toBe(1);
 
 		rerender(
 			<TooltipProvider>
@@ -172,6 +210,11 @@ describe("ChatMessageListContent performance", () => {
 		);
 
 		expect(streamdownRenderCounts.get(longHistoricalText)).toBe(1);
+		expect(
+			streamdownRenderCounts.get(
+				"The morning starts softly. More light gathers on the street.",
+			),
+		).toBe(1);
 	});
 
 	it("keeps completed streaming markdown blocks stable as the final block grows", () => {

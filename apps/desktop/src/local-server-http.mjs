@@ -14,9 +14,12 @@ export const readJsonBody = async (request) => {
 	return JSON.parse(rawBody);
 };
 
-export const sendJson = (response, statusCode, payload) => {
+export const sendJson = (response, statusCode, payload, headers = null) => {
 	response.statusCode = statusCode;
 	response.setHeader("Content-Type", "application/json");
+	for (const [header, value] of Object.entries(headers ?? {})) {
+		response.setHeader(header, value);
+	}
 	response.end(JSON.stringify(payload));
 };
 

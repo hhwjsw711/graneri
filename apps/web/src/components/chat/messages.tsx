@@ -50,6 +50,7 @@ export type ChatMessagesProps = {
 	) => Promise<"created" | undefined> | "created" | undefined;
 	onRegenerateMessage?: (messageId: string) => void;
 	onOpenMention?: (noteId: string) => void;
+	streamingMessageIds?: ReadonlySet<string>;
 };
 
 // react-doctor-disable-next-line deslop/unused-export
@@ -62,6 +63,7 @@ export default function ChatMessages({
 	onPlusAction,
 	onRegenerateMessage,
 	onOpenMention,
+	streamingMessageIds,
 }: ChatMessagesProps) {
 	const [messageIdPendingDelete, setMessageIdPendingDelete] = React.useState<
 		string | null
@@ -124,6 +126,7 @@ export default function ChatMessages({
 			renderAssistantActions={renderAssistantActions}
 			renderUserActions={renderUserActions}
 			onOpenMention={onOpenMention}
+			streamingMessageIds={streamingMessageIds}
 		/>
 	);
 }

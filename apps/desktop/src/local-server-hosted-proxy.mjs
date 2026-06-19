@@ -1,7 +1,6 @@
 import { Readable } from "node:stream";
 
-const getHostedApiBaseUrl = () =>
-	process.env.CONVEX_SITE_URL?.trim() || process.env.SITE_URL?.trim() || "";
+const getHostedApiBaseUrl = () => process.env.SITE_URL?.trim() || "";
 
 export const shouldProxyHostedAiRequest = () =>
 	!process.env.OPENAI_API_KEY && Boolean(getHostedApiBaseUrl());
@@ -17,7 +16,7 @@ export const proxyHostedAiRequest = async ({
 	const baseUrl = getHostedApiBaseUrl();
 
 	if (!baseUrl) {
-		throw new Error("CONVEX_SITE_URL is not configured.");
+		throw new Error("SITE_URL is not configured.");
 	}
 
 	const proxyHeaders = new Headers();

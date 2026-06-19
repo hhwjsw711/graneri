@@ -5,8 +5,19 @@ import {
 	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
 	fromHostedStoredMessages,
+	getHostedChatConvexRouteError,
+	getHostedChatReplayAcceptanceHeaders,
+	getHostedChatSteerAcceptanceHeaders,
+	getHostedChatSteerTelemetry,
 	getStoredHostedNoteContext,
+	hostedChatReplayAcceptedHeader,
+	hostedChatReplayQueuedMessageIdHeader,
+	hostedChatSteerAcceptedHeader,
+	hostedChatSteerQueuedMessageIdHeader,
+	hostedChatSteerTurnIdHeader,
 	prepareHostedChatBranch,
+	toHostedQueuedUserMessage,
+	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
 	buildApplyTemplatePrompt,
@@ -62,6 +73,18 @@ describe("prompt helpers", () => {
 				userText: "why did OpenAI hire Sam Altman for GPT-5 work?",
 			}),
 		).toBe("OpenAI hire Sam Altman");
+	});
+
+	it("maps missing chat Convex errors to route errors", () => {
+		const error = Object.assign(new Error("Chat not found."), {
+			data: { code: "CHAT_NOT_FOUND", message: "Chat not found." },
+		});
+
+		expect(getHostedChatConvexRouteError(error)).toEqual({
+			error: "Chat not found.",
+			errorCode: "CHAT_NOT_FOUND",
+			statusCode: 409,
+		});
 	});
 
 	it("includes selected app source instructions in hosted chat runtime prompts", () => {
@@ -135,6 +158,218 @@ describe("prompt helpers", () => {
 		expect(saved.message.text).toBe("Hello from Graneri");
 	});
 
+	it("builds Codex-style steer acceptance headers", () => {
+		expect(
+			getHostedChatSteerAcceptanceHeaders({
+				queuedMessageId: "queued-1",
+				turnId: "run-1",
+			}),
+		).toEqual({
+			[hostedChatSteerAcceptedHeader]: "true",
+			[hostedChatSteerQueuedMessageIdHeader]: "queued-1",
+			[hostedChatSteerTurnIdHeader]: "run-1",
+		});
+	});
+
+	it("builds replay acceptance headers", () => {
+		expect(
+			getHostedChatReplayAcceptanceHeaders({
+				queuedMessageId: "queued-1",
+			}),
+		).toEqual({
+			[hostedChatReplayAcceptedHeader]: "true",
+			[hostedChatReplayQueuedMessageIdHeader]: "queued-1",
+		});
+	});
+
+	it("builds Codex-style steer telemetry", () => {
+		expect(
+			getHostedChatSteerTelemetry({
+				acceptedTurnId: "run-1",
+				errorCode: "stream_start_failed",
+				expectedTurnId: "run-1",
+				isSteerRoute: true,
+				outcome: "error",
+				queuedMessageId: "queued-1",
+			}),
+		).toEqual({
+			turn_steer_accepted_turn_id: "run-1",
+			turn_steer_expected_turn_id: "run-1",
+			turn_steer_num_input_images: 0,
+			turn_steer_queued_message_id: "queued-1",
+			turn_steer_rejection_reason: null,
+			turn_steer_result: "accepted",
+		});
+		expect(
+			getHostedChatSteerTelemetry({
+				errorCode: "active_run_mismatch",
+				expectedTurnId: "run-1",
+				isSteerRoute: true,
+				outcome: "error",
+				queuedMessageId: "queued-1",
+			}),
+		).toMatchObject({
+			turn_steer_accepted_turn_id: null,
+			turn_steer_rejection_reason: "expected_turn_mismatch",
+			turn_steer_result: "rejected",
+		});
+		expect(
+			getHostedChatSteerTelemetry({
+				errorCode: "queued_message_unavailable",
+				isSteerRoute: false,
+				outcome: "error",
+				queuedMessageId: "queued-1",
+			}),
+		).toMatchObject({
+			turn_steer_rejection_reason: "queued_message_unavailable",
+			turn_steer_result: "rejected",
+		});
+		expect(
+			getHostedChatSteerTelemetry({
+				errorCode: "input_empty",
+				isSteerRoute: false,
+				outcome: "error",
+				queuedMessageId: null,
+			}),
+		).toBeNull();
+	});
+
+	it("validates the Codex-style steer route contract", () => {
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: "run-1",
+				isSteerRoute: true,
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: "queued-1",
+			}),
+		).toBeNull();
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: "run-1",
+				isSteerRoute: false,
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: "queued-1",
+			}),
+		).toMatchObject({
+			errorCode: "steer_route_required",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: null,
+				isSteerRoute: true,
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: "queued-1",
+			}),
+		).toMatchObject({
+			errorCode: "steer_context_missing",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: "run-1",
+				isSteerRoute: true,
+				replayQueuedMessageId: "queued-replay-1",
+				steerQueuedMessageId: "queued-steer-1",
+			}),
+		).toMatchObject({
+			errorCode: "queued_message_mode_conflict",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: "run-1",
+				hasMessage: true,
+				isSteerRoute: true,
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: "queued-1",
+			}),
+		).toMatchObject({
+			errorCode: "queued_message_body_conflict",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: null,
+				hasMessage: true,
+				isSteerRoute: false,
+				replayQueuedMessageId: "queued-replay-1",
+				steerQueuedMessageId: null,
+			}),
+		).toMatchObject({
+			errorCode: "queued_message_body_conflict",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: "run-1",
+				isSteerRoute: false,
+				replayQueuedMessageId: "queued-replay-1",
+				steerQueuedMessageId: null,
+			}),
+		).toMatchObject({
+			errorCode: "queued_replay_active_run_conflict",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: "",
+				isSteerRoute: true,
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: "queued-1",
+			}),
+		).toMatchObject({
+			errorCode: "continue_run_id_invalid",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: null,
+				isSteerRoute: false,
+				replayQueuedMessageId: 42,
+				steerQueuedMessageId: null,
+			}),
+		).toMatchObject({
+			errorCode: "replay_queued_message_id_invalid",
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatSteerRoute({
+				continueRunId: "run-1",
+				isSteerRoute: true,
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: {},
+			}),
+		).toMatchObject({
+			errorCode: "steer_queued_message_id_invalid",
+			statusCode: 400,
+		});
+	});
+
+	it("reconstructs accepted steer messages from durable queued content", () => {
+		expect(
+			toHostedQueuedUserMessage({
+				messageId: "queued-message-1",
+				metadataJson: JSON.stringify({ client: "ignored-for-trust" }),
+				partsJson: JSON.stringify([
+					{ type: "text", text: "Use the queued text" },
+					{ type: "file", url: "file://not-model-input" },
+				]),
+			}),
+		).toEqual({
+			id: "queued-message-1",
+			role: "user",
+			metadata: { client: "ignored-for-trust" },
+			parts: [{ type: "text", text: "Use the queued text" }],
+		});
+		expect(() =>
+			toHostedQueuedUserMessage({
+				messageId: "queued-message-empty",
+				partsJson: JSON.stringify([{ type: "text", text: "   " }]),
+			}),
+		).toThrow("Queued chat message cannot be empty.");
+	});
+
 	it("replays stored hosted messages with tolerant parsing", () => {
 		const messages = fromHostedStoredMessages([
 			{
@@ -198,6 +433,94 @@ describe("prompt helpers", () => {
 		expect(branch.incomingMessages.map((message) => message.id)).toEqual([
 			"msg-1",
 			"edited-message",
+		]);
+	});
+
+	it("omits every interrupted assistant segment from continued run context", () => {
+		const branch = prepareHostedChatBranch({
+			interruptedAssistantMessageIds: [
+				"assistant-interrupted-1",
+				"assistant-interrupted-2",
+			],
+			message: {
+				id: "steer-2",
+				role: "user",
+				parts: [{ type: "text", text: "Second steer" }],
+			},
+			storedMessages: [
+				{
+					id: "prompt-1",
+					role: "user",
+					partsJson: JSON.stringify([{ type: "text", text: "First prompt" }]),
+				},
+				{
+					id: "assistant-interrupted-1",
+					role: "assistant",
+					partsJson: JSON.stringify([
+						{ type: "text", text: "Partial answer one" },
+					]),
+				},
+				{
+					id: "steer-1",
+					role: "user",
+					partsJson: JSON.stringify([{ type: "text", text: "First steer" }]),
+				},
+				{
+					id: "assistant-interrupted-2",
+					role: "assistant",
+					partsJson: JSON.stringify([
+						{ type: "text", text: "Partial answer two" },
+					]),
+				},
+			],
+			trigger: "submit-message",
+		});
+
+		expect(branch.incomingMessages.map((message) => message.id)).toEqual([
+			"prompt-1",
+			"steer-1",
+			"steer-2",
+		]);
+	});
+
+	it("drains active-turn pending input into continued run context once", () => {
+		const branch = prepareHostedChatBranch({
+			message: {
+				id: "steer-2",
+				role: "user",
+				parts: [{ type: "text", text: "Second steer" }],
+			},
+			pendingMessages: [
+				{
+					id: "steer-1",
+					role: "user",
+					parts: [{ type: "text", text: "First steer" }],
+				},
+				{
+					id: "steer-2",
+					role: "user",
+					parts: [{ type: "text", text: "Second steer" }],
+				},
+			],
+			storedMessages: [
+				{
+					id: "prompt-1",
+					role: "user",
+					partsJson: JSON.stringify([{ type: "text", text: "First prompt" }]),
+				},
+				{
+					id: "steer-1",
+					role: "user",
+					partsJson: JSON.stringify([{ type: "text", text: "First steer" }]),
+				},
+			],
+			trigger: "submit-message",
+		});
+
+		expect(branch.incomingMessages.map((message) => message.id)).toEqual([
+			"prompt-1",
+			"steer-1",
+			"steer-2",
 		]);
 	});
 

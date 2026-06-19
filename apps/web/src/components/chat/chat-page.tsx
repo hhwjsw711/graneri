@@ -79,6 +79,7 @@ import {
 	buildWorkspaceChatRequestBodyFromLocalFolders,
 } from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
+import { CHAT_STREAM_UI_THROTTLE_MS } from "@/lib/chat-streaming-performance";
 import {
 	removeChatMessageById,
 	submitChatTurn,
@@ -403,6 +404,8 @@ const useChatPageController = ({
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [localOptimisticMessages, setLocalOptimisticMessages] =
 		React.useState<ScopedLocalOptimisticMessages | null>(null);
+	const [steerHandoffStreamingMessageIds, setSteerHandoffStreamingMessageIds] =
+		React.useState<ReadonlySet<string>>(() => new Set());
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [pendingTruncateMessageId, setPendingTruncateMessageId] =
 		React.useState<string | null>(null);
@@ -426,6 +429,7 @@ const useChatPageController = ({
 		addToolOutput,
 	} = useChat({
 		id: chatId,
+		experimental_throttle: CHAT_STREAM_UI_THROTTLE_MS,
 		transport,
 		onToolCall: handleToolCall,
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
@@ -480,7 +484,44 @@ const useChatPageController = ({
 	const displayActiveRun = hasLocallyCompletedAssistantMessage
 		? null
 		: attachableActiveRun;
-	const activeAssistantMessageId = displayActiveRun?.assistantMessageId ?? null;
+	const activeAssistantMessageId = React.useMemo(() => {
+		if (!displayActiveRun) {
+			return null;
+		}
+
+		const controllerMessagesAfterLatestUser = controllerMessages.slice(
+			controllerMessages.findLastIndex((message) => message.role === "user") +
+				1,
+		);
+		const snapshotMessagesAfterLatestUser = visiblePersistedMessages.slice(
+			visiblePersistedMessages.findLastIndex(
+				(message) => message.role === "user",
+			) + 1,
+		);
+		const activeControllerAssistantMessage = [
+			...controllerMessagesAfterLatestUser,
+		]
+			.reverse()
+			.find((message) => message.role === "assistant");
+		const activeSnapshotAssistantMessage = [...snapshotMessagesAfterLatestUser]
+			.reverse()
+			.find((message) => message.role === "assistant");
+
+		return (
+			activeControllerAssistantMessage?.id ??
+			activeSnapshotAssistantMessage?.id ??
+			displayActiveRun.assistantMessageId
+		);
+	}, [controllerMessages, displayActiveRun, visiblePersistedMessages]);
+	React.useEffect(() => {
+		if (displayActiveRun || isAiRequestPending || isPreparingRequest) {
+			return;
+		}
+
+		setSteerHandoffStreamingMessageIds((messageIds) =>
+			messageIds.size > 0 ? new Set() : messageIds,
+		);
+	}, [displayActiveRun, isAiRequestPending, isPreparingRequest]);
 
 	const persistedMessagesSeedKey = React.useMemo(
 		() => getUIMessageSeedKey(visiblePersistedMessages),
@@ -592,6 +633,17 @@ const useChatPageController = ({
 			visiblePersistedMessages,
 		],
 	);
+	const streamingMessageIds = React.useMemo(
+		() =>
+			new Set([
+				...steerHandoffStreamingMessageIds,
+				...(displayActiveRun?.interruptedAssistantMessageIds ?? []),
+			]),
+		[
+			displayActiveRun?.interruptedAssistantMessageIds,
+			steerHandoffStreamingMessageIds,
+		],
+	);
 	const hasMessages = displayMessages.length > 0 || isAutomationRunning;
 	const localMessageIds = React.useMemo(
 		() =>
@@ -602,6 +654,25 @@ const useChatPageController = ({
 					: []),
 			]),
 		[chatId, controllerMessages, localOptimisticMessages],
+	);
+	const stopCurrentStream = React.useCallback(
+		async ({ interruptActiveRun = false } = {}) => {
+			stop();
+
+			if (!displayActiveRun) {
+				return;
+			}
+
+			if (!activeWorkspaceId) {
+				throw new Error("Cannot stop chat stream without an active workspace.");
+			}
+			await stopActiveChatStream({
+				chatId,
+				interruptActiveRun,
+				workspaceId: activeWorkspaceId,
+			});
+		},
+		[activeWorkspaceId, chatId, displayActiveRun, stop],
 	);
 	const { queuedMessages, setQueuedMessages } = useQueuedChatDrain({
 		activeRun: displayActiveRun,
@@ -635,6 +706,34 @@ const useChatPageController = ({
 		queuedMessages,
 		sendMessage,
 		setQueuedMessages,
+		onSteerStart: () => {
+			const handoffMessageIds = [
+				...(activeAssistantMessageId ? [activeAssistantMessageId] : []),
+				...(displayActiveRun?.assistantMessageId
+					? [displayActiveRun.assistantMessageId]
+					: []),
+			];
+			if (handoffMessageIds.length === 0) {
+				return undefined;
+			}
+
+			setSteerHandoffStreamingMessageIds((messageIds) => {
+				const nextMessageIds = new Set(messageIds);
+				for (const messageId of handoffMessageIds) {
+					nextMessageIds.add(messageId);
+				}
+				return nextMessageIds;
+			});
+
+			return () =>
+				setSteerHandoffStreamingMessageIds((messageIds) => {
+					const nextMessageIds = new Set(messageIds);
+					for (const messageId of handoffMessageIds) {
+						nextMessageIds.delete(messageId);
+					}
+					return nextMessageIds;
+				});
+		},
 		workspaceId: activeWorkspaceId,
 	});
 	const queuedFollowUp = queuedMessages[0] ?? null;
@@ -750,7 +849,7 @@ const useChatPageController = ({
 		if (
 			(!value.trim() && attachedFiles.length === 0) ||
 			hasUploadingAttachments(attachedFiles) ||
-			(isChatRequestPending && !displayActiveRun) ||
+			(isChatRequestPending && !displayActiveRun && !activeRun) ||
 			isAutomationRunning ||
 			(displayActiveRun && attachedFiles.length > 0)
 		) {
@@ -782,6 +881,8 @@ const useChatPageController = ({
 					workspaceId: activeWorkspaceId,
 				});
 				const updatedQueuedMessage = await updateQueuedMessage({
+					workspaceId: activeWorkspaceId,
+					chatId,
 					queuedMessageId: queuedMessageEditDraft.message._id,
 					message: toQueuedUserMessageInput({
 						messageId: queuedMessageEditDraft.message.messageId,
@@ -808,7 +909,6 @@ const useChatPageController = ({
 				getMentionRequestContext(mentions);
 
 			const result = await submitChatTurn({
-				activeRun,
 				attachedFiles,
 				buildRequestBody: () =>
 					buildWorkspaceChatRequestBody({
@@ -852,7 +952,15 @@ const useChatPageController = ({
 					setSharedLocalFolders(localFolders);
 					latestRequestBodyRef.current = requestBody;
 				},
-				optimisticQueuedMessage: false,
+				onQueuedMessageSaved: ({ optimisticMessageId, queuedMessage }) => {
+					setQueuedMessages((messages) =>
+						messages.map((message) =>
+							message._id === optimisticMessageId ? queuedMessage : message,
+						),
+					);
+				},
+				queueActiveRun:
+					displayActiveRun ?? (isAiRequestPending ? activeRun : null),
 				sendMessage,
 				text: value,
 				workspaceId: activeWorkspaceId,
@@ -910,6 +1018,7 @@ const useChatPageController = ({
 		enqueueQueuedMessage,
 		finishQueuedMessageEdit,
 		getDraftSnapshot,
+		isAiRequestPending,
 		isAutomationRunning,
 		isChatRequestPending,
 		localFolderStorageScope,
@@ -923,6 +1032,7 @@ const useChatPageController = ({
 		selectedModel.model,
 		sendMessage,
 		setMessages,
+		setQueuedMessages,
 		updateQueuedMessage,
 		webSearchEnabled,
 	]);
@@ -942,22 +1052,6 @@ const useChatPageController = ({
 	const handleWebSearchEnabledChange = React.useCallback((enabled: boolean) => {
 		setWebSearchEnabled(enabled);
 	}, []);
-
-	const stopCurrentStream = React.useCallback(async () => {
-		stop();
-
-		if (!displayActiveRun) {
-			return;
-		}
-
-		if (!activeWorkspaceId) {
-			throw new Error("Cannot stop chat stream without an active workspace.");
-		}
-		await stopActiveChatStream({
-			chatId,
-			workspaceId: activeWorkspaceId,
-		});
-	}, [activeWorkspaceId, chatId, displayActiveRun, stop]);
 
 	const handleStop = React.useCallback(() => {
 		const stopPromise = queuedFollowUp
@@ -1159,6 +1253,7 @@ const useChatPageController = ({
 		isLoading: isChatUiPending,
 		isNotesLoading,
 		messages: displayMessages,
+		streamingMessageIds,
 		modelPopoverOpen,
 		selectedModel: isModelResolving ? null : selectedModel,
 		reasoningEffort: selectedReasoningEffort,
@@ -1611,6 +1706,7 @@ export function ChatPage({
 										onOpenMention={controller.onOpenMention}
 										onPlusAction={handleCreateNoteFromResponse}
 										onRegenerateMessage={controller.onRegenerateMessage}
+										streamingMessageIds={controller.streamingMessageIds}
 									/>
 								</div>
 

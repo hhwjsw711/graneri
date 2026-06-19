@@ -1,4 +1,9 @@
 import type { UIMessage } from "ai";
+import {
+	clampHostedChatWhitespace,
+	MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
+	validateHostedChatInputTextLimit,
+} from "../../../../packages/ai/src/hosted-chat-runtime.mjs";
 
 type QueuedRequestBody = Record<string, unknown>;
 
@@ -7,6 +12,7 @@ const hasDurableUnsafeLocalFolders = (requestBody: Record<string, unknown>) =>
 	requestBody.localFolders.length > 0;
 
 type QueuedMessage = {
+	_id: string;
 	messageId: string;
 	metadataJson?: string;
 	requestBodyJson: string;
@@ -18,10 +24,12 @@ const generatedQueuedMessageIdPrefix = "queued-";
 export const createQueuedUserMessageId = () =>
 	`${generatedQueuedMessageIdPrefix}${crypto.randomUUID()}`;
 
+export { MAX_HOSTED_CHAT_INPUT_TEXT_CHARS };
+
 const isRecord = (value: unknown): value is QueuedRequestBody =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isGeneratedQueuedMessageId = (messageId: string) =>
+export const isGeneratedQueuedMessageId = (messageId: string) =>
 	messageId.startsWith(generatedQueuedMessageIdPrefix);
 
 const parseQueuedRequestBody = (requestBodyJson: string): QueuedRequestBody => {
@@ -61,7 +69,17 @@ export const toQueuedUserMessageInput = ({
 	requestBody: Record<string, unknown>;
 	text: string;
 }) => {
-	const trimmedText = text.trim();
+	const canonicalText = clampHostedChatWhitespace(text);
+	if (!canonicalText) {
+		throw new Error("Queued chat message cannot be empty.");
+	}
+	const resolvedMessageId = messageId ?? createQueuedUserMessageId();
+	validateHostedChatInputTextLimit({
+		id: resolvedMessageId,
+		role: "user",
+		parts: [{ type: "text", text }],
+	});
+
 	if (hasDurableUnsafeLocalFolders(requestBody)) {
 		throw new Error(
 			"Wait for the current answer before sending follow-ups that use local folders.",
@@ -74,10 +92,10 @@ export const toQueuedUserMessageInput = ({
 	};
 
 	return {
-		messageId: messageId ?? createQueuedUserMessageId(),
-		partsJson: JSON.stringify([{ type: "text", text: trimmedText }]),
+		messageId: resolvedMessageId,
+		partsJson: JSON.stringify([{ type: "text", text: canonicalText }]),
 		metadataJson: metadata === undefined ? undefined : JSON.stringify(metadata),
-		text: trimmedText,
+		text: canonicalText,
 		requestBodyJson: JSON.stringify(sanitizedRequestBody),
 	};
 };
@@ -91,14 +109,22 @@ export const fromQueuedUserMessage = async ({
 	queuedMessage: QueuedMessage;
 	resolveConvexToken: () => Promise<string | null>;
 }) => {
+	if (!queuedMessage._id.trim()) {
+		throw new Error("Queued chat message requires a durable queue id.");
+	}
+
 	const requestBody = parseQueuedRequestBody(queuedMessage.requestBodyJson);
 	const convexToken = await resolveConvexToken();
+	if (!convexToken) {
+		throw new Error("Cannot send queued chat message without a Convex token.");
+	}
 	const metadata = parseQueuedMessageMetadata(queuedMessage.metadataJson);
 
 	return {
 		body: {
 			...requestBody,
 			convexToken,
+			replayQueuedMessageId: queuedMessage._id,
 		},
 		message: {
 			messageId:

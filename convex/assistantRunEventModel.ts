@@ -15,13 +15,31 @@ export const assistantRunEventValidator = v.union(
 		),
 	}),
 	v.object({
+		type: v.literal("assistant.message.started"),
+		assistantMessageId: v.string(),
+	}),
+	v.object({
 		type: v.literal("message.completed"),
 		assistantMessageId: v.string(),
+	}),
+	v.object({
+		type: v.literal("assistant.message.interrupted"),
+		assistantMessageId: v.string(),
+	}),
+	v.object({
+		type: v.literal("turn.steer.accepted"),
+		queuedMessageId: v.id("assistantQueuedMessages"),
+		messageId: v.string(),
+	}),
+	v.object({
+		type: v.literal("user.message.appended"),
+		messageId: v.string(),
 	}),
 	v.object({
 		type: v.literal("tool.started"),
 		toolCallId: v.string(),
 		toolName: v.string(),
+		inputJson: v.optional(v.string()),
 	}),
 	v.object({
 		type: v.literal("tool.completed"),
@@ -31,6 +49,8 @@ export const assistantRunEventValidator = v.union(
 			v.literal("failed"),
 			v.literal("denied"),
 		),
+		outputJson: v.optional(v.string()),
+		errorText: v.optional(v.string()),
 	}),
 	v.object({
 		type: v.literal("input.requested"),

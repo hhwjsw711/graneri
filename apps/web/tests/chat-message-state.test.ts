@@ -193,6 +193,40 @@ describe("mergePersistedChatMessagesWithController", () => {
 			queuedFollowUpMessage,
 		]);
 	});
+
+	it("keeps persisted steered follow-ups after the active assistant message", () => {
+		const persistedUserMessage = textMessage({
+			id: "persisted-user-1",
+			role: "user",
+			text: "Prompt",
+		});
+		const activeAssistantMessage = textMessage({
+			id: "stream-1",
+			role: "assistant",
+			text: "Streaming answer",
+		});
+		const persistedSteeredFollowUpMessage = textMessage({
+			id: "queued-user-1",
+			role: "user",
+			text: "Follow-up",
+		});
+
+		expect(
+			mergePersistedChatMessagesWithController({
+				activeAssistantMessage,
+				activeAssistantMessageId: activeAssistantMessage.id,
+				controllerMessages: [persistedUserMessage, activeAssistantMessage],
+				persistedMessages: [
+					persistedUserMessage,
+					persistedSteeredFollowUpMessage,
+				],
+			}),
+		).toEqual([
+			persistedUserMessage,
+			activeAssistantMessage,
+			persistedSteeredFollowUpMessage,
+		]);
+	});
 });
 
 describe("appendLocalOptimisticChatMessages", () => {

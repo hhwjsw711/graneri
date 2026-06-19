@@ -11,7 +11,7 @@ const LOCAL_SITE_URLS = ["http://127.0.0.1:3000", "http://localhost:3000"];
 const DESKTOP_CALLBACK_ORIGINS = ["http://127.0.0.1:*", "http://localhost:*"];
 const DESKTOP_PROTOCOL_ORIGIN = "graneri:/";
 
-function requireEnv(name: string) {
+export function requireAuthEnv(name: string) {
 	const value = process.env[name];
 
 	if (!value) {
@@ -19,10 +19,6 @@ function requireEnv(name: string) {
 	}
 
 	return value;
-}
-
-function envOrPlaceholder(name: string, fallback: string) {
-	return process.env[name] ?? fallback;
 }
 
 function getSiteUrl() {
@@ -43,7 +39,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
 
 	return betterAuth({
 		appName: "Graneri",
-		baseURL: requireEnv("CONVEX_SITE_URL"),
+		baseURL: requireAuthEnv("CONVEX_SITE_URL"),
 		trustedOrigins: [
 			siteUrl,
 			...getAdditionalTrustedOrigins(),
@@ -122,18 +118,12 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
 		},
 		socialProviders: {
 			github: {
-				clientId: envOrPlaceholder("GITHUB_CLIENT_ID", "github-client-id"),
-				clientSecret: envOrPlaceholder(
-					"GITHUB_CLIENT_SECRET",
-					"github-client-secret",
-				),
+				clientId: requireAuthEnv("GITHUB_CLIENT_ID"),
+				clientSecret: requireAuthEnv("GITHUB_CLIENT_SECRET"),
 			},
 			google: {
-				clientId: envOrPlaceholder("GOOGLE_CLIENT_ID", "google-client-id"),
-				clientSecret: envOrPlaceholder(
-					"GOOGLE_CLIENT_SECRET",
-					"google-client-secret",
-				),
+				clientId: requireAuthEnv("GOOGLE_CLIENT_ID"),
+				clientSecret: requireAuthEnv("GOOGLE_CLIENT_SECRET"),
 				accessType: "offline",
 				prompt: "consent",
 			},

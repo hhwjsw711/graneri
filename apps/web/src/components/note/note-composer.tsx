@@ -143,6 +143,7 @@ import {
 	buildNoteChatRequestBodyFromLocalFolders,
 } from "@/lib/chat-request-preparation";
 import { getUIMessageSeedKey, toStoredChatMessages } from "@/lib/chat-snapshot";
+import { CHAT_STREAM_UI_THROTTLE_MS } from "@/lib/chat-streaming-performance";
 import {
 	removeChatMessageById,
 	submitChatTurn,
@@ -788,6 +789,8 @@ const useNoteComposerController = ({
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
 	const [localOptimisticMessages, setLocalOptimisticMessages] =
 		React.useState<ScopedLocalOptimisticMessages | null>(null);
+	const [steerHandoffStreamingMessageIds, setSteerHandoffStreamingMessageIds] =
+		React.useState<ReadonlySet<string>>(() => new Set());
 	const handleToolCall = React.useMemo(
 		() =>
 			createDesktopLocalToolCallHandler({
@@ -809,6 +812,7 @@ const useNoteComposerController = ({
 	} = useChat({
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		id: currentChatId,
+		experimental_throttle: CHAT_STREAM_UI_THROTTLE_MS,
 		messages: initialMessages,
 		transport,
 		onToolCall: handleToolCall,
@@ -840,7 +844,45 @@ const useNoteComposerController = ({
 	const displayActiveRun = hasLocallyCompletedAssistantMessage
 		? null
 		: attachableActiveRun;
-	const activeAssistantMessageId = displayActiveRun?.assistantMessageId ?? null;
+	const activeAssistantMessageId = React.useMemo(() => {
+		if (!displayActiveRun) {
+			return null;
+		}
+
+		const controllerMessagesAfterLatestUser = controllerMessages.slice(
+			controllerMessages.findLastIndex(
+				(currentMessage) => currentMessage.role === "user",
+			) + 1,
+		);
+		const snapshotMessagesAfterLatestUser = visibleInitialMessages.slice(
+			visibleInitialMessages.findLastIndex(
+				(currentMessage) => currentMessage.role === "user",
+			) + 1,
+		);
+		const activeControllerAssistantMessage = [
+			...controllerMessagesAfterLatestUser,
+		]
+			.reverse()
+			.find((currentMessage) => currentMessage.role === "assistant");
+		const activeSnapshotAssistantMessage = [...snapshotMessagesAfterLatestUser]
+			.reverse()
+			.find((currentMessage) => currentMessage.role === "assistant");
+
+		return (
+			activeControllerAssistantMessage?.id ??
+			activeSnapshotAssistantMessage?.id ??
+			displayActiveRun.assistantMessageId
+		);
+	}, [controllerMessages, displayActiveRun, visibleInitialMessages]);
+	React.useEffect(() => {
+		if (displayActiveRun || isAiRequestPending || isPreparingRequest) {
+			return;
+		}
+
+		setSteerHandoffStreamingMessageIds((messageIds) =>
+			messageIds.size > 0 ? new Set() : messageIds,
+		);
+	}, [displayActiveRun, isAiRequestPending, isPreparingRequest]);
 	const mergedDisplayChatMessages = React.useMemo(() => {
 		if (!activeAssistantMessageId || !displayActiveRun) {
 			return controllerMessages.length > 0
@@ -891,6 +933,17 @@ const useNoteComposerController = ({
 			visibleInitialMessages,
 		],
 	);
+	const streamingMessageIds = React.useMemo(
+		() =>
+			new Set([
+				...steerHandoffStreamingMessageIds,
+				...(displayActiveRun?.interruptedAssistantMessageIds ?? []),
+			]),
+		[
+			displayActiveRun?.interruptedAssistantMessageIds,
+			steerHandoffStreamingMessageIds,
+		],
+	);
 
 	React.useEffect(() => {
 		if (!activeWorkspaceId) {
@@ -935,20 +988,27 @@ const useNoteComposerController = ({
 		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
+			const nextInitialMessages = activeAssistantMessageId
+				? removeChatMessageById(
+						visibleInitialMessages,
+						activeAssistantMessageId,
+					)
+				: visibleInitialMessages;
 
 			if (
 				currentMessages.length === 0 ||
 				currentMessagesSeedKey === appliedInitialMessagesSeedKeyRef.current ||
-				(!activeRun && visibleInitialMessages.length > 0)
+				(!activeRun && nextInitialMessages.length > 0)
 			) {
 				appliedInitialMessagesSeedKeyRef.current = initialMessagesSeedKey;
-				return visibleInitialMessages;
+				return nextInitialMessages;
 			}
 
 			return normalizeChatMessages(currentMessages);
 		});
 	}, [
 		activeRun,
+		activeAssistantMessageId,
 		chatStatus,
 		currentChatId,
 		initialMessagesSeedKey,
@@ -1333,43 +1393,34 @@ const useNoteComposerController = ({
 		setModelPopoverOpen(false);
 		setRecipePopoverOpen(false);
 	}, [recipePopoverOpen]);
-	const stopCurrentStream = React.useCallback(async () => {
-		stop();
+	const stopCurrentStream = React.useCallback(
+		async ({ interruptActiveRun = false } = {}) => {
+			stop();
 
-		if (!displayActiveRun) {
-			return;
-		}
+			if (!displayActiveRun) {
+				return;
+			}
 
-		if (!activeWorkspaceId) {
-			throw new Error(
-				"Cannot stop note chat stream without an active workspace.",
-			);
-		}
-		await stopActiveChatStream({
-			chatId: currentChatId,
-			workspaceId: activeWorkspaceId,
-		});
-	}, [activeWorkspaceId, currentChatId, displayActiveRun, stop]);
-	const handleStop = React.useCallback(() => {
-		void stopCurrentStream().catch((error) => {
-			logError({
-				event: "client.error",
-				error: error,
-				message: "Failed to stop note chat stream",
+			if (!activeWorkspaceId) {
+				throw new Error(
+					"Cannot stop note chat stream without an active workspace.",
+				);
+			}
+			await stopActiveChatStream({
+				chatId: currentChatId,
+				interruptActiveRun,
+				workspaceId: activeWorkspaceId,
 			});
-			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to stop note chat stream",
-			);
-		});
-	}, [stopCurrentStream]);
+		},
+		[activeWorkspaceId, currentChatId, displayActiveRun, stop],
+	);
 	const {
 		editDraft: queuedMessageEditDraft,
 		finishQueuedMessageEdit,
 		onQueuedFollowUpsReorder,
 		queuedFollowUps,
 		restoreEditedQueuedMessage,
+		sendQueuedFollowUpNow,
 	} = useQueuedFollowUpControls({
 		activeRun: displayActiveRun,
 		chatId: currentChatId,
@@ -1387,8 +1438,55 @@ const useNoteComposerController = ({
 		queuedMessages,
 		sendMessage,
 		setQueuedMessages,
+		onSteerStart: () => {
+			const handoffMessageIds = [
+				...(activeAssistantMessageId ? [activeAssistantMessageId] : []),
+				...(displayActiveRun?.assistantMessageId
+					? [displayActiveRun.assistantMessageId]
+					: []),
+			];
+			if (handoffMessageIds.length === 0) {
+				return undefined;
+			}
+
+			setSteerHandoffStreamingMessageIds((messageIds) => {
+				const nextMessageIds = new Set(messageIds);
+				for (const messageId of handoffMessageIds) {
+					nextMessageIds.add(messageId);
+				}
+				return nextMessageIds;
+			});
+
+			return () =>
+				setSteerHandoffStreamingMessageIds((messageIds) => {
+					const nextMessageIds = new Set(messageIds);
+					for (const messageId of handoffMessageIds) {
+						nextMessageIds.delete(messageId);
+					}
+					return nextMessageIds;
+				});
+		},
 		workspaceId: activeWorkspaceId,
 	});
+	const queuedFollowUp = queuedMessages[0] ?? null;
+	const handleStop = React.useCallback(() => {
+		const stopPromise = queuedFollowUp
+			? sendQueuedFollowUpNow()
+			: stopCurrentStream();
+
+		void stopPromise.catch((error) => {
+			logError({
+				event: "client.error",
+				error: error,
+				message: "Failed to stop note chat stream",
+			});
+			toast.error(
+				error instanceof Error
+					? error.message
+					: "Failed to stop note chat stream",
+			);
+		});
+	}, [queuedFollowUp, sendQueuedFollowUpNow, stopCurrentStream]);
 	const toggleTranscriptPanel = React.useCallback(() => {
 		closeComposerPopovers();
 		closeRightSidebar();
@@ -1654,9 +1752,10 @@ const useNoteComposerController = ({
 		if (
 			(!nextMessage && !selectedRecipe && attachedFiles.length === 0) ||
 			hasUploadingAttachments(attachedFiles) ||
-			chatStatus === "submitted" ||
-			chatStatus === "streaming" ||
-			isPreparingRequest ||
+			((chatStatus === "submitted" || chatStatus === "streaming") &&
+				!displayActiveRun &&
+				!activeRun) ||
+			(isPreparingRequest && !displayActiveRun && !activeRun) ||
 			(displayActiveRun && attachedFiles.length > 0)
 		) {
 			return;
@@ -1696,6 +1795,8 @@ const useNoteComposerController = ({
 					text: outgoingText,
 				});
 				const updatedQueuedMessage = await updateQueuedMessage({
+					workspaceId: activeWorkspaceId,
+					chatId: currentChatId,
 					queuedMessageId: queuedMessageEditDraft.message._id,
 					message: toQueuedUserMessageInput({
 						messageId: queuedMessageEditDraft.message.messageId,
@@ -1723,8 +1824,10 @@ const useNoteComposerController = ({
 			}
 
 			const currentNoteContext = readNoteContext();
+			clearDraft();
+			setAttachedFiles([]);
+			resetTextareaHeight();
 			const result = await submitChatTurn({
-				activeRun,
 				attachedFiles,
 				buildRequestBody: () =>
 					buildNoteChatRequestBody({
@@ -1772,6 +1875,15 @@ const useNoteComposerController = ({
 					setSharedLocalFolders(localFolders);
 					latestRequestBodyRef.current = requestBody;
 				},
+				onQueuedMessageSaved: ({ optimisticMessageId, queuedMessage }) => {
+					setQueuedMessages((messages) =>
+						messages.map((message) =>
+							message._id === optimisticMessageId ? queuedMessage : message,
+						),
+					);
+				},
+				queueActiveRun:
+					displayActiveRun ?? (isAiRequestPending ? activeRun : null),
 				sendMessage,
 				text: outgoingText,
 				workspaceId: activeWorkspaceId,
@@ -1833,6 +1945,7 @@ const useNoteComposerController = ({
 		displayActiveRun,
 		enqueueQueuedMessage,
 		finishQueuedMessageEdit,
+		isAiRequestPending,
 		isPreparingRequest,
 		getDraftSnapshot,
 		localFolderStorageScope,
@@ -1849,6 +1962,7 @@ const useNoteComposerController = ({
 		setPanelMode,
 		setMessages,
 		setMessage,
+		setQueuedMessages,
 		updateQueuedMessage,
 		requestComposerFocus,
 	]);
@@ -2081,10 +2195,6 @@ const useNoteComposerController = ({
 	};
 
 	const openInlineChatFromComposer = React.useCallback(() => {
-		if (canStop) {
-			handleStop();
-		}
-
 		closeComposerPopovers();
 		if (latestNoteChat) {
 			handlePrefetchNoteChat(latestNoteChat.chatId);
@@ -2100,9 +2210,7 @@ const useNoteComposerController = ({
 	}, [
 		closeComposerPopovers,
 		closeRightSidebar,
-		canStop,
 		handlePrefetchNoteChat,
-		handleStop,
 		latestNoteChat,
 		setPanelMode,
 		setPresentationMode,
@@ -2177,6 +2285,7 @@ const useNoteComposerController = ({
 		canSendMessage,
 		attachedFiles,
 		setAttachedFiles,
+		streamingMessageIds,
 		isTranscriptViewportAtBottom:
 			transcriptSession.isTranscriptViewportAtBottom,
 		systemAudioStatus: transcriptSession.systemAudioStatus,
@@ -3232,20 +3341,23 @@ function ChatInlinePopoverFooter({
 						</div>
 					) : null}
 					<InputGroupButton
-						type={canStop ? "button" : "submit"}
+						type={canStop && !canSendMessage ? "button" : "submit"}
 						variant="default"
 						size="icon-sm"
 						className={cn("rounded-full", !showModelPicker && "ml-auto")}
-						aria-label={canStop ? "Stop streaming" : "Send message"}
-						disabled={
-							!canStop &&
-							(isChatLoading ||
-								!canSendMessage ||
-								hasUploadingAttachments(attachedFiles))
+						aria-label={
+							canStop && !canSendMessage ? "Stop streaming" : "Send message"
 						}
-						onClick={canStop ? onStop : undefined}
+						disabled={
+							canStop
+								? canSendMessage && hasUploadingAttachments(attachedFiles)
+								: isChatLoading ||
+									!canSendMessage ||
+									hasUploadingAttachments(attachedFiles)
+						}
+						onClick={canStop && !canSendMessage ? onStop : undefined}
 					>
-						{canStop ? (
+						{canStop && !canSendMessage ? (
 							<Square className="size-3.5 fill-current" />
 						) : (
 							<ArrowUp className="size-4" />
@@ -3988,6 +4100,7 @@ function NoteComposerPanels({
 			onDeleteMessage={controller.handleDeleteMessage}
 			onEditMessage={controller.handleEditMessage}
 			onRegenerateMessage={controller.handleRegenerateMessage}
+			streamingMessageIds={controller.streamingMessageIds}
 		/>
 	);
 	const panelContent = (

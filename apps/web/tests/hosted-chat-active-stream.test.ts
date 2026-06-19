@@ -3,6 +3,8 @@ import {
 	createHostedActiveChatStreamSession,
 	createHostedActiveStreamKey,
 	createHostedActiveStreamSession,
+	HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX,
+	HOSTED_ACTIVE_STREAM_ACTIVITY_STEER,
 	HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS,
 	HostedActiveChatStreamPersister,
 	pipeHostedActiveStreamText,
@@ -225,6 +227,207 @@ describe("hosted active chat stream", () => {
 		expect(finish).toHaveBeenCalledWith();
 
 		expect(controllers.has(streamKey)).toBe(false);
+	});
+
+	it("buffers active-turn pending input in order and drains it once", () => {
+		const session = createHostedActiveStreamSession({
+			controllers: new Map(),
+			streamKey: "workspace-1:chat-1",
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+
+		expect(session.hasPendingInput()).toBe(false);
+
+		session.extendPendingInput({ id: "queued-1", role: "user" });
+		session.extendPendingInput([
+			{ id: "queued-2", role: "user" },
+			{ id: "queued-3", role: "user" },
+		]);
+
+		expect(session.hasPendingInput()).toBe(true);
+		expect(session.takePendingInput()).toEqual([
+			{ id: "queued-1", role: "user" },
+			{ id: "queued-2", role: "user" },
+			{ id: "queued-3", role: "user" },
+		]);
+		expect(session.hasPendingInput()).toBe(false);
+		expect(session.takePendingInput()).toEqual([]);
+	});
+
+	it("notifies active-turn subscribers for mailbox and steer activity", () => {
+		const session = createHostedActiveStreamSession({
+			controllers: new Map(),
+			streamKey: "workspace-1:chat-1",
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+		const listener = vi.fn();
+		const subscription = session.subscribePendingInputActivity(listener);
+
+		expect(subscription.pendingActivity).toBeNull();
+
+		session.enqueueMailboxInput({ id: "mailbox-1", role: "system" });
+		session.extendPendingInput({ id: "queued-1", role: "user" });
+
+		expect(listener).toHaveBeenNthCalledWith(
+			1,
+			HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX,
+		);
+		expect(listener).toHaveBeenNthCalledWith(
+			2,
+			HOSTED_ACTIVE_STREAM_ACTIVITY_STEER,
+		);
+
+		subscription.unsubscribe();
+		session.extendPendingInput({ id: "queued-2", role: "user" });
+
+		expect(listener).toHaveBeenCalledTimes(2);
+	});
+
+	it("reports already pending steer activity when subscribing", () => {
+		const session = createHostedActiveStreamSession({
+			controllers: new Map(),
+			streamKey: "workspace-1:chat-1",
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+
+		session.extendPendingInput({ id: "queued-1", role: "user" });
+
+		const subscription = session.subscribePendingInputActivity(vi.fn());
+
+		expect(subscription.pendingActivity).toBe(
+			HOSTED_ACTIVE_STREAM_ACTIVITY_STEER,
+		);
+	});
+
+	it("defers mailbox input past the current turn until delivery is accepted", () => {
+		const session = createHostedActiveStreamSession({
+			controllers: new Map(),
+			streamKey: "workspace-1:chat-1",
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+
+		session.deferMailboxDeliveryToNextTurn();
+		session.enqueueMailboxInput({ id: "mailbox-1", role: "system" });
+
+		expect(session.hasPendingMailboxInput()).toBe(true);
+		expect(session.hasPendingInput()).toBe(false);
+		expect(session.takePendingInput()).toEqual([]);
+
+		session.acceptMailboxDeliveryForCurrentTurn();
+
+		expect(session.hasPendingInput()).toBe(true);
+		expect(session.takePendingInput()).toEqual([
+			{ id: "mailbox-1", role: "system" },
+		]);
+		expect(session.hasPendingMailboxInput()).toBe(false);
+	});
+
+	it("steered input reopens mailbox delivery for the current turn", () => {
+		const session = createHostedActiveStreamSession({
+			controllers: new Map(),
+			streamKey: "workspace-1:chat-1",
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+
+		session.deferMailboxDeliveryToNextTurn();
+		session.enqueueMailboxInput({ id: "mailbox-1", role: "system" });
+		session.extendPendingInput({ id: "queued-1", role: "user" });
+		session.deferMailboxDeliveryToNextTurn();
+
+		expect(session.takePendingInput()).toEqual([
+			{ id: "queued-1", role: "user" },
+			{ id: "mailbox-1", role: "system" },
+		]);
+	});
+
+	it("clears active-turn pending input during cleanup", () => {
+		const session = createHostedActiveStreamSession({
+			controllers: new Map(),
+			streamKey: "workspace-1:chat-1",
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+
+		session.extendPendingInput({ id: "queued-1", role: "user" });
+		session.cleanup();
+
+		expect(session.hasPendingInput()).toBe(false);
+		expect(session.takePendingInput()).toEqual([]);
+	});
+
+	it("carries all pending input to a replacement active stream session", async () => {
+		const controllers = new Map();
+		const streamKey = "workspace-1:chat-1";
+		const oldPersister = {
+			start: vi.fn().mockResolvedValue(undefined),
+			append: vi.fn(),
+			closePersistence: vi.fn().mockResolvedValue(undefined),
+			finish: vi.fn().mockResolvedValue(undefined),
+			discardPending: vi.fn(),
+		};
+		const oldSession = createHostedActiveStreamSession({
+			controllers,
+			streamKey,
+			persister: oldPersister,
+		});
+		await oldSession.start();
+		oldSession.deferMailboxDeliveryToNextTurn();
+		oldSession.enqueueMailboxInput({ id: "mailbox-1", role: "system" });
+		oldSession.extendPendingInput([
+			{ id: "queued-1", role: "user" },
+			{ id: "queued-2", role: "user" },
+		]);
+
+		const newSession = createHostedActiveStreamSession({
+			controllers,
+			streamKey,
+			persister: {
+				start: vi.fn().mockResolvedValue(undefined),
+				append: vi.fn(),
+				closePersistence: vi.fn().mockResolvedValue(undefined),
+				finish: vi.fn().mockResolvedValue(undefined),
+			},
+		});
+
+		await newSession.start();
+
+		expect(oldSession.abortSignal.aborted).toBe(true);
+		expect(oldPersister.discardPending).toHaveBeenCalled();
+		expect(oldSession.hasPendingInput()).toBe(false);
+		expect(newSession.takePendingInput()).toEqual([
+			{ id: "queued-1", role: "user" },
+			{ id: "queued-2", role: "user" },
+			{ id: "mailbox-1", role: "system" },
+		]);
 	});
 
 	it("replaces closed stream controllers without aborting finalization", async () => {
@@ -521,5 +724,67 @@ describe("hosted active chat stream", () => {
 
 		expect(outputChunks).toEqual([{ type: "text-delta", delta: "hello" }]);
 		expect(events).toEqual(["append", "flush", "terminalize"]);
+	});
+
+	it("reports buffered text persistence failures before propagating stream errors", async () => {
+		const failure = new Error("active stream append failed");
+		const onError = vi.fn().mockResolvedValue(undefined);
+		const stream = new ReadableStream<{ type: string; delta: string }>({
+			start(controller) {
+				controller.enqueue({ type: "text-delta", delta: "hello" });
+				controller.close();
+			},
+		});
+
+		const pipedStream = pipeHostedActiveStreamText({
+			onError,
+			stream,
+			persister: {
+				append: vi.fn(),
+				flush: vi.fn().mockRejectedValue(failure),
+			},
+		});
+
+		await expect(collectStream(pipedStream)).rejects.toThrow(
+			"active stream append failed",
+		);
+		expect(onError).toHaveBeenCalledOnce();
+		expect(onError).toHaveBeenCalledWith(failure);
+	});
+
+	it("reports tool persistence failures before propagating stream errors", async () => {
+		const failure = new Error("tool call persist failed");
+		const onError = vi.fn().mockResolvedValue(undefined);
+		const stream = new ReadableStream<{
+			type: string;
+			toolCallId: string;
+			toolName: string;
+			input: { query: string };
+		}>({
+			start(controller) {
+				controller.enqueue({
+					type: "tool-input-available",
+					toolCallId: "tool-call-1",
+					toolName: "search",
+					input: { query: "graneri" },
+				});
+				controller.close();
+			},
+		});
+
+		const pipedStream = pipeHostedActiveStreamText({
+			onError,
+			stream,
+			persister: {
+				append: vi.fn(),
+				startToolCall: vi.fn().mockRejectedValue(failure),
+			},
+		});
+
+		await expect(collectStream(pipedStream)).rejects.toThrow(
+			"tool call persist failed",
+		);
+		expect(onError).toHaveBeenCalledOnce();
+		expect(onError).toHaveBeenCalledWith(failure);
 	});
 });

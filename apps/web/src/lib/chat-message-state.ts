@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { isGeneratedQueuedMessageId } from "@/lib/chat-queue";
 
 const getMessageText = (message: UIMessage) =>
 	message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
@@ -101,6 +102,7 @@ export const mergePersistedChatMessagesWithController = ({
 	const persistedMessageIds = new Set<string>();
 	const persistedUserText = new Set<string>();
 	const baseMessages: UIMessage[] = [];
+	const persistedQueuedMessagesAfterActive: UIMessage[] = [];
 
 	for (const message of persistedMessages) {
 		if (message.id === activeAssistantMessageId) {
@@ -110,6 +112,14 @@ export const mergePersistedChatMessagesWithController = ({
 		persistedMessageIds.add(message.id);
 		if (message.role === "user") {
 			persistedUserText.add(getMessageText(message));
+		}
+		if (
+			activeAssistantMessage &&
+			message.role === "user" &&
+			isGeneratedQueuedMessageId(message.id)
+		) {
+			persistedQueuedMessagesAfterActive.push(message);
+			continue;
 		}
 		baseMessages.push(message);
 	}
@@ -142,6 +152,7 @@ export const mergePersistedChatMessagesWithController = ({
 			...baseMessages,
 			...controllerOnlyMessagesBeforeActive,
 			...(activeAssistantMessage ? [activeAssistantMessage] : []),
+			...persistedQueuedMessagesAfterActive,
 			...controllerOnlyMessagesAfterActive,
 		]);
 	}
@@ -150,6 +161,7 @@ export const mergePersistedChatMessagesWithController = ({
 		...baseMessages,
 		...controllerOnlyMessages,
 		...(activeAssistantMessage ? [activeAssistantMessage] : []),
+		...persistedQueuedMessagesAfterActive,
 	]);
 };
 

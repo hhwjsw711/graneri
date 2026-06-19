@@ -11,6 +11,7 @@
 import type * as appConnectionActions from "../appConnectionActions.js";
 import type * as appConnectionProviders from "../appConnectionProviders.js";
 import type * as appConnections from "../appConnections.js";
+import type * as assistantAgents from "../assistantAgents.js";
 import type * as assistantQueuedMessages from "../assistantQueuedMessages.js";
 import type * as assistantRunEventModel from "../assistantRunEventModel.js";
 import type * as assistantRunEvents from "../assistantRunEvents.js";
@@ -25,7 +26,6 @@ import type * as chatAttachments from "../chatAttachments.js";
 import type * as chatToolCalls from "../chatToolCalls.js";
 import type * as chats from "../chats.js";
 import type * as crons from "../crons.js";
-import type * as desktopApi from "../desktopApi.js";
 import type * as domain from "../domain.js";
 import type * as googleAuth from "../googleAuth.js";
 import type * as googleTools from "../googleTools.js";
@@ -61,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   appConnectionActions: typeof appConnectionActions;
   appConnectionProviders: typeof appConnectionProviders;
   appConnections: typeof appConnections;
+  assistantAgents: typeof assistantAgents;
   assistantQueuedMessages: typeof assistantQueuedMessages;
   assistantRunEventModel: typeof assistantRunEventModel;
   assistantRunEvents: typeof assistantRunEvents;
@@ -75,7 +76,6 @@ declare const fullApi: ApiFromModules<{
   chatToolCalls: typeof chatToolCalls;
   chats: typeof chats;
   crons: typeof crons;
-  desktopApi: typeof desktopApi;
   domain: typeof domain;
   googleAuth: typeof googleAuth;
   googleTools: typeof googleTools;

@@ -58,6 +58,7 @@ const startRunAndStream = async ({
 		workspaceId,
 		chatId,
 		runId: run._id,
+		assistantMessageId: run.assistantMessageId,
 	});
 	return run;
 };
@@ -122,6 +123,74 @@ test("active stream tool calls persist lifecycle for the current stream", async 
 	);
 	expect(storedToolCalls).toHaveLength(1);
 	expect(storedToolCalls[0]?.runId).toBe(run._id);
+
+	const liveEvents = await asOwner.query(
+		api.assistantRunEvents.listRunEventsAfter,
+		{ runId: run._id },
+	);
+	expect(liveEvents.map((eventRecord) => eventRecord.event)).toEqual([
+		{
+			type: "run.started",
+			assistantMessageId: run.assistantMessageId,
+			model: "gpt-5",
+		},
+		{
+			type: "assistant.message.started",
+			assistantMessageId: run.assistantMessageId,
+		},
+		{
+			type: "tool.started",
+			toolCallId: "tool-call-1",
+			toolName: "search",
+			inputJson: JSON.stringify({ query: "note" }),
+		},
+		{
+			type: "tool.completed",
+			toolCallId: "tool-call-1",
+			status: "completed",
+			outputJson: JSON.stringify({ result: "found" }),
+		},
+	]);
+
+	await asOwner.mutation(api.assistantRuns.finishAssistantRun, {
+		runId: run._id,
+	});
+
+	const terminalRows = await t.run(async (ctx) => ({
+		toolCalls: await ctx.db
+			.query("chatToolCalls")
+			.withIndex("by_runId", (q) => q.eq("runId", run._id))
+			.take(10),
+		events: await ctx.db
+			.query("assistantRunEvents")
+			.withIndex("by_runId_and_eventIndex", (q) => q.eq("runId", run._id))
+			.collect(),
+	}));
+	expect(terminalRows.toolCalls).toHaveLength(0);
+	expect(terminalRows.events.map((eventRecord) => eventRecord.event)).toEqual([
+		{
+			type: "run.started",
+			assistantMessageId: run.assistantMessageId,
+			model: "gpt-5",
+		},
+		{
+			type: "assistant.message.started",
+			assistantMessageId: run.assistantMessageId,
+		},
+		{
+			type: "tool.started",
+			toolCallId: "tool-call-1",
+			toolName: "search",
+			inputJson: JSON.stringify({ query: "note" }),
+		},
+		{
+			type: "tool.completed",
+			toolCallId: "tool-call-1",
+			status: "completed",
+			outputJson: JSON.stringify({ result: "found" }),
+		},
+		{ type: "run.completed" },
+	]);
 });
 
 test("active stream tool calls reject stale run ids", async () => {

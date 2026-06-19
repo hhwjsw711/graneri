@@ -64,6 +64,7 @@ export type ChatMessageActionContext = {
 
 const EMPTY_MESSAGE_PARTS: UIMessage["parts"] = [];
 const EMPTY_CHART_ARTIFACTS: ReturnType<typeof extractChatChartArtifacts> = [];
+const EMPTY_MESSAGE_IDS = new Set<string>();
 
 export function ChatMessageListContent({
 	messages,
@@ -80,6 +81,7 @@ export function ChatMessageListContent({
 	renderAssistantActions,
 	renderUserActions,
 	onOpenMention,
+	streamingMessageIds,
 }: {
 	messages: UIMessage[];
 	error?: Error;
@@ -99,6 +101,7 @@ export function ChatMessageListContent({
 	) => React.ReactNode;
 	renderUserActions?: (context: ChatMessageActionContext) => React.ReactNode;
 	onOpenMention?: (noteId: string) => void;
+	streamingMessageIds?: ReadonlySet<string>;
 }) {
 	const normalizedMessages = React.useMemo(
 		() => normalizeChatMessages(messages),
@@ -121,6 +124,7 @@ export function ChatMessageListContent({
 		];
 	}, [isLoading, normalizedMessages]);
 	const lastMessage = displayMessages[displayMessages.length - 1];
+	const forcedStreamingMessageIds = streamingMessageIds ?? EMPTY_MESSAGE_IDS;
 	const turns = React.useMemo(
 		() => groupMessagesIntoTurns(displayMessages),
 		[displayMessages],
@@ -161,6 +165,7 @@ export function ChatMessageListContent({
 								renderAssistantActions={renderAssistantActions}
 								renderUserActions={renderUserActions}
 								onOpenMention={onOpenMention}
+								streamingMessageIds={forcedStreamingMessageIds}
 								streamdownClassName={streamdownClassName}
 								textContainerClassName={textContainerClassName}
 							/>
@@ -191,6 +196,7 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 	renderAssistantActions,
 	renderUserActions,
 	onOpenMention,
+	streamingMessageIds,
 	streamdownClassName,
 	textContainerClassName,
 }: {
@@ -204,6 +210,7 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 	) => React.ReactNode;
 	renderUserActions?: (context: ChatMessageActionContext) => React.ReactNode;
 	onOpenMention?: (noteId: string) => void;
+	streamingMessageIds: ReadonlySet<string>;
 	streamdownClassName?:
 		| string
 		| ((role: UIMessage["role"]) => string | undefined);
@@ -224,14 +231,17 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 			: EMPTY_MESSAGE_PARTS;
 	const metadata = getChatMessageMetadata(message);
 	const selectedRecipe = metadata?.recipe ?? null;
-	const displayText = metadata?.recipeOnly ? "" : getChatText(message);
 	const messageText = metadata?.recipeOnly ? "" : getChatText(message);
+	const displayText = messageText;
 	const messageSources =
 		includeSources && message.role === "assistant"
 			? collectMessageSources(message)
 			: [];
 	const isStreamingAssistantMessage =
-		isLoading && message.role === "assistant" && message.id === lastMessageId;
+		message.role === "assistant" &&
+		(metadata?.interrupted === true ||
+			(isLoading && message.id === lastMessageId) ||
+			streamingMessageIds.has(message.id));
 	const isEmpty = displayText.length === 0;
 	const timestamp = formatChatMessageTimestamp(
 		getChatMessageTimestamp(message),

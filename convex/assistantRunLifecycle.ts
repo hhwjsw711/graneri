@@ -3,7 +3,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { requireOwnedWorkspace } from "./domain";
 
 export const nonTerminalRunStatuses = [
-	"queued",
 	"running",
 	"waiting_for_user",
 	"stopping",

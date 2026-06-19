@@ -1,4 +1,9 @@
 export declare const HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
+export declare const HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX = "mailbox";
+export declare const HOSTED_ACTIVE_STREAM_ACTIVITY_STEER = "steer";
+export type HostedActiveStreamActivity =
+	| typeof HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX
+	| typeof HOSTED_ACTIVE_STREAM_ACTIVITY_STEER;
 
 export type HostedActiveToolCallStatus = "completed" | "failed" | "denied";
 
@@ -106,6 +111,21 @@ export type HostedActiveStreamSession = {
 	persister: HostedActiveStreamPersisterLike;
 	streamKey: string;
 	start(): Promise<void>;
+	extendPendingInput(input: unknown | readonly unknown[]): void;
+	enqueueMailboxInput(input: unknown | readonly unknown[]): void;
+	subscribePendingInputActivity(
+		listener: (activity: HostedActiveStreamActivity) => void,
+	): {
+		pendingActivity: HostedActiveStreamActivity | null;
+		unsubscribe(): void;
+	};
+	takePendingInput(): unknown[];
+	takeAllPendingInputForReplacement(): unknown[];
+	hasPendingInput(): boolean;
+	hasPendingMailboxInput(): boolean;
+	deferMailboxDeliveryToNextTurn(): void;
+	acceptMailboxDeliveryForCurrentTurn(): void;
+	clearPendingInput(): void;
 	append(delta: string): void;
 	startToolCall(args: {
 		toolCallId: string;
@@ -167,6 +187,7 @@ export declare const createHostedActiveChatStreamSession: <
 export declare const pipeHostedActiveStreamText: <
 	Chunk extends { type: string },
 >(args: {
+	onError?: (error: unknown) => Promise<void> | void;
 	onFlush?: () => Promise<void> | void;
 	persister?: HostedActiveStreamPersisterLike | null;
 	stream: ReadableStream<Chunk>;
@@ -175,6 +196,7 @@ export declare const pipeHostedActiveStreamText: <
 export declare const pipeHostedActiveStreamEvents: <
 	Chunk extends { type: string },
 >(args: {
+	onError?: (error: unknown) => Promise<void> | void;
 	onFlush?: () => Promise<void> | void;
 	persister?: HostedActiveStreamPersisterLike | null;
 	stream: ReadableStream<Chunk>;

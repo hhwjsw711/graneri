@@ -86,7 +86,7 @@ describe("chat source selection", () => {
 		]);
 	});
 
-	it("tolerates Google source listing failures", async () => {
+	it("fails closed when Google source listing fails", async () => {
 		await expect(
 			loadSelectedAppSourceConnections({
 				selectedSourceIds: ["app:google-drive"],
@@ -94,6 +94,6 @@ describe("chat source selection", () => {
 					throw new Error("Google unavailable");
 				},
 			}),
-		).resolves.toEqual([]);
+		).rejects.toThrow("Google unavailable");
 	});
 });

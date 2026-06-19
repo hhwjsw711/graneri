@@ -42,10 +42,11 @@ test("local server HTTP module reads empty and JSON request bodies", async () =>
 test("local server HTTP module writes JSON responses", () => {
 	const response = createResponse();
 
-	sendJson(response, 403, { error: "Forbidden" });
+	sendJson(response, 403, { error: "Forbidden" }, { "X-Test": "accepted" });
 
 	assert.equal(response.statusCode, 403);
 	assert.equal(response.headers.get("Content-Type"), "application/json");
+	assert.equal(response.headers.get("X-Test"), "accepted");
 	assert.equal(response.body, JSON.stringify({ error: "Forbidden" }));
 });
 

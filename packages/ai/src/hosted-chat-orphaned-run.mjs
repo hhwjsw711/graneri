@@ -14,12 +14,15 @@ export const stopOrphanedHostedAssistantRun = async ({
 		runId,
 		stopReason: "cleanup_failed",
 	});
-	await stopActiveStream({
-		workspaceId,
-		chatId,
-		runId,
-	});
-	await finishStoppedAssistantRun({ runId });
+	try {
+		await stopActiveStream({
+			workspaceId,
+			chatId,
+			runId,
+		});
+	} finally {
+		await finishStoppedAssistantRun({ runId });
+	}
 	logLatency("stream.reconnect_orphaned_run_stop_done", {
 		runId,
 	});

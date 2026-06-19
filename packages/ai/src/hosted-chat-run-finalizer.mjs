@@ -1,19 +1,12 @@
 import {
 	buildHostedChatSaveMessageArgs,
 	generateHostedChatTitle,
+	getHostedChatConvexErrorData,
 } from "./hosted-chat-runtime.mjs";
 
 const getConvexErrorCode = (error) => {
-	if (!error || typeof error !== "object" || !("data" in error)) {
-		return null;
-	}
-
-	const data = error.data;
-	if (!data || typeof data !== "object" || !("code" in data)) {
-		return null;
-	}
-
-	return typeof data.code === "string" ? data.code : null;
+	const data = getHostedChatConvexErrorData(error);
+	return typeof data?.code === "string" ? data.code : null;
 };
 
 const isConvexErrorCode = (error, code) => getConvexErrorCode(error) === code;
@@ -106,20 +99,10 @@ export const createHostedAssistantRunFinalizer = ({
 		return true;
 	};
 
-	const closePersistenceForTerminalization = async (terminalization) => {
+	const closePersistenceForTerminalization = async () => {
 		try {
 			await activeStreamSession.closePersistence();
 		} catch (error) {
-			if (
-				terminalization.status === "completed" &&
-				isConvexErrorCode(error, "ACTIVE_STREAM_NOT_FOUND")
-			) {
-				logLatency("stream.persistence_already_closed", {
-					runId: assistantRunId,
-				});
-				return;
-			}
-
 			throw error;
 		}
 	};
@@ -135,11 +118,12 @@ export const createHostedAssistantRunFinalizer = ({
 				logLatency("stream.fail_skipped_for_terminal_run", {
 					runId: assistantRunId,
 				});
-				return;
+				return false;
 			}
 
 			throw failError;
 		}
+		return true;
 	};
 
 	return async (terminalization) => {
@@ -147,6 +131,10 @@ export const createHostedAssistantRunFinalizer = ({
 			if (terminalization.status === "completed") {
 				const shouldFinalizeRun = await finalizeCompletedRun(terminalization);
 				if (!shouldFinalizeRun) {
+					await closePersistenceForTerminalization();
+					logLatency("stream.persistence_closed_for_terminal_run", {
+						runId: assistantRunId,
+					});
 					return;
 				}
 			}
@@ -155,7 +143,7 @@ export const createHostedAssistantRunFinalizer = ({
 				runId: assistantRunId,
 				status: terminalization.status,
 			});
-			await closePersistenceForTerminalization(terminalization);
+			await closePersistenceForTerminalization();
 			logLatency("stream.persistence_closed", {
 				runId: assistantRunId,
 			});
@@ -195,7 +183,9 @@ export const createHostedAssistantRunFinalizer = ({
 				terminalization,
 			});
 			onFinalizeError?.({ error, terminalization });
-			await failRunAfterFinalizeError(error);
+			if (await failRunAfterFinalizeError(error)) {
+				throw error;
+			}
 		} finally {
 			activeStreamSession.cleanup();
 		}

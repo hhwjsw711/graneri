@@ -20,25 +20,23 @@ export const createHostedAssistantRunFinalizationQueue = ({
 			runId,
 			status: terminalization.status,
 		});
-		finalizePromise = finalizeAssistantRun(terminalization);
+		finalizePromise = (async () => {
+			try {
+				await finalizeAssistantRun(terminalization);
+				if (pendingTerminalization === terminalization) {
+					pendingTerminalization = null;
+				}
+			} finally {
+				finalizePromise = null;
+			}
+		})();
 		return finalizePromise;
 	};
 
 	return {
 		flush,
 		flushAfterClientStream() {
-			if (pendingTerminalization?.status !== "completed") {
-				return flush();
-			}
-
-			void flush().catch((error) => {
-				logLatency("stream.finalize_background_failed", {
-					errorMessage:
-						error instanceof Error ? error.message : "Unknown error",
-					runId,
-				});
-			});
-			return Promise.resolve();
+			return flush();
 		},
 		hasTerminalization() {
 			return Boolean(pendingTerminalization);

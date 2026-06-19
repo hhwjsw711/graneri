@@ -34,8 +34,7 @@ const getHostedDefaults = () => {
 		deriveConvexSiteUrl(convexUrl);
 	const siteUrl =
 		trimConfigValue(process.env.GRANERI_HOSTED_SITE_URL) ||
-		trimConfigValue(hostedRuntimeConfig.siteUrl) ||
-		convexSiteUrl;
+		trimConfigValue(hostedRuntimeConfig.siteUrl);
 
 	return {
 		convexUrl,

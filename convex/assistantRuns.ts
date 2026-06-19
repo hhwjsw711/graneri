@@ -3,7 +3,10 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { discardQueuedForRunInternal } from "./assistantQueuedMessages";
+import {
+	discardClaimedForRunInternal,
+	discardQueuedForRunInternal,
+} from "./assistantQueuedMessages";
 import { appendAssistantRunEvent } from "./assistantRunEvents";
 import {
 	getNonTerminalRunsForChat,
@@ -20,7 +23,6 @@ const reasoningEffortValidator = v.union(
 );
 
 const assistantRunStatusValidator = v.union(
-	v.literal("queued"),
 	v.literal("running"),
 	v.literal("waiting_for_user"),
 	v.literal("stopping"),
@@ -62,6 +64,7 @@ const assistantRunValidator = v.object({
 	workspaceId: v.id("workspaces"),
 	chatId: v.id("chats"),
 	assistantMessageId: v.string(),
+	interruptedAssistantMessageIds: v.optional(v.array(v.string())),
 	status: assistantRunStatusValidator,
 	model: v.string(),
 	reasoningEffort: v.optional(reasoningEffortValidator),
@@ -74,7 +77,7 @@ const assistantRunValidator = v.object({
 	finishedAt: v.optional(v.number()),
 });
 
-const expirableRunStatuses = ["queued", "running", "stopping"] as const;
+const expirableRunStatuses = ["running", "stopping"] as const;
 const ASSISTANT_RUN_EXPIRATION_MS = 20 * 60 * 1000;
 const ASSISTANT_RUN_CLEANUP_BATCH_SIZE = 8;
 const ASSISTANT_RUN_RUNTIME_DELETE_BATCH_SIZE = 100;
@@ -152,7 +155,7 @@ const deleteQueuedMessagesBatch = async (
 	ctx: MutationCtx,
 	runId: Id<"assistantRuns">,
 ) => {
-	const statuses = ["queued", "claimed", "discarded"] as const;
+	const statuses = ["queued", "claimed"] as const;
 	const batches = await Promise.all(
 		statuses.map((status) =>
 			ctx.db
@@ -276,6 +279,29 @@ const stopSupersededRun = async (
 	await discardQueuedForRunInternal(ctx, run._id);
 };
 
+const cleanupTerminalRunRuntime = async (
+	ctx: MutationCtx,
+	run: Doc<"assistantRuns">,
+) => {
+	await deleteRunSnapshots(ctx, run._id);
+	if (run.status === "completed") {
+		await discardClaimedForRunInternal(ctx, run._id);
+	} else {
+		await discardQueuedForRunInternal(ctx, run._id);
+	}
+};
+
+const requireSingleNonTerminalRun = (runs: Doc<"assistantRuns">[]) => {
+	if (runs.length <= 1) {
+		return runs[0] ?? null;
+	}
+
+	throw new ConvexError({
+		code: "ASSISTANT_RUN_INVARIANT_VIOLATION",
+		message: "Chat has multiple active assistant runs.",
+	});
+};
+
 export const startAssistantRun = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),
@@ -284,9 +310,7 @@ export const startAssistantRun = mutation({
 		model: v.string(),
 		reasoningEffort: v.optional(reasoningEffortValidator),
 		policy: v.union(
-			v.literal("allow_concurrent"),
 			v.literal("reject"),
-			v.literal("return_existing"),
 			v.literal("supersede"),
 		),
 	},
@@ -312,17 +336,6 @@ export const startAssistantRun = mutation({
 
 		const activeRuns = await getNonTerminalRunsForChat(ctx, chat._id);
 		if (activeRuns.length > 0) {
-			if (args.policy === "return_existing") {
-				const activeRun = activeRuns[0];
-				if (!activeRun) {
-					throw new ConvexError({
-						code: "ASSISTANT_RUN_NOT_FOUND",
-						message: "Active assistant run not found.",
-					});
-				}
-				return activeRun;
-			}
-
 			if (args.policy === "reject") {
 				throw new ConvexError({
 					code: "ASSISTANT_RUN_ACTIVE",
@@ -370,7 +383,6 @@ export const startAssistantRun = mutation({
 			model: run.model,
 			reasoningEffort: run.reasoningEffort,
 		});
-
 		return run;
 	},
 });
@@ -483,36 +495,6 @@ export const removeOrphanedRun = internalMutation({
 	},
 });
 
-export const markAssistantRunRunning = mutation({
-	args: {
-		runId: v.id("assistantRuns"),
-	},
-	returns: assistantRunValidator,
-	handler: async (ctx, args) => {
-		const ownerTokenIdentifier = await requireTokenIdentifier(
-			ctx,
-			"assistantRuns",
-		);
-		const run = await requireOwnedRun(ctx, ownerTokenIdentifier, args.runId);
-
-		if (run.status !== "queued" && run.status !== "running") {
-			throw new ConvexError({
-				code: "INVALID_ASSISTANT_RUN_TRANSITION",
-				message: "Assistant run cannot be marked running.",
-			});
-		}
-
-		if (run.status === "queued") {
-			await ctx.db.patch(run._id, {
-				status: "running",
-				updatedAt: Date.now(),
-			});
-		}
-
-		return await requireSavedRun(ctx, run._id);
-	},
-});
-
 export const waitForUserDecision = mutation({
 	args: {
 		runId: v.id("assistantRuns"),
@@ -533,7 +515,7 @@ export const waitForUserDecision = mutation({
 			run.status === "failed" ||
 			run.status === "stopping"
 		) {
-			await deleteRunSnapshots(ctx, run._id);
+			await cleanupTerminalRunRuntime(ctx, run);
 			return run;
 		}
 
@@ -620,15 +602,49 @@ export const finishAssistantRun = mutation({
 			finishedAt: now,
 		});
 		await appendAssistantRunEvent(ctx, run, {
-			type: "message.completed",
-			assistantMessageId: run.assistantMessageId,
-		});
-		await appendAssistantRunEvent(ctx, run, {
 			type: "run.completed",
 		});
 		await deleteRunSnapshots(ctx, run._id);
+		await discardClaimedForRunInternal(ctx, run._id);
 
 		return await requireSavedRun(ctx, run._id);
+	},
+});
+
+export const appendUserMessageToAssistantRun = mutation({
+	args: {
+		runId: v.id("assistantRuns"),
+		messageId: v.string(),
+	},
+	returns: assistantRunValidator,
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(
+			ctx,
+			"assistantRuns",
+		);
+		const run = await requireOwnedRun(ctx, ownerTokenIdentifier, args.runId);
+
+		if (run.status !== "running" && run.status !== "waiting_for_user") {
+			throw new ConvexError({
+				code: "INVALID_ASSISTANT_RUN_TRANSITION",
+				message: "Assistant run cannot accept steered user input.",
+			});
+		}
+
+		await appendAssistantRunEvent(ctx, run, {
+			type: "user.message.appended",
+			messageId: args.messageId,
+		});
+		if (run.status === "waiting_for_user") {
+			await ctx.db.patch(run._id, {
+				status: "running",
+				pendingDecision: undefined,
+				updatedAt: Date.now(),
+			});
+			return await requireSavedRun(ctx, run._id);
+		}
+
+		return run;
 	},
 });
 
@@ -646,7 +662,6 @@ export const failAssistantRun = mutation({
 		const run = await requireOwnedRun(ctx, ownerTokenIdentifier, args.runId);
 
 		if (
-			run.status !== "queued" &&
 			run.status !== "running" &&
 			run.status !== "waiting_for_user" &&
 			run.status !== "stopping" &&
@@ -731,7 +746,7 @@ export const finishStoppedAssistantRun = mutation({
 			run.status === "completed" ||
 			run.status === "failed"
 		) {
-			await deleteRunSnapshots(ctx, run._id);
+			await cleanupTerminalRunRuntime(ctx, run);
 			return run;
 		}
 
@@ -782,7 +797,26 @@ export const getAttachableRun = query({
 		}
 
 		const runs = await getNonTerminalRunsForChat(ctx, chat._id);
-		return runs[0] ?? null;
+		const run = requireSingleNonTerminalRun(runs);
+
+		if (!run) {
+			return null;
+		}
+
+		const events = await ctx.db
+			.query("assistantRunEvents")
+			.withIndex("by_runId_and_eventIndex", (q) => q.eq("runId", run._id))
+			.collect();
+		const interruptedAssistantMessageIds = events.flatMap((event) =>
+			event.event.type === "assistant.message.interrupted"
+				? [event.event.assistantMessageId]
+				: [],
+		);
+
+		return {
+			...run,
+			interruptedAssistantMessageIds,
+		};
 	},
 });
 
@@ -809,7 +843,7 @@ export const getActiveRunStatus = query({
 		}
 
 		const runs = await getNonTerminalRunsForChat(ctx, chat._id);
-		return runs.length > 0 ? "streaming" : null;
+		return requireSingleNonTerminalRun(runs) ? "streaming" : null;
 	},
 });
 
@@ -825,6 +859,7 @@ export const listActiveChatIds = query({
 		);
 		await requireOwnedWorkspace(ctx, ownerTokenIdentifier, args.workspaceId);
 		const activeChatIds = new Set<string>();
+		const activeRunCountsByChatId = new Map<Id<"chats">, number>();
 
 		const runs = await getNonTerminalRunsForWorkspace(ctx, args.workspaceId);
 
@@ -835,6 +870,16 @@ export const listActiveChatIds = query({
 
 			const chat = await ctx.db.get(run.chatId);
 			if (chat && !chat.isArchived) {
+				activeRunCountsByChatId.set(
+					chat._id,
+					(activeRunCountsByChatId.get(chat._id) ?? 0) + 1,
+				);
+				if ((activeRunCountsByChatId.get(chat._id) ?? 0) > 1) {
+					throw new ConvexError({
+						code: "ASSISTANT_RUN_INVARIANT_VIOLATION",
+						message: "Chat has multiple active assistant runs.",
+					});
+				}
 				activeChatIds.add(chat.chatId);
 			}
 		}
