@@ -101,6 +101,14 @@ export const getHostedChatConvexErrorData = (error) => {
 	return match ? parseConvexErrorData(match[1]) : null;
 };
 
+export const isHostedChatConvexErrorCode = (error, code) => {
+	const data = getHostedChatConvexErrorData(error);
+	return data?.code === code;
+};
+
+export const isHostedChatQueuedMessageNotFoundError = (error) =>
+	isHostedChatConvexErrorCode(error, "QUEUED_MESSAGE_NOT_FOUND");
+
 const hostedChatConvexRouteErrorMessages = new Map([
 	[
 		"ASSISTANT_RUN_INVARIANT_VIOLATION",
@@ -108,6 +116,10 @@ const hostedChatConvexRouteErrorMessages = new Map([
 	],
 	["ASSISTANT_RUN_NOT_ACTIVE", "Assistant run is not active."],
 	["ASSISTANT_RUN_NOT_FOUND", "Assistant run not found."],
+	[
+		"INVALID_ASSISTANT_RUN_TRANSITION",
+		"Assistant run cannot accept steered user input.",
+	],
 	["CHAT_NOT_FOUND", "Chat not found."],
 	["QUEUED_MESSAGE_NOT_FOUND", "Queued message is no longer available."],
 	["QUEUED_MESSAGE_NOT_EDITABLE", "Queued message cannot be edited."],
@@ -149,7 +161,8 @@ export const getHostedChatConvexRouteError = (error) => {
 	const isAssistantRunLifecycleError =
 		code === "ASSISTANT_RUN_INVARIANT_VIOLATION" ||
 		code === "ASSISTANT_RUN_NOT_ACTIVE" ||
-		code === "ASSISTANT_RUN_NOT_FOUND";
+		code === "ASSISTANT_RUN_NOT_FOUND" ||
+		code === "INVALID_ASSISTANT_RUN_TRANSITION";
 	const isChatLifecycleError = code === "CHAT_NOT_FOUND";
 	const isQueuedMessageError = code.startsWith("QUEUED_MESSAGE_");
 	if (

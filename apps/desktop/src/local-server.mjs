@@ -40,6 +40,7 @@ import {
 	getStoredHostedNoteContext,
 	HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
 	HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
+	isHostedChatQueuedMessageNotFoundError,
 	MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
 	prepareHostedChatBranch,
 	toHostedQueuedUserMessage,
@@ -470,7 +471,7 @@ const handleChatRequest = async ({
 	let steeredUserMessage = null;
 	let replayedUserMessage = null;
 	let interruptedPendingInput = [];
-	const cleanupClaimedSteerQueuedMessage = async (message) => {
+	const cleanupClaimedSteerQueuedMessage = async (message, options = {}) => {
 		const queuedMessageIds =
 			claimedSteerQueuedMessageIds.length > 0
 				? claimedSteerQueuedMessageIds
@@ -494,6 +495,14 @@ const handleChatRequest = async ({
 			claimedSteerQueuedMessageIds = [];
 			return true;
 		} catch (cleanupError) {
+			if (
+				options.tolerateMissing &&
+				isHostedChatQueuedMessageNotFoundError(cleanupError)
+			) {
+				claimedSteerQueuedMessageId = null;
+				claimedSteerQueuedMessageIds = [];
+				return true;
+			}
 			logError({
 				error: cleanupError,
 				message,
@@ -945,14 +954,22 @@ const handleChatRequest = async ({
 				}
 			}
 		} catch (error) {
+			const routeError = isQueuedAccept
+				? getHostedChatConvexRouteError(error)
+				: null;
 			if (
 				!(await cleanupClaimedSteerQueuedMessage(
 					"Failed to delete failed steered queue message",
+					{ tolerateMissing: Boolean(routeError) },
 				))
 			) {
 				return;
 			}
-			if (isQueuedAccept && sendConvexRouteError(error)) {
+			if (routeError) {
+				sendJson(response, routeError.statusCode, {
+					error: routeError.error,
+					errorCode: routeError.errorCode,
+				});
 				return;
 			}
 			logError({

@@ -21,6 +21,13 @@ export declare const getHostedChatReplayAcceptanceHeaders: (args: {
 export declare const getHostedChatConvexErrorData: (
 	error: unknown,
 ) => Record<string, unknown> | null;
+export declare const isHostedChatConvexErrorCode: (
+	error: unknown,
+	code: string,
+) => boolean;
+export declare const isHostedChatQueuedMessageNotFoundError: (
+	error: unknown,
+) => boolean;
 export declare const getHostedChatConvexRouteError: (
 	error: unknown,
 ) => null | {

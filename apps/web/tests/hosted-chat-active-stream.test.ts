@@ -162,6 +162,49 @@ describe("hosted active chat stream", () => {
 		}
 	});
 
+	it("drops buffered active stream text captured behind an in-flight flush after discard", async () => {
+		let resolveFirstFlush: (() => void) | null = null;
+		const firstFlush = new Promise<void>((resolve) => {
+			resolveFirstFlush = resolve;
+		});
+		const startActiveStream = vi.fn().mockResolvedValue(undefined);
+		const appendActiveStreamText = vi
+			.fn()
+			.mockReturnValueOnce(firstFlush)
+			.mockResolvedValue(undefined);
+		const finishActiveStream = vi.fn().mockResolvedValue(undefined);
+		const persister = new HostedActiveChatStreamPersister({
+			workspaceId: "workspace-1",
+			chatId: "chat-1",
+			messageId: "stream-1",
+			runId: "run-1",
+			startActiveStream,
+			appendActiveStreamText,
+			finishActiveStream,
+		});
+
+		persister.append("first");
+		const firstFlushPromise = persister.flush();
+		await Promise.resolve();
+		persister.append("second");
+		const secondFlushPromise = persister.flush();
+		await Promise.resolve();
+
+		persister.discardPending();
+		resolveFirstFlush?.();
+		await Promise.all([firstFlushPromise, secondFlushPromise]);
+		await persister.finish();
+
+		expect(appendActiveStreamText).toHaveBeenCalledTimes(1);
+		expect(appendActiveStreamText).toHaveBeenCalledWith({
+			workspaceId: "workspace-1",
+			chatId: "chat-1",
+			runId: "run-1",
+			delta: "first",
+		});
+		expect(finishActiveStream).not.toHaveBeenCalled();
+	});
+
 	it("closes active stream persistence by flushing accepted text and rejecting later appends", async () => {
 		vi.useFakeTimers();
 		try {

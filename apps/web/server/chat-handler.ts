@@ -46,6 +46,7 @@ import {
 	getStoredHostedNoteContext,
 	HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
 	HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
+	isHostedChatQueuedMessageNotFoundError,
 	MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
 	prepareHostedChatBranch,
 	toHostedQueuedUserMessage,
@@ -604,7 +605,10 @@ export const handleChatRequest = async (
 	let steeredUserMessage: UIMessage | null = null;
 	let replayedUserMessage: UIMessage | null = null;
 	let interruptedPendingInput: unknown[] = [];
-	const cleanupClaimedSteerQueuedMessage = async (operation: string) => {
+	const cleanupClaimedSteerQueuedMessage = async (
+		operation: string,
+		options: { tolerateMissing?: boolean } = {},
+	) => {
 		const queuedMessageIds =
 			claimedSteerQueuedMessageIds.length > 0
 				? claimedSteerQueuedMessageIds
@@ -628,6 +632,14 @@ export const handleChatRequest = async (
 			claimedSteerQueuedMessageIds = [];
 			return true;
 		} catch (cleanupError) {
+			if (
+				options.tolerateMissing &&
+				isHostedChatQueuedMessageNotFoundError(cleanupError)
+			) {
+				claimedSteerQueuedMessageId = null;
+				claimedSteerQueuedMessageIds = [];
+				return true;
+			}
 			wideEvent.outcome = "error";
 			wideEvent.status_code = 500;
 			wideEvent.error_code = "steer_queue_cleanup_failed";
@@ -1187,12 +1199,16 @@ export const handleChatRequest = async (
 				}
 			}
 		} catch (error) {
-			if (!(await cleanupClaimedSteerQueuedMessage("steer_queue_cleanup"))) {
-				return;
-			}
 			const routeError = isQueuedAccept
 				? getHostedChatConvexRouteError(error)
 				: null;
+			if (
+				!(await cleanupClaimedSteerQueuedMessage("steer_queue_cleanup", {
+					tolerateMissing: Boolean(routeError),
+				}))
+			) {
+				return;
+			}
 			if (routeError) {
 				wideEvent.outcome = "error";
 				wideEvent.status_code = routeError.statusCode;

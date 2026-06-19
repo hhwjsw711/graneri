@@ -925,6 +925,69 @@ describe("chat handler persistence failures", () => {
 		});
 	});
 
+	it("returns the stale steer transition error when cleanup sees an already consumed queue row", async () => {
+		convexMock.query.mockResolvedValueOnce({
+			model: "gpt-5.4",
+			title: "Existing chat",
+		});
+		convexMock.query.mockResolvedValueOnce({
+			_id: "run_1",
+			status: "running",
+			assistantMessageId: "assistant_1",
+		});
+		convexMock.mutation.mockResolvedValueOnce([
+			{
+				_id: "queued_1",
+				messageId: "message_1",
+				partsJson: JSON.stringify([{ type: "text", text: "queued steer" }]),
+				metadataJson: undefined,
+			},
+		]);
+		convexMock.mutation.mockResolvedValueOnce(null);
+		convexMock.query.mockResolvedValueOnce([]);
+		convexMock.query.mockResolvedValueOnce([]);
+		convexMock.query.mockResolvedValueOnce(null);
+		convexMock.mutation.mockRejectedValueOnce({
+			data: {
+				code: "INVALID_ASSISTANT_RUN_TRANSITION",
+				message: "Assistant run cannot accept steered user input.",
+			},
+		});
+		convexMock.mutation.mockRejectedValueOnce({
+			data: {
+				code: "QUEUED_MESSAGE_NOT_FOUND",
+				message: "Queued message is no longer available.",
+			},
+		});
+
+		await expect(
+			postChatRequest(
+				{
+					id: "chat_1",
+					workspaceId: "workspace_1",
+					convexToken: "token_1",
+					model: "gpt-5.4",
+					appsEnabled: false,
+					continueRunId: "run_1",
+					steerQueuedMessageId: "queued_1",
+				},
+				{ isSteerRoute: true },
+			),
+		).resolves.toEqual({
+			status: 409,
+			body: {
+				error: "Assistant run cannot accept steered user input.",
+				errorCode: "INVALID_ASSISTANT_RUN_TRANSITION",
+			},
+		});
+
+		expect(convexMock.mutation.mock.calls.at(-1)?.[1]).toEqual({
+			workspaceId: "workspace_1",
+			chatId: "chat_1",
+			queuedMessageId: "queued_1",
+		});
+	});
+
 	it("interrupts orphaned active runs on reconnect when no live stream session exists", async () => {
 		convexMock.query.mockResolvedValueOnce({
 			_id: "run_1",

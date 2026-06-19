@@ -127,14 +127,17 @@ export class HostedActiveChatStreamPersister {
 			this.#buffer = "";
 			const previousFlush = this.#flushPromise ?? Promise.resolve();
 			const flushPromise = previousFlush
-				.then(() =>
-					this.#appendActiveStreamText({
+				.then(() => {
+					if (this.#discarded) {
+						return undefined;
+					}
+					return this.#appendActiveStreamText({
 						workspaceId: this.#workspaceId,
 						chatId: this.#chatId,
 						runId: this.#runId,
 						delta,
-					}),
-				)
+					});
+				})
 				.then(() => undefined);
 
 			this.#flushPromise = flushPromise;

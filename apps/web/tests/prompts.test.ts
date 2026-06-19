@@ -110,6 +110,21 @@ describe("prompt helpers", () => {
 		});
 	});
 
+	it("maps stale assistant run transition errors to route conflicts", () => {
+		const error = Object.assign(
+			new Error(
+				'Uncaught ConvexError: {"code":"INVALID_ASSISTANT_RUN_TRANSITION","message":"Assistant run cannot accept steered user input."}',
+			),
+			{},
+		);
+
+		expect(getHostedChatConvexRouteError(error)).toEqual({
+			error: "Assistant run cannot accept steered user input.",
+			errorCode: "INVALID_ASSISTANT_RUN_TRANSITION",
+			statusCode: 409,
+		});
+	});
+
 	it("maps missing Convex chat API functions to deployment skew route errors", () => {
 		for (const missingFunction of [
 			"assistantQueuedMessages:claimReadyForRun",
