@@ -1638,12 +1638,11 @@ export function ChatPage({
 		},
 		[handleMessageSearchNext, handleMessageSearchPrevious],
 	);
-	// The chat page is already rendered inside the shell content below the
-	// desktop header. Short active chats need a full-height surface so the dock
-	// lands at the same viewport position as long chats where sticky positioning
-	// is constrained by real message content.
+	// The shell header is outside this scroll viewport. Short active chats still
+	// need to fill the remaining viewport so the sticky composer dock lands at
+	// the same position as long chats without forcing empty-chat overflow.
 	const chatSurfaceMinHeightClass = isDesktopMac
-		? "min-h-[calc(100dvh-4rem)] md:min-h-[100dvh]"
+		? "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-3.5rem)]"
 		: "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4rem)]";
 	const shouldShowScrollToLatest =
 		controller.hasMessages && !isChatViewportAtBottom;
@@ -1741,12 +1740,7 @@ export function ChatPage({
 										onKeyDown={handleMessageSearchKeyDown}
 									/>
 								) : null}
-								<div
-									className={cn(
-										"flex-1 pb-28 md:pb-32",
-										isDesktopMac ? "pt-10 md:pt-12" : "pt-8",
-									)}
-								>
+								<div className="flex-1 pt-8 pb-28 md:pb-32">
 									<ChatMessagesEntry
 										messages={controller.messages}
 										error={controller.error}
