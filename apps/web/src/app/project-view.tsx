@@ -153,7 +153,7 @@ function ProjectDescriptionEditor({ project }: { project: Doc<"projects"> }) {
 			placeholder="Add a description..."
 			aria-label="Project description"
 			rows={1}
-			className="min-h-0 resize-none rounded-none border-0 bg-transparent px-0 py-0 shadow-none ring-0 focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+			className="min-h-0 resize-none rounded-none border-0 bg-transparent p-0 shadow-none ring-0 focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
 			onBlur={handleDescriptionBlur}
 			onChange={handleDescriptionChange}
 		/>

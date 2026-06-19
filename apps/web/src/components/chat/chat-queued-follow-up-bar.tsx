@@ -22,6 +22,11 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@workspace/ui/components/tooltip";
 import { cn } from "@workspace/ui/lib/utils";
 import { CornerDownRight, Ellipsis, Pencil, Trash2 } from "lucide-react";
 import * as React from "react";
@@ -232,25 +237,20 @@ function SortableQueuedFollowUpRow({
 				</p>
 			</div>
 			<div className="flex shrink-0 items-center gap-1">
-				<button
-					type="button"
-					disabled={queuedFollowUp.isSendingNow}
-					onPointerDown={stopActionPointerDown}
-					onClick={queuedFollowUp.onSendNow}
-					className="inline-flex h-7 cursor-pointer items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-				>
-					{queuedFollowUp.isSendingNow ? "Steering" : "Steer"}
-				</button>
-				<button
-					type="button"
-					disabled={queuedFollowUp.isEditing}
-					onPointerDown={stopActionPointerDown}
-					onClick={queuedFollowUp.onEdit}
-					className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-					aria-label="Edit queued message"
-				>
-					<Pencil className="size-4" aria-hidden="true" />
-				</button>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<button
+							type="button"
+							disabled={queuedFollowUp.isSendingNow}
+							onPointerDown={stopActionPointerDown}
+							onClick={queuedFollowUp.onSendNow}
+							className="inline-flex h-7 cursor-pointer items-center rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+						>
+							{queuedFollowUp.isSendingNow ? "Steering" : "Steer"}
+						</button>
+					</TooltipTrigger>
+					<TooltipContent>Submit without interrupting the model</TooltipContent>
+				</Tooltip>
 				<button
 					type="button"
 					disabled={queuedFollowUp.isDeleting}
@@ -278,16 +278,18 @@ function SortableQueuedFollowUpRow({
 						onPointerDown={(event) => event.stopPropagation()}
 					>
 						<DropdownMenuItem
-							disabled={queuedFollowUp.isDeleting}
-							onClick={queuedFollowUp.onDelete}
-						>
-							Turn off
-						</DropdownMenuItem>
-						<DropdownMenuItem
 							disabled={queuedFollowUp.isEditing}
 							onClick={queuedFollowUp.onEdit}
 						>
-							Edit
+							<Pencil className="size-4" aria-hidden="true" />
+							Edit message
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							disabled={queuedFollowUp.isDeleting}
+							onClick={queuedFollowUp.onDelete}
+						>
+							<CornerDownRight className="size-4" aria-hidden="true" />
+							Turn off queueing
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>

@@ -439,6 +439,8 @@ const useNoteComposerController = ({
 	const rootRef = React.useRef<HTMLDivElement>(null);
 	const inlinePanelRef = React.useRef<HTMLDivElement>(null);
 	const composerEditorRef = React.useRef<HTMLDivElement>(null);
+	const pendingComposerFocusRef = React.useRef(false);
+	const composerFocusFrameRef = React.useRef<number | null>(null);
 	const reservedCommentsPanelWidth = React.useMemo(
 		() => parseCssLengthToPixels(rightInsetPanelWidth ?? undefined),
 		[rightInsetPanelWidth],
@@ -760,21 +762,19 @@ const useNoteComposerController = ({
 	);
 	const [pendingTruncateMessageId, setPendingTruncateMessageId] =
 		React.useState<string | null>(null);
+	const activePendingTruncateMessageId =
+		pendingTruncateMessageId &&
+		initialMessages.some((message) => message.id === pendingTruncateMessageId)
+			? pendingTruncateMessageId
+			: null;
 	const visibleInitialMessages = React.useMemo(
 		() =>
-			applyPendingMessageTruncation(initialMessages, pendingTruncateMessageId),
-		[initialMessages, pendingTruncateMessageId],
+			applyPendingMessageTruncation(
+				initialMessages,
+				activePendingTruncateMessageId,
+			),
+		[activePendingTruncateMessageId, initialMessages],
 	);
-	React.useEffect(() => {
-		if (
-			pendingTruncateMessageId &&
-			initialMessages.every(
-				(message) => message.id !== pendingTruncateMessageId,
-			)
-		) {
-			setPendingTruncateMessageId(null);
-		}
-	}, [initialMessages, pendingTruncateMessageId]);
 	const latestRequestBodyRef = React.useRef<Record<string, unknown> | null>(
 		null,
 	);
@@ -1554,6 +1554,65 @@ const useNoteComposerController = ({
 		setPanelMode,
 	]);
 
+	const focusComposerInput = React.useCallback(() => {
+		const editorElement =
+			composerEditorRef.current?.querySelector<HTMLElement>(".ProseMirror");
+		if (!editorElement) {
+			return false;
+		}
+
+		editorElement.focus({ preventScroll: true });
+		return document.activeElement === editorElement;
+	}, []);
+	const schedulePendingComposerFocus = React.useCallback(() => {
+		if (composerFocusFrameRef.current !== null) {
+			return;
+		}
+
+		const focusAfterFrame = () => {
+			composerFocusFrameRef.current = null;
+			if (!rootRef.current) {
+				return;
+			}
+
+			if (!pendingComposerFocusRef.current) {
+				return;
+			}
+
+			if (focusComposerInput()) {
+				pendingComposerFocusRef.current = false;
+				return;
+			}
+
+			composerFocusFrameRef.current =
+				window.requestAnimationFrame(focusAfterFrame);
+		};
+
+		composerFocusFrameRef.current =
+			window.requestAnimationFrame(focusAfterFrame);
+	}, [focusComposerInput]);
+	const requestComposerFocus = React.useCallback(() => {
+		pendingComposerFocusRef.current = true;
+		if (focusComposerInput()) {
+			return;
+		}
+
+		schedulePendingComposerFocus();
+	}, [focusComposerInput, schedulePendingComposerFocus]);
+
+	React.useLayoutEffect(() => {
+		if (!pendingComposerFocusRef.current) {
+			return;
+		}
+
+		if (focusComposerInput()) {
+			pendingComposerFocusRef.current = false;
+			return;
+		}
+
+		schedulePendingComposerFocus();
+	});
+
 	const handleSend = React.useCallback(async () => {
 		const submittedDraftText = getDraftSnapshot().text;
 		const nextMessage = getMessageTextWithoutRecipeMention(
@@ -1636,6 +1695,7 @@ const useNoteComposerController = ({
 							normalizeChatMessages([...currentMessages, message]),
 						);
 					});
+					requestComposerFocus();
 				},
 				onRequestPrepared: ({ localFolders, requestBody }) => {
 					setSharedLocalFolders(localFolders);
@@ -1653,10 +1713,12 @@ const useNoteComposerController = ({
 				resetTextareaHeight();
 				await waitForBrowserPaint();
 				setIsPreparingRequest(false);
+				requestComposerFocus();
 				toast.success("Follow-up queued");
 				return;
 			}
 			setIsPreparingRequest(false);
+			requestComposerFocus();
 		} catch (error) {
 			logError({
 				event: "client.error",
@@ -1689,6 +1751,7 @@ const useNoteComposerController = ({
 			setAttachedFiles(attachedFiles);
 			resetTextareaHeight();
 			setIsPreparingRequest(false);
+			requestComposerFocus();
 		}
 	}, [
 		activeRun,
@@ -1714,6 +1777,7 @@ const useNoteComposerController = ({
 		setPanelMode,
 		setMessages,
 		setMessage,
+		requestComposerFocus,
 	]);
 
 	const handleSubmit = async (event: React.FormEvent) => {
@@ -1738,14 +1802,6 @@ const useNoteComposerController = ({
 		void handleSend();
 	};
 
-	const focusComposerInput = React.useCallback(() => {
-		window.setTimeout(() => {
-			composerEditorRef.current
-				?.querySelector<HTMLElement>(".ProseMirror")
-				?.focus({ preventScroll: true });
-		}, 0);
-	}, []);
-
 	const handleEditMessage = React.useCallback(
 		(messageId: string, text: string) => {
 			if (canStop) {
@@ -1756,9 +1812,9 @@ const useNoteComposerController = ({
 			setMessage(text);
 			setAttachedFiles([]);
 			resizeTextarea();
-			focusComposerInput();
+			requestComposerFocus();
 		},
-		[canStop, focusComposerInput, handleStop, resizeTextarea, setMessage],
+		[canStop, handleStop, requestComposerFocus, resizeTextarea, setMessage],
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
@@ -1766,8 +1822,8 @@ const useNoteComposerController = ({
 		clearDraft();
 		setAttachedFiles([]);
 		resetTextareaHeight();
-		focusComposerInput();
-	}, [clearDraft, focusComposerInput, resetTextareaHeight]);
+		requestComposerFocus();
+	}, [clearDraft, requestComposerFocus, resetTextareaHeight]);
 
 	const buildRequestBody = React.useCallback(async () => {
 		const currentNoteContext = readNoteContext();
@@ -1920,17 +1976,23 @@ const useNoteComposerController = ({
 
 	const handleSelectInlinePresentation = () => {
 		closeComposerPopovers();
-		setPresentationMode("inline");
-		closeRightSidebar();
-		shouldFocusInlineChatRef.current = true;
-		setPanelMode("chat");
+		flushSync(() => {
+			setPresentationMode("inline");
+			closeRightSidebar();
+			shouldFocusInlineChatRef.current = true;
+			setPanelMode("chat");
+		});
+		focusComposerInput();
 	};
 
 	const handleSelectRightPresentation = (
 		mode: Exclude<NoteChatPresentation, "inline">,
 	) => {
 		closeComposerPopovers();
-		openRightSidebar(mode);
+		flushSync(() => {
+			openRightSidebar(mode);
+		});
+		focusComposerInput();
 	};
 
 	const handleHideChat = () => {
@@ -2422,7 +2484,12 @@ function NoteChatHeader({
 						</TooltipTrigger>
 						<TooltipContent align="end">Switch chat mode</TooltipContent>
 					</Tooltip>
-					<DropdownMenuContent align="end">
+					<DropdownMenuContent
+						align="end"
+						onCloseAutoFocus={(event) => {
+							event.preventDefault();
+						}}
+					>
 						<DropdownMenuItem
 							onSelect={onSelectInlinePresentation}
 							className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2"

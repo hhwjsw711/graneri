@@ -414,6 +414,7 @@ const useChatPageController = ({
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [localOptimisticMessages, setLocalOptimisticMessages] =
 		React.useState<ScopedLocalOptimisticMessages | null>(null);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [pendingTruncateMessageId, setPendingTruncateMessageId] =
 		React.useState<string | null>(null);
 	const handleToolCall = React.useMemo(
@@ -451,24 +452,19 @@ const useChatPageController = ({
 			storedMessages === undefined ? [] : toStoredChatMessages(storedMessages),
 		[storedMessages],
 	);
+	const activePendingTruncateMessageId =
+		pendingTruncateMessageId &&
+		persistedMessages.some((message) => message.id === pendingTruncateMessageId)
+			? pendingTruncateMessageId
+			: null;
 	const visiblePersistedMessages = React.useMemo(
 		() =>
 			applyPendingMessageTruncation(
 				persistedMessages,
-				pendingTruncateMessageId,
+				activePendingTruncateMessageId,
 			),
-		[pendingTruncateMessageId, persistedMessages],
+		[activePendingTruncateMessageId, persistedMessages],
 	);
-	React.useEffect(() => {
-		if (
-			pendingTruncateMessageId &&
-			persistedMessages.every(
-				(message) => message.id !== pendingTruncateMessageId,
-			)
-		) {
-			setPendingTruncateMessageId(null);
-		}
-	}, [pendingTruncateMessageId, persistedMessages]);
 
 	React.useEffect(() => {
 		if (!activeWorkspaceId) {
