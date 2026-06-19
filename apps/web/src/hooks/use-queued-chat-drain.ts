@@ -2,7 +2,6 @@ import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import * as React from "react";
 import { toast } from "sonner";
-import { fromQueuedUserMessage } from "@/lib/chat-queue";
 import {
 	getQueuedFollowUpCacheKey,
 	QUEUED_FOLLOW_UP_DRAIN_RETRY_MS,
@@ -15,15 +14,13 @@ import {
 } from "@/lib/chat-queued-followups";
 import { getCachedConvexToken } from "@/lib/convex-token";
 import { logError } from "@/lib/logger";
+import {
+	drainQueuedChatMessage,
+	type QueuedChatSendMessage,
+} from "@/lib/queued-chat-drain";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
-type PreparedQueuedMessage = Awaited<ReturnType<typeof fromQueuedUserMessage>>;
-
-type QueuedChatSendMessage = (
-	message: PreparedQueuedMessage["message"],
-	options: { body: PreparedQueuedMessage["body"] },
-) => Promise<unknown>;
 type AttachableRun =
 	| FunctionReturnType<typeof api.assistantRuns.getAttachableRun>
 	| undefined;
@@ -148,86 +145,57 @@ export const useQueuedChatDrain = ({
 
 		isDrainingQueuedMessageRef.current = true;
 		void (async () => {
-			let claimedQueuedMessageId: Id<"assistantQueuedMessages"> | null = null;
 			try {
-				const convexToken = await getCachedConvexToken();
-				if (!convexToken) {
-					scheduleRetry();
-					return;
-				}
-
-				const pendingDiscardClaimedMessageId =
-					pendingDiscardClaimedMessageIdRef.current;
-				if (pendingDiscardClaimedMessageId) {
-					try {
-						await discardClaimedMessage({
-							workspaceId: resolvedWorkspaceId,
-							chatId,
-							queuedMessageId: pendingDiscardClaimedMessageId,
-						});
-						pendingDiscardClaimedMessageIdRef.current = null;
-					} catch (discardError) {
-						logError({
-							event: "client.error",
-							error: discardError,
-							message: `Failed to discard failed ${contextLabel} message`,
-						});
-						toast.error("Failed to clean up queued follow-up");
-						scheduleRetry();
-						return;
-					}
-					if (queuedMessageCount === 0) {
-						return;
-					}
-				}
-
-				// react-doctor-disable-next-line react-doctor/no-event-handler
-				const queuedMessage = await claimQueuedMessage({
+				const drainResult = await drainQueuedChatMessage({
 					workspaceId: resolvedWorkspaceId,
-					// react-doctor-disable-next-line react-doctor/no-event-handler
 					chatId,
+					claimQueuedMessage,
+					discardClaimedMessage,
+					hasMessageId: (messageId) => localMessageIds.has(messageId),
+					pendingDiscardClaimedMessageId:
+						pendingDiscardClaimedMessageIdRef.current,
+					queuedMessageCount,
+					resolveConvexToken: getCachedConvexToken,
+					sendMessage,
+					setLatestRequestBody: (body) => {
+						latestRequestBodyRef.current = body;
+					},
 				});
+				pendingDiscardClaimedMessageIdRef.current =
+					drainResult.pendingDiscardClaimedMessageId;
 
-				if (!queuedMessage) {
+				if (drainResult.status === "retry") {
 					scheduleRetry();
 					return;
 				}
-				claimedQueuedMessageId = queuedMessage._id;
 
-				const preparedQueuedMessage = await fromQueuedUserMessage({
-					hasMessageId: (messageId) => localMessageIds.has(messageId),
-					queuedMessage,
-					resolveConvexToken: async () => convexToken,
-				});
-				latestRequestBodyRef.current = preparedQueuedMessage.body;
-				await sendMessage(preparedQueuedMessage.message, {
-					body: preparedQueuedMessage.body,
-				});
-				claimedQueuedMessageId = null;
-			} catch (error) {
-				if (claimedQueuedMessageId) {
-					pendingDiscardClaimedMessageIdRef.current = claimedQueuedMessageId;
-					try {
-						await discardClaimedMessage({
-							workspaceId: resolvedWorkspaceId,
-							chatId,
-							queuedMessageId: claimedQueuedMessageId,
-						});
-						pendingDiscardClaimedMessageIdRef.current = null;
-					} catch (discardError) {
-						logError({
-							event: "client.error",
-							error: discardError,
-							message: `Failed to discard failed ${contextLabel} message`,
-						});
-						toast.error("Failed to clean up queued follow-up");
-						scheduleRetry();
-						return;
-					}
+				if (drainResult.status === "cleanup_failed") {
+					logError({
+						event: "client.error",
+						error: drainResult.error,
+						message: `Failed to discard failed ${contextLabel} message`,
+					});
+					toast.error("Failed to clean up queued follow-up");
+					scheduleRetry();
+					return;
 				}
+
+				if (drainResult.status === "send_failed") {
+					logError({
+						event: "client.error",
+						error: drainResult.error,
+						message: `Failed to drain queued ${contextLabel} message`,
+					});
+					toast.error(
+						drainResult.error instanceof Error
+							? drainResult.error.message
+							: "Failed to send queued follow-up",
+					);
+				}
+			} catch (error) {
 				logError({
 					event: "client.error",
-					error: error,
+					error,
 					message: `Failed to drain queued ${contextLabel} message`,
 				});
 				toast.error(
