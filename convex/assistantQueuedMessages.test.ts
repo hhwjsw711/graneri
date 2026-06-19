@@ -205,6 +205,62 @@ test("queued follow-ups can be reordered before they drain", async () => {
 	expect(claimedMessage?.messageId).toBe("queued-2");
 });
 
+test("queued follow-ups can be edited without changing queue position", async () => {
+	const { asOwner, workspaceId } = await createWorkspace();
+	await createChat({ asOwner, chatId: "chat-edit-queued", workspaceId });
+	const run = await startRun({
+		asOwner,
+		chatId: "chat-edit-queued",
+		workspaceId,
+	});
+
+	const firstMessage = await asOwner.mutation(
+		api.assistantQueuedMessages.enqueueForActiveRun,
+		{
+			workspaceId,
+			chatId: "chat-edit-queued",
+			runId: run._id,
+			message: queuedMessageInput("queued-1", "First"),
+		},
+	);
+	const secondMessage = await asOwner.mutation(
+		api.assistantQueuedMessages.enqueueForActiveRun,
+		{
+			workspaceId,
+			chatId: "chat-edit-queued",
+			runId: run._id,
+			message: queuedMessageInput("queued-2", "Second"),
+		},
+	);
+
+	const updatedMessage = await asOwner.mutation(
+		api.assistantQueuedMessages.updateQueued,
+		{
+			queuedMessageId: firstMessage._id,
+			message: queuedMessageInput("queued-1", "Edited first"),
+		},
+	);
+	const queuedMessages = await asOwner.query(
+		api.assistantQueuedMessages.listQueuedForChat,
+		{
+			workspaceId,
+			chatId: "chat-edit-queued",
+		},
+	);
+
+	expect(updatedMessage._id).toBe(firstMessage._id);
+	expect(updatedMessage.createdAt).toBe(firstMessage.createdAt);
+	expect(updatedMessage.text).toBe("Edited first");
+	expect(queuedMessages.map((message) => message._id)).toEqual([
+		firstMessage._id,
+		secondMessage._id,
+	]);
+	expect(queuedMessages.map((message) => message.text)).toEqual([
+		"Edited first",
+		"Second",
+	]);
+});
+
 test("claimNextForRun can steer a specific queued follow-up", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 	await createChat({ asOwner, chatId: "chat-steer-specific", workspaceId });

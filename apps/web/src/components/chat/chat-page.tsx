@@ -72,7 +72,10 @@ import {
 	mergePersistedChatMessagesWithController,
 	normalizeChatMessages,
 } from "@/lib/chat-message-state";
-import { fromQueuedUserMessage } from "@/lib/chat-queue";
+import {
+	fromQueuedUserMessage,
+	toQueuedUserMessageInput,
+} from "@/lib/chat-queue";
 import {
 	buildWorkspaceChatRequestBody,
 	buildWorkspaceChatRequestBodyFromLocalFolders,
@@ -387,6 +390,9 @@ const useChatPageController = ({
 	const discardQueuedMessage = useMutation(
 		api.assistantQueuedMessages.discardQueued,
 	);
+	const updateQueuedMessage = useMutation(
+		api.assistantQueuedMessages.updateQueued,
+	);
 	const reorderQueuedMessages = useMutation(
 		api.assistantQueuedMessages.reorderQueuedForChat,
 	);
@@ -635,6 +641,11 @@ const useChatPageController = ({
 	const [queuedMessageDeletingId, setQueuedMessageDeletingId] = React.useState<
 		string | null
 	>(null);
+	// react-doctor-disable-next-line react-doctor/no-event-handler
+	const [queuedMessageEditDraft, setQueuedMessageEditDraft] = React.useState<{
+		index: number;
+		message: Doc<"assistantQueuedMessages">;
+	} | null>(null);
 	const queuedFollowUp = queuedMessages[0] ?? null;
 	const handleSendQueuedFollowUpNow = React.useCallback(
 		async (queuedMessageId?: string) => {
@@ -732,46 +743,28 @@ const useChatPageController = ({
 	);
 	const handleEditQueuedFollowUp = React.useCallback(
 		async (queuedMessageId: string) => {
-			const queuedMessage = queuedMessages.find(
+			const queuedMessageIndex = queuedMessages.findIndex(
 				(message) => message._id === queuedMessageId,
 			);
-			if (!queuedMessage) {
+			if (queuedMessageIndex < 0) {
 				return;
 			}
 
+			const queuedMessage = queuedMessages[queuedMessageIndex];
 			setQueuedMessageEditingId(queuedMessage._id);
-			try {
-				await discardQueuedMessage({
-					queuedMessageId: queuedMessage._id,
-				});
-				setQueuedMessages((messages) =>
-					messages.filter((message) => message._id !== queuedMessage._id),
-				);
-				setDraft(queuedMessage.text);
-				setDraftMetadata(null);
-				setAttachedFiles([]);
-			} catch (error) {
-				logError({
-					event: "client.error",
-					error,
-					message: "Failed to edit queued chat message",
-				});
-				toast.error(
-					error instanceof Error
-						? error.message
-						: "Failed to edit queued message",
-				);
-			} finally {
-				setQueuedMessageEditingId(null);
-			}
+			setQueuedMessageEditDraft({
+				index: queuedMessageIndex,
+				message: queuedMessage,
+			});
+			setQueuedMessages((messages) =>
+				messages.filter((message) => message._id !== queuedMessage._id),
+			);
+			setEditingMessageId(queuedMessage._id);
+			setDraft(queuedMessage.text);
+			setDraftMetadata(null);
+			setAttachedFiles([]);
 		},
-		[
-			discardQueuedMessage,
-			queuedMessages,
-			setDraft,
-			setDraftMetadata,
-			setQueuedMessages,
-		],
+		[queuedMessages, setDraft, setDraftMetadata, setQueuedMessages],
 	);
 	const handleDeleteQueuedFollowUp = React.useCallback(
 		async (queuedMessageId: string) => {
@@ -977,6 +970,56 @@ const useChatPageController = ({
 		let optimisticMessageId: string | null = null;
 
 		try {
+			if (queuedMessageEditDraft) {
+				if (!activeWorkspaceId) {
+					throw new Error("Cannot edit queued message without a workspace.");
+				}
+
+				setIsPreparingRequest(true);
+				const { mentionIds, requestSelectedSourceIds } =
+					getMentionRequestContext(mentions);
+				const requestBody = await buildWorkspaceChatRequestBody({
+					localFolderStorageScope,
+					mentions: mentionIds,
+					model: selectedModel.model,
+					reasoningEffort: selectedReasoningEffort,
+					resolveConvexToken: getCachedConvexToken,
+					selectedSourceIds: requestSelectedSourceIds,
+					text: value,
+					webSearchEnabled,
+					workspaceId: activeWorkspaceId,
+				});
+				const updatedQueuedMessage = await updateQueuedMessage({
+					queuedMessageId: queuedMessageEditDraft.message._id,
+					message: toQueuedUserMessageInput({
+						messageId: queuedMessageEditDraft.message.messageId,
+						metadata,
+						requestBody,
+						text: value,
+					}),
+				});
+
+				latestRequestBodyRef.current = requestBody;
+				setQueuedMessages((messages) => {
+					const nextMessages = messages.filter(
+						(message) => message._id !== updatedQueuedMessage._id,
+					);
+					nextMessages.splice(
+						queuedMessageEditDraft.index,
+						0,
+						updatedQueuedMessage,
+					);
+					return nextMessages;
+				});
+				setQueuedMessageEditDraft(null);
+				setQueuedMessageEditingId(null);
+				setEditingMessageId(null);
+				clearDraft();
+				setAttachedFiles([]);
+				setIsPreparingRequest(false);
+				return;
+			}
+
 			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onChatPersisted?.(chatId);
 			setIsPreparingRequest(true);
@@ -1092,13 +1135,16 @@ const useChatPageController = ({
 		localFolderStorageScope,
 		mentions,
 		onChatPersisted,
+		queuedMessageEditDraft,
 		clearDraft,
 		setDraft,
 		setDraftMetadata,
+		setQueuedMessages,
 		selectedReasoningEffort,
 		selectedModel.model,
 		sendMessage,
 		setMessages,
+		updateQueuedMessage,
 		webSearchEnabled,
 	]);
 
@@ -1172,10 +1218,32 @@ const useChatPageController = ({
 	);
 
 	const handleCancelEdit = React.useCallback(() => {
+		if (queuedMessageEditDraft) {
+			setQueuedMessages((messages) => {
+				if (
+					messages.some(
+						(message) => message._id === queuedMessageEditDraft.message._id,
+					)
+				) {
+					return messages;
+				}
+
+				const nextMessages = [...messages];
+				nextMessages.splice(
+					queuedMessageEditDraft.index,
+					0,
+					queuedMessageEditDraft.message,
+				);
+				return nextMessages;
+			});
+			setQueuedMessageEditDraft(null);
+			setQueuedMessageEditingId(null);
+		}
+
 		setEditingMessageId(null);
 		clearDraft();
 		setAttachedFiles([]);
-	}, [clearDraft]);
+	}, [clearDraft, queuedMessageEditDraft, setQueuedMessages]);
 
 	const buildRequestBody = React.useCallback(async () => {
 		const { mentionIds, requestSelectedSourceIds } =
@@ -1434,6 +1502,8 @@ export function ChatPage({
 		controller.hasMessages || activeChatId === chatId;
 	const canSearchMessages =
 		shouldShowActiveChatSurface && controller.hasMessages;
+	const queuedFollowUps =
+		activeChatId === chatId ? controller.queuedFollowUps : [];
 	const messageSearchMatches = React.useMemo(
 		() => getChatSearchMatches(controller.messages, messageSearch.query),
 		[controller.messages, messageSearch.query],
@@ -1714,7 +1784,7 @@ export function ChatPage({
 					: "Ask anything. @ to use tools or mention notes"
 			}
 			topAccessory={composerTopAccessory}
-			queuedFollowUps={controller.queuedFollowUps}
+			queuedFollowUps={queuedFollowUps}
 			onQueuedFollowUpsReorder={controller.onQueuedFollowUpsReorder}
 			onDraftChange={controller.setDraft}
 			onDraftKeyDown={controller.handleDraftKeyDown}

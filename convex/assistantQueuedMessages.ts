@@ -408,6 +408,54 @@ export const discardQueued = mutation({
 	},
 });
 
+export const updateQueued = mutation({
+	args: {
+		queuedMessageId: v.id("assistantQueuedMessages"),
+		message: queuedMessageInputValidator,
+	},
+	returns: queuedMessageValidator,
+	handler: async (ctx, args) => {
+		const ownerTokenIdentifier = await requireTokenIdentifier(
+			ctx,
+			"assistantQueuedMessages",
+		);
+		const queuedMessage = await requireSavedQueuedMessage(
+			ctx,
+			args.queuedMessageId,
+		);
+
+		if (
+			queuedMessage.ownerTokenIdentifier !== ownerTokenIdentifier ||
+			queuedMessage.status !== "queued"
+		) {
+			throw new ConvexError({
+				code: "QUEUED_MESSAGE_NOT_EDITABLE",
+				message: "Queued message cannot be edited.",
+			});
+		}
+
+		const now = Date.now();
+		await ctx.db.patch(queuedMessage._id, {
+			messageId: args.message.messageId,
+			partsJson: args.message.partsJson,
+			metadataJson: args.message.metadataJson,
+			text: args.message.text,
+			requestBodyJson: args.message.requestBodyJson,
+			updatedAt: now,
+		});
+
+		return {
+			...queuedMessage,
+			messageId: args.message.messageId,
+			partsJson: args.message.partsJson,
+			metadataJson: args.message.metadataJson,
+			text: args.message.text,
+			requestBodyJson: args.message.requestBodyJson,
+			updatedAt: now,
+		};
+	},
+});
+
 export const reorderQueuedForChat = mutation({
 	args: {
 		workspaceId: v.id("workspaces"),

@@ -282,14 +282,14 @@ function SortableQueuedFollowUpRow({
 							onClick={queuedFollowUp.onEdit}
 						>
 							<Pencil className="size-4" aria-hidden="true" />
-							Edit message
+							Edit
 						</DropdownMenuItem>
 						<DropdownMenuItem
 							disabled={queuedFollowUp.isDeleting}
 							onClick={queuedFollowUp.onDelete}
 						>
 							<CornerDownRight className="size-4" aria-hidden="true" />
-							Turn off queueing
+							Turn off
 						</DropdownMenuItem>
 					</DropdownMenuContent>
 				</DropdownMenu>
