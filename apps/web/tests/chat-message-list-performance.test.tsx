@@ -9,13 +9,29 @@ import { parseMarkdownIntoStableBlocks } from "../src/lib/markdown-stable-blocks
 const streamdownRenderCounts = new Map<string, number>();
 
 vi.mock("streamdown", () => ({
-	Streamdown: ({ children }: { children: string }) => {
+	Streamdown: ({
+		children,
+		isAnimating,
+		mode,
+	}: {
+		children: string;
+		isAnimating?: boolean;
+		mode?: "streaming" | "static";
+	}) => {
 		streamdownRenderCounts.set(
 			children,
 			(streamdownRenderCounts.get(children) ?? 0) + 1,
 		);
 
-		return <div data-testid="streamdown">{children}</div>;
+		return (
+			<div
+				data-animating={isAnimating === true ? "true" : "false"}
+				data-mode={mode}
+				data-testid="streamdown"
+			>
+				{children}
+			</div>
+		);
 	},
 }));
 
@@ -135,8 +151,41 @@ describe("ChatMessageListContent performance", () => {
 			</TooltipProvider>,
 		);
 
+		const markdown = document.querySelector('[data-testid="streamdown"]');
+
 		expect(streamdownRenderCounts.get(interruptedText)).toBe(1);
+		expect(markdown?.getAttribute("data-mode")).toBe("streaming");
+		expect(markdown?.getAttribute("data-animating")).toBe("false");
 		expect(document.body.textContent).toContain("# Interrupted answer");
+		expect(document.body.textContent).toContain("Steered conversation");
+	});
+
+	it("marks steer handoff assistant text as a completed steered conversation", () => {
+		const assistantText =
+			"The original answer was interrupted midway through a paragraph.";
+		const handoffAssistantMessage = createTextMessage({
+			id: "assistant-handoff",
+			role: "assistant",
+			text: assistantText,
+		});
+
+		render(
+			<TooltipProvider>
+				<ChatMessageListContent
+					messages={[handoffAssistantMessage]}
+					isLoading={true}
+					streamingMessageIds={new Set(["assistant-handoff"])}
+					renderAssistantActions={() => null}
+				/>
+			</TooltipProvider>,
+		);
+
+		const markdown = document.querySelector('[data-testid="streamdown"]');
+
+		expect(streamdownRenderCounts.get(assistantText)).toBe(1);
+		expect(markdown?.getAttribute("data-mode")).toBe("streaming");
+		expect(markdown?.getAttribute("data-animating")).toBe("false");
+		expect(document.body.textContent).toContain("Steered conversation");
 	});
 
 	it("keeps historical markdown stable through the production chat message wrapper", () => {

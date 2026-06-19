@@ -178,19 +178,15 @@ target is behavior, not identical storage.
 | Multiple active-turn inputs can accumulate before the model loop drains them. | Graneri can persist multiple queued follow-ups, the renderer accepts distinct manual steer intents into a FIFO while one steer request is in flight, `claimReadyForRun` claims the targeted row plus ready queued rows for the same active run, `acceptSteeredUserMessages` atomically saves/deletes the accepted batch, and active stream replacement carries ordered pending input until it is drained into the next prompt branch. | Implemented |
 | Activity subscribers can distinguish mailbox work from steered input. | Hosted active stream sessions expose `subscribePendingInputActivity`; pending steered input reports `steer`, queued mailbox-style input reports `mailbox`, and subscribing after input is already pending returns the pending activity. | Implemented |
 | A model tool can wait for mailbox or steer activity. | Graneri exposes a runtime-only AI SDK `wait_agent` tool. It subscribes to hosted active stream activity, wakes immediately on already-pending activity, returns Codex-compatible `{ message, timed_out }` results for mailbox, steer, and timeout, and aborts with the active turn. | Implemented |
-| A model can create and manage live subagents. | Graneri exposes runtime-only AI SDK tools matching Codex v2 names: `spawn_agent`, `send_message`, `followup_task`, `list_agents`, and `interrupt_agent`. The hosted multi-agent runtime tracks canonical `/root/...` task paths, live statuses, follow-up task queues, non-triggering messages, interrupts, and list filtering for the active turn. | Implemented |
-| Subagent completion wakes the parent mailbox. | Hosted multi-agent completion and failure create server-owned mailbox UI messages, enqueue them into the active stream session as `mailbox` activity, and make the content available to the next AI SDK prompt branch without trusting a client copy. | Implemented |
-| Mailbox delivery is accepted into turn state. | Hosted active stream sessions keep mailbox-style pending input separate from steered input, can defer mailbox delivery after an answer boundary, and reopen delivery when steered input arrives. Replacement sessions carry both steer and mailbox pending input forward. Multi-agent runtime mailbox messages are accepted as server-owned pending input. | Implemented |
-| Multi-agent state survives process loss. | User steer/replay state remains durable in Convex. Multi-agent runtime state is currently turn-scoped in the AI SDK host process; a future Convex `assistantAgents`/`assistantAgentMailbox` layer is required for Codex-level recovery of spawned agent trees and undelivered mailbox rows after server loss. | Partial |
+| Mailbox delivery is accepted into turn state. | Hosted active stream sessions keep mailbox-style pending input separate from steered input, can defer mailbox delivery after an answer boundary, and reopen delivery when steered input arrives. Replacement sessions carry both steer and mailbox pending input forward. | Implemented |
+| A model can create and manage live subagents. | Graneri does not expose Codex subagent tools because the product does not have subagents. Runtime tools such as `spawn_agent`, `send_message`, `followup_task`, `list_agents`, and `interrupt_agent` are intentionally out of scope. | Not applicable |
 
 The current queue, steering, replay, and run-lifecycle slice is close to Codex
-for durable correctness and fail-closed behavior. Graneri now has Codex v2-style
-runtime multi-agent producer, mailbox activity, and wait primitives for active
-turn behavior. The remaining parity gap is durable recovery for spawned
-multi-agent trees and undelivered mailbox rows after process loss. Graneri drains
-accepted input at the AI SDK stream restart boundary into the next prompt branch,
-while Convex remains the durable source of truth for user input, chat runs, crash
-recovery, and cross-process coordination.
+for durable correctness and fail-closed behavior. Graneri keeps mailbox activity
+and wait primitives for active-turn user input, but it does not implement
+Codex-style subagents. Graneri drains accepted input at the AI SDK stream restart
+boundary into the next prompt branch, while Convex remains the durable source of
+truth for user input, chat runs, crash recovery, and cross-process coordination.
 
 Connected app AI capabilities are declared in
 `packages/ai/src/capability-registry.mjs`. The registry is the source of truth

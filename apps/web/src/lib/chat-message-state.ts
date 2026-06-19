@@ -92,11 +92,13 @@ export const mergePersistedChatMessagesWithController = ({
 	activeAssistantMessage,
 	activeAssistantMessageId,
 	controllerMessages,
+	persistedQueuedMessagePosition = "after-active",
 	persistedMessages,
 }: {
 	activeAssistantMessage?: UIMessage;
 	activeAssistantMessageId?: string | null;
 	controllerMessages: UIMessage[];
+	persistedQueuedMessagePosition?: "after-active" | "before-active";
 	persistedMessages: UIMessage[];
 }) => {
 	const persistedMessageIds = new Set<string>();
@@ -151,8 +153,13 @@ export const mergePersistedChatMessagesWithController = ({
 		return normalizeChatMessages([
 			...baseMessages,
 			...controllerOnlyMessagesBeforeActive,
+			...(persistedQueuedMessagePosition === "before-active"
+				? persistedQueuedMessagesAfterActive
+				: []),
 			...(activeAssistantMessage ? [activeAssistantMessage] : []),
-			...persistedQueuedMessagesAfterActive,
+			...(persistedQueuedMessagePosition === "after-active"
+				? persistedQueuedMessagesAfterActive
+				: []),
 			...controllerOnlyMessagesAfterActive,
 		]);
 	}
@@ -160,8 +167,13 @@ export const mergePersistedChatMessagesWithController = ({
 	return normalizeChatMessages([
 		...baseMessages,
 		...controllerOnlyMessages,
+		...(persistedQueuedMessagePosition === "before-active"
+			? persistedQueuedMessagesAfterActive
+			: []),
 		...(activeAssistantMessage ? [activeAssistantMessage] : []),
-		...persistedQueuedMessagesAfterActive,
+		...(persistedQueuedMessagePosition === "after-active"
+			? persistedQueuedMessagesAfterActive
+			: []),
 	]);
 };
 

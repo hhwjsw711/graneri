@@ -22,6 +22,46 @@ describe("getWorkspaceChatSendApi", () => {
 		).toBe("/api/chat/steer");
 	});
 
+	it("routes active queued follow-up steering without an ordinary chat payload", () => {
+		const body = {
+			continueRunId: "run-1",
+			convexToken: "fresh-token",
+			model: "gpt-5",
+			steerQueuedMessageId: "queued-1",
+		};
+		const message = {
+			id: "client-message-1",
+			role: "user",
+			parts: [{ type: "text", text: "client duplicate" }],
+		};
+
+		const api = getWorkspaceChatSendApi({
+			body,
+			chatApiUrl: "/api/chat",
+		});
+		const preparedBody = prepareWorkspaceChatSendBody({
+			body,
+			id: "chat-1",
+			message,
+			messageId: "client-message-1",
+			trigger: "submit-message",
+			workspaceId: "workspace-1",
+		});
+
+		expect(api).toBe("/api/chat/steer");
+		expect(preparedBody).toEqual({
+			continueRunId: "run-1",
+			convexToken: "fresh-token",
+			id: "chat-1",
+			model: "gpt-5",
+			steerQueuedMessageId: "queued-1",
+			workspaceId: "workspace-1",
+		});
+		expect(preparedBody).not.toHaveProperty("message");
+		expect(preparedBody).not.toHaveProperty("messageId");
+		expect(preparedBody).not.toHaveProperty("trigger");
+	});
+
 	it("uses the normal chat endpoint for ordinary sends", () => {
 		expect(
 			getWorkspaceChatSendApi({

@@ -44,6 +44,29 @@ export type SubmitChatTurnResult =
 			status: "sent";
 	  };
 
+export const isAssistantRunNoLongerActiveError = (error: unknown) => {
+	const maybeError = error as
+		| { data?: unknown; message?: unknown; code?: unknown }
+		| null
+		| undefined;
+	if (maybeError?.code === "ASSISTANT_RUN_NOT_ACTIVE") {
+		return true;
+	}
+
+	if (
+		maybeError?.data &&
+		typeof maybeError.data === "object" &&
+		(maybeError.data as { code?: unknown }).code === "ASSISTANT_RUN_NOT_ACTIVE"
+	) {
+		return true;
+	}
+
+	return (
+		typeof maybeError?.message === "string" &&
+		maybeError.message.includes("ASSISTANT_RUN_NOT_ACTIVE")
+	);
+};
+
 export const removeChatMessageById = (
 	messages: UIMessage[],
 	messageId: string,
@@ -140,16 +163,26 @@ export const submitChatTurn = async <
 			text,
 		});
 
-		const queuedMessage = await enqueueQueuedMessage({
-			workspaceId,
-			chatId,
-			runId: queuedActiveRun._id,
-			message: queuedMessageInput,
-		});
-		if (optimisticMessageId && onQueuedMessageSaved) {
-			onQueuedMessageSaved({ optimisticMessageId, queuedMessage });
+		try {
+			const queuedMessage = await enqueueQueuedMessage({
+				workspaceId,
+				chatId,
+				runId: queuedActiveRun._id,
+				message: queuedMessageInput,
+			});
+			if (optimisticMessageId && onQueuedMessageSaved) {
+				onQueuedMessageSaved({ optimisticMessageId, queuedMessage });
+			}
+			return { status: "queued" };
+		} catch (error) {
+			if (!isAssistantRunNoLongerActiveError(error)) {
+				throw error;
+			}
 		}
-		return { status: "queued" };
+	}
+
+	if (optimisticMessage && queuedActiveRun) {
+		onOptimisticMessage(optimisticMessage);
 	}
 
 	await Promise.resolve(

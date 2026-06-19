@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, Plugin } from "vite";
+import { getHostedChatConvexRouteError } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import { handleApplyTemplateRequest } from "./apply-template-handler";
 import {
 	handleChatReconnectRequest,
@@ -82,6 +83,18 @@ const createChatMiddleware = (): Connect.NextHandleFunction => {
 		void route
 			.handler(request as IncomingMessage, response as ServerResponse)
 			.catch((error: unknown) => {
+				const routeError = getHostedChatConvexRouteError(error);
+				if (routeError) {
+					response.statusCode = routeError.statusCode;
+					response.setHeader("Content-Type", "application/json");
+					response.end(
+						JSON.stringify({
+							error: routeError.error,
+							errorCode: routeError.errorCode,
+						}),
+					);
+					return;
+				}
 				const message =
 					error instanceof Error ? error.message : "Unexpected server error.";
 				response.statusCode = 500;

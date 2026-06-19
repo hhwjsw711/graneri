@@ -200,6 +200,89 @@ describe("chat submit session", () => {
 		});
 	});
 
+	it("sends normally when active follow-up enqueue races with run completion", async () => {
+		const enqueueQueuedMessage = vi.fn(async () => {
+			throw new Error(
+				'[Request ID: test] Server Error Uncaught ConvexError: {"code":"ASSISTANT_RUN_NOT_ACTIVE","message":"Assistant run is not active."}',
+			);
+		});
+		const sendMessage = vi.fn(async () => undefined);
+		const onOptimisticMessage = vi.fn();
+		const onQueuedMessageSaved = vi.fn();
+
+		const result = await submitChatTurn({
+			attachedFiles: [],
+			buildRequestBody: async () => ({
+				convexToken: "token",
+				localFolders: [],
+				model: "gpt-5",
+				timezone: "UTC",
+			}),
+			chatId: "chat-1",
+			displayActiveRun: { _id: runId },
+			editingMessageId: null,
+			enqueueQueuedMessage,
+			onOptimisticMessage,
+			onQueuedMessageSaved,
+			onRequestPrepared: () => undefined,
+			sendMessage,
+			text: "Follow up after completion",
+			workspaceId,
+		});
+
+		expect(result.status).toBe("sent");
+		expect(enqueueQueuedMessage).toHaveBeenCalledOnce();
+		expect(onQueuedMessageSaved).not.toHaveBeenCalled();
+		expect(onOptimisticMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: expect.stringMatching(/^queued-/),
+				role: "user",
+			}),
+		);
+		expect(sendMessage).toHaveBeenCalledWith(
+			expect.objectContaining({
+				messageId: expect.stringMatching(/^queued-/),
+				text: "Follow up after completion",
+			}),
+			{
+				body: {
+					convexToken: "token",
+					localFolders: [],
+					model: "gpt-5",
+					timezone: "UTC",
+				},
+			},
+		);
+	});
+
+	it("preserves non-stale active enqueue failures", async () => {
+		const enqueueError = new Error("Queued message belongs to another chat.");
+		const enqueueQueuedMessage = vi.fn(async () => {
+			throw enqueueError;
+		});
+
+		await expect(
+			submitChatTurn({
+				attachedFiles: [],
+				buildRequestBody: async () => ({
+					convexToken: "token",
+					localFolders: [],
+					model: "gpt-5",
+					timezone: "UTC",
+				}),
+				chatId: "chat-1",
+				displayActiveRun: { _id: runId },
+				editingMessageId: null,
+				enqueueQueuedMessage,
+				onOptimisticMessage: vi.fn(),
+				onRequestPrepared: () => undefined,
+				sendMessage: vi.fn(),
+				text: "Invalid queued follow up",
+				workspaceId,
+			}),
+		).rejects.toBe(enqueueError);
+	});
+
 	it("sends the canonical request body when active state is stale", async () => {
 		const preparedRequests: unknown[] = [];
 		const sendMessage = vi.fn(async () => undefined);

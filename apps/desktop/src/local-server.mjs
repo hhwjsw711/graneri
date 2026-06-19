@@ -25,10 +25,6 @@ import {
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
-import {
-	createHostedMultiAgentRuntime,
-	createHostedMultiAgentTools,
-} from "../../../packages/ai/src/hosted-chat-multi-agent-tools.mjs";
 import { stopOrphanedHostedAssistantRun } from "../../../packages/ai/src/hosted-chat-orphaned-run.mjs";
 import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/src/hosted-chat-run-finalization-queue.mjs";
 import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
@@ -763,8 +759,6 @@ const handleChatRequest = async ({
 	let finalizedToolSet = null;
 	let systemPrompt = "";
 	let activeStreamSession = null;
-	let multiAgentRuntime = null;
-	const durableAgentIdsByPath = new Map();
 	try {
 		const notesContext = await getNotesContext({
 			convexToken,
@@ -847,16 +841,6 @@ const handleChatRequest = async ({
 		});
 		({ agent, finalizedToolSet, systemPrompt } = buildHostedChatRunPlan({
 			additionalAgentTools: {
-				...createHostedMultiAgentTools({
-					getRuntime: () => {
-						if (!multiAgentRuntime) {
-							throw new Error(
-								"multi-agent tools require an active assistant turn.",
-							);
-						}
-						return multiAgentRuntime;
-					},
-				}),
 				wait_agent: createHostedWaitAgentTool({
 					getActiveStreamSession: () => activeStreamSession,
 				}),
@@ -1066,73 +1050,6 @@ const handleChatRequest = async ({
 	logLatency("convex.active_stream_started", {
 		enabled: true,
 		runId: assistantRun._id,
-	});
-	multiAgentRuntime = createHostedMultiAgentRuntime({
-		activeStreamSession,
-		baseTools: finalizedToolSet.tools,
-		model: selectedModel.model,
-		onAgentCompleted: async ({ durableAgentId, message, path }) => {
-			if (!durableAgentId) {
-				return;
-			}
-			const parentPath = path.slice(0, path.lastIndexOf("/")) || "/root";
-			await convexClient.mutation(api.assistantAgents.markAgentCompleted, {
-				agentId: durableAgentId,
-				message,
-				notifyAgentId: durableAgentIdsByPath.get(parentPath),
-			});
-		},
-		onAgentCreated: async ({ message, parentPath, path }) => {
-			const created = await convexClient.mutation(
-				api.assistantAgents.createAgent,
-				{
-					workspaceId: resolvedWorkspaceId,
-					rootChatId: assistantRun.chatId,
-					parentAgentId: parentPath
-						? durableAgentIdsByPath.get(parentPath)
-						: undefined,
-					agentPath: path,
-					model: selectedModel.model,
-					reasoningEffort: resolvedReasoningEffort,
-					initialTaskMessage: message,
-				},
-			);
-			durableAgentIdsByPath.set(path, created.agentId);
-			return {
-				durableAgentId: created.agentId,
-			};
-		},
-		onAgentErrored: async ({ durableAgentId, errorText, path }) => {
-			if (!durableAgentId) {
-				return;
-			}
-			const parentPath = path.slice(0, path.lastIndexOf("/")) || "/root";
-			await convexClient.mutation(api.assistantAgents.markAgentErrored, {
-				agentId: durableAgentId,
-				errorText,
-				notifyAgentId: durableAgentIdsByPath.get(parentPath),
-			});
-		},
-		onAgentInterrupted: async ({ durableAgentId, path }) => {
-			if (!durableAgentId) {
-				return;
-			}
-			await convexClient.mutation(api.assistantAgents.interruptAgent, {
-				rootChatId: assistantRun.chatId,
-				targetAgentPath: path,
-			});
-		},
-		onAgentRunning: async ({ activeRunId, durableAgentId }) => {
-			if (!durableAgentId) {
-				return;
-			}
-			await convexClient.mutation(api.assistantAgents.markAgentRunning, {
-				agentId: durableAgentId,
-				activeRunId,
-			});
-		},
-		providerOptions,
-		systemPrompt,
 	});
 	let finalizationQueue = null;
 	logLatency("ai.agent_created", {

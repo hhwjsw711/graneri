@@ -113,7 +113,33 @@ const hostedChatConvexRouteErrorMessages = new Map([
 	["QUEUED_MESSAGE_NOT_EDITABLE", "Queued message cannot be edited."],
 ]);
 
+const missingConvexFunctionPattern =
+	/Could not find public function for '([^']+)'/u;
+
+export const HOSTED_CHAT_CONVEX_DEPLOYMENT_OUT_OF_SYNC_ERROR_CODE =
+	"convex_deployment_out_of_sync";
+
+const getHostedChatConvexDeploymentSkewError = (error) => {
+	const message = typeof error?.message === "string" ? error.message : "";
+	const match = message.match(missingConvexFunctionPattern);
+	if (!match) {
+		return null;
+	}
+
+	const missingFunction = match[1];
+	return {
+		error: `Convex deployment is out of sync with this Graneri checkout. Missing Convex function: ${missingFunction}. Run or sync Convex for this workspace, for example with \`bunx convex dev\`, then retry the chat request.`,
+		errorCode: HOSTED_CHAT_CONVEX_DEPLOYMENT_OUT_OF_SYNC_ERROR_CODE,
+		statusCode: 500,
+	};
+};
+
 export const getHostedChatConvexRouteError = (error) => {
+	const deploymentSkewError = getHostedChatConvexDeploymentSkewError(error);
+	if (deploymentSkewError) {
+		return deploymentSkewError;
+	}
+
 	const data = getHostedChatConvexErrorData(error);
 	const code = typeof data?.code === "string" ? data.code : null;
 	if (!code) {

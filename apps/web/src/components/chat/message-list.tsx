@@ -237,11 +237,14 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 		includeSources && message.role === "assistant"
 			? collectMessageSources(message)
 			: [];
+	const isInterruptedAssistantMessage =
+		message.role === "assistant" &&
+		(metadata?.interrupted === true || streamingMessageIds.has(message.id));
 	const isStreamingAssistantMessage =
 		message.role === "assistant" &&
-		(metadata?.interrupted === true ||
-			(isLoading && message.id === lastMessageId) ||
-			streamingMessageIds.has(message.id));
+		!isInterruptedAssistantMessage &&
+		isLoading &&
+		message.id === lastMessageId;
 	const isEmpty = displayText.length === 0;
 	const timestamp = formatChatMessageTimestamp(
 		getChatMessageTimestamp(message),
@@ -296,6 +299,7 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 				<ChatMessageText
 					displayText={displayText}
 					isEmpty={isEmpty}
+					isInterruptedAssistantMessage={isInterruptedAssistantMessage}
 					isStreamingAssistantMessage={Boolean(isStreamingAssistantMessage)}
 					mentionPositions={metadata?.mentionPositions}
 					onOpenMention={onOpenMention}
@@ -303,6 +307,7 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 					streamdownClassName={streamdownClassName}
 					textContainerClassName={textContainerClassName}
 				/>
+				{isInterruptedAssistantMessage ? <InterruptedMessageStatus /> : null}
 				{message.role === "assistant" && !isEmpty
 					? renderAssistantActions?.(actionContext)
 					: null}
@@ -493,6 +498,7 @@ const groupAdjacentToolParts = (parts: UIMessage["parts"]) => {
 const ChatMessageText = React.memo(function ChatMessageText({
 	displayText,
 	isEmpty,
+	isInterruptedAssistantMessage,
 	isStreamingAssistantMessage,
 	mentionPositions,
 	onOpenMention,
@@ -502,6 +508,7 @@ const ChatMessageText = React.memo(function ChatMessageText({
 }: {
 	displayText: string;
 	isEmpty: boolean;
+	isInterruptedAssistantMessage: boolean;
 	isStreamingAssistantMessage: boolean;
 	mentionPositions?: Array<{
 		id: string;
@@ -550,15 +557,31 @@ const ChatMessageText = React.memo(function ChatMessageText({
 					<CollapsibleMessageContent
 						role={role}
 						text={displayText}
-						isAnimating={isStreamingAssistantMessage}
+						isAnimating={
+							isStreamingAssistantMessage && !isInterruptedAssistantMessage
+						}
 						streamdownClassName={resolvedStreamdownClassName}
-						mode={isStreamingAssistantMessage ? "streaming" : "static"}
+						mode={
+							isStreamingAssistantMessage || isInterruptedAssistantMessage
+								? "streaming"
+								: "static"
+						}
 					/>
 				)}
 			</div>
 		</div>
 	);
 });
+
+const InterruptedMessageStatus = React.memo(
+	function InterruptedMessageStatus() {
+		return (
+			<div className="mt-2 text-xs text-muted-foreground">
+				<span>Steered conversation</span>
+			</div>
+		);
+	},
+);
 
 function UserMessageWithMentions({
 	text,

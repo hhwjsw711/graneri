@@ -9,6 +9,7 @@ export declare const hostedChatReplayQueuedMessageIdHeader: "X-Graneri-Replay-Qu
 export declare const MAX_HOSTED_CHAT_INPUT_TEXT_CHARS: 1048576;
 export declare const HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE: "input_too_large";
 export declare const HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE: "input_empty";
+export declare const HOSTED_CHAT_CONVEX_DEPLOYMENT_OUT_OF_SYNC_ERROR_CODE: "convex_deployment_out_of_sync";
 export declare const getHostedChatSteerAcceptanceHeaders: (args: {
 	queuedMessageId: string;
 	queuedMessageIds?: string[];
@@ -25,7 +26,7 @@ export declare const getHostedChatConvexRouteError: (
 ) => null | {
 	error: string;
 	errorCode: string;
-	statusCode: 400 | 409;
+	statusCode: 400 | 409 | 500;
 };
 export declare const getHostedChatSteerTelemetry: (args: {
 	acceptedTurnId?: string | null;

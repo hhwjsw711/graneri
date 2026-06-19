@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveFallbackChatTitle } from "../../../packages/ai/src/chat-titles.mjs";
+import { buildHostedChatAgentToolSet } from "../../../packages/ai/src/hosted-chat-agent.mjs";
 import {
 	buildHostedChatRuntimePrompt,
 	buildHostedChatSaveMessageArgs,
@@ -27,6 +28,28 @@ import {
 } from "../../../packages/ai/src/prompts.mjs";
 
 describe("prompt helpers", () => {
+	it("keeps wait_agent without exposing subagent tools", () => {
+		const { agentTools } = buildHostedChatAgentToolSet({
+			additionalAgentTools: {
+				wait_agent: {
+					description: "Wait for active-turn input.",
+				},
+			},
+			enabledTools: {},
+		});
+
+		expect(agentTools).toHaveProperty("wait_agent");
+		for (const removedTool of [
+			"followup_task",
+			"interrupt_agent",
+			"list_agents",
+			"send_message",
+			"spawn_agent",
+		]) {
+			expect(agentTools).not.toHaveProperty(removedTool);
+		}
+	});
+
 	it("skips nullable user profile fields in the chat system prompt", () => {
 		expect(() =>
 			buildChatSystemPrompt({
@@ -85,6 +108,28 @@ describe("prompt helpers", () => {
 			errorCode: "CHAT_NOT_FOUND",
 			statusCode: 409,
 		});
+	});
+
+	it("maps missing Convex chat API functions to deployment skew route errors", () => {
+		for (const missingFunction of [
+			"assistantQueuedMessages:claimReadyForRun",
+			"assistantQueuedMessages:enqueueForActiveRun",
+			"assistantQueuedMessages:getClaimedForChat",
+			"assistantRuns:getAttachableRun",
+			"assistantRuns:appendUserMessageToAssistantRun",
+		]) {
+			expect(
+				getHostedChatConvexRouteError(
+					new Error(`Could not find public function for '${missingFunction}'.`),
+				),
+			).toEqual({
+				error: expect.stringContaining(
+					`Convex deployment is out of sync with this Graneri checkout. Missing Convex function: ${missingFunction}.`,
+				),
+				errorCode: "convex_deployment_out_of_sync",
+				statusCode: 500,
+			});
+		}
 	});
 
 	it("includes selected app source instructions in hosted chat runtime prompts", () => {

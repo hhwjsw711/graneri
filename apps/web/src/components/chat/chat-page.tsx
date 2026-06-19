@@ -608,6 +608,13 @@ const useChatPageController = ({
 			activeAssistantMessage,
 			activeAssistantMessageId,
 			controllerMessages,
+			persistedQueuedMessagePosition:
+				displayActiveRun.interruptedAssistantMessageIds.length > 0 &&
+				!displayActiveRun.interruptedAssistantMessageIds.includes(
+					activeAssistantMessageId,
+				)
+					? "before-active"
+					: "after-active",
 			persistedMessages: visiblePersistedMessages,
 		});
 	}, [
