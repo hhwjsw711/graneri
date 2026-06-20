@@ -315,6 +315,62 @@ export const validateHostedChatSteerRoute = ({
 	return null;
 };
 
+export const getHostedChatInputValidationErrorResponse = (error) => {
+	const code = error && typeof error === "object" ? error.code : undefined;
+	if (code === HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE) {
+		return {
+			errorCode: HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
+			payload: {
+				error: "input must not be empty",
+			},
+		};
+	}
+
+	const actualChars =
+		error && typeof error === "object" && "actualChars" in error
+			? error.actualChars
+			: undefined;
+	return {
+		errorCode: HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
+		payload: {
+			error: `Input exceeds the maximum length of ${MAX_HOSTED_CHAT_INPUT_TEXT_CHARS} characters.`,
+			input_error_code: HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
+			max_chars: MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
+			actual_chars: typeof actualChars === "number" ? actualChars : undefined,
+		},
+	};
+};
+
+export const validateHostedChatRequestInput = ({
+	message,
+	replayQueuedMessageId,
+	steerQueuedMessageId,
+}) => {
+	if (!message && !steerQueuedMessageId && !replayQueuedMessageId) {
+		return {
+			errorCode: "message_missing",
+			payload: {
+				error: "message is required.",
+			},
+			statusCode: 400,
+		};
+	}
+
+	if (message && !steerQueuedMessageId && !replayQueuedMessageId) {
+		try {
+			validateHostedChatInput(message);
+		} catch (error) {
+			const validationError = getHostedChatInputValidationErrorResponse(error);
+			return {
+				...validationError,
+				statusCode: 400,
+			};
+		}
+	}
+
+	return null;
+};
+
 const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,

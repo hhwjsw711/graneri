@@ -69,6 +69,36 @@ export declare const validateHostedChatSteerRoute: (args: {
 		| "steer_route_required";
 	statusCode: 400;
 };
+export declare const getHostedChatInputValidationErrorResponse: (
+	error: unknown,
+) => {
+	errorCode:
+		| typeof HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE
+		| typeof HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE;
+	payload: {
+		error: string;
+		input_error_code?: typeof HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE;
+		max_chars?: typeof MAX_HOSTED_CHAT_INPUT_TEXT_CHARS;
+		actual_chars?: number;
+	};
+};
+export declare const validateHostedChatRequestInput: (args: {
+	message?: UIMessage | null;
+	replayQueuedMessageId?: string | null;
+	steerQueuedMessageId?: string | null;
+}) => null | {
+	errorCode:
+		| "message_missing"
+		| typeof HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE
+		| typeof HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE;
+	payload: {
+		error: string;
+		input_error_code?: typeof HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE;
+		max_chars?: typeof MAX_HOSTED_CHAT_INPUT_TEXT_CHARS;
+		actual_chars?: number;
+	};
+	statusCode: 400;
+};
 export declare const getHostedChatMessageTextCharCount: (
 	message: UIMessage,
 ) => number;

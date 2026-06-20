@@ -38,15 +38,14 @@ import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run
 import {
 	buildHostedNotesContext,
 	getHostedChatConvexRouteError,
+	getHostedChatInputValidationErrorResponse,
 	getHostedChatRecipeContext,
 	getHostedChatSteerTelemetry,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
-	HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
-	HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
-	MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
 	prepareHostedChatBranch,
 	validateHostedChatInput,
+	validateHostedChatRequestInput,
 	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import { createHostedChatTurnController } from "../../../packages/ai/src/hosted-chat-turn-controller.mjs";
@@ -274,32 +273,6 @@ const sendHostedChatConvexRouteError = (
 	return true;
 };
 
-const getHostedChatInputValidationErrorResponse = (error: unknown) => {
-	const code = (error as { code?: unknown } | null)?.code;
-	if (code === HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE) {
-		return {
-			errorCode: HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
-			payload: {
-				error: "input must not be empty",
-			},
-		};
-	}
-
-	const actualChars =
-		typeof (error as { actualChars?: unknown }).actualChars === "number"
-			? (error as { actualChars: number }).actualChars
-			: undefined;
-	return {
-		errorCode: HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
-		payload: {
-			error: `Input exceeds the maximum length of ${MAX_HOSTED_CHAT_INPUT_TEXT_CHARS} characters.`,
-			input_error_code: HOSTED_CHAT_INPUT_TOO_LARGE_ERROR_CODE,
-			max_chars: MAX_HOSTED_CHAT_INPUT_TEXT_CHARS,
-			actual_chars: actualChars,
-		},
-	};
-};
-
 const getStoredNoteContext = async ({
 	client,
 	noteId,
@@ -445,28 +418,18 @@ export const handleChatRequest = async (
 		(workspaceId as Id<"workspaces"> | null | undefined) ?? null;
 	const resolvedTimezone = timezone?.trim() || "UTC";
 
-	if (!message && !steerQueuedMessageId && !replayQueuedMessageId) {
+	const inputValidation = validateHostedChatRequestInput({
+		message,
+		replayQueuedMessageId,
+		steerQueuedMessageId,
+	});
+	if (inputValidation) {
 		wideEvent.outcome = "error";
-		wideEvent.status_code = 400;
-		wideEvent.error_code = "message_missing";
+		wideEvent.status_code = inputValidation.statusCode;
+		wideEvent.error_code = inputValidation.errorCode;
 		emitWideEvent("error");
-		sendJson(response, 400, {
-			error: "message is required.",
-		});
+		sendJson(response, inputValidation.statusCode, inputValidation.payload);
 		return;
-	}
-	if (message && !steerQueuedMessageId && !replayQueuedMessageId) {
-		try {
-			validateHostedChatInput(message);
-		} catch (error) {
-			const validationError = getHostedChatInputValidationErrorResponse(error);
-			wideEvent.outcome = "error";
-			wideEvent.status_code = 400;
-			wideEvent.error_code = validationError.errorCode;
-			emitWideEvent("error");
-			sendJson(response, 400, validationError.payload);
-			return;
-		}
 	}
 
 	if (!id || !convexToken || !resolvedWorkspaceId) {

@@ -18,6 +18,7 @@ import {
 	hostedChatSteerTurnIdHeader,
 	prepareHostedChatBranch,
 	toHostedQueuedUserMessage,
+	validateHostedChatRequestInput,
 	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import {
@@ -404,6 +405,46 @@ describe("prompt helpers", () => {
 			errorCode: "steer_queued_message_id_invalid",
 			statusCode: 400,
 		});
+	});
+
+	it("validates hosted chat request input before route execution", () => {
+		expect(
+			validateHostedChatRequestInput({
+				message: null,
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: null,
+			}),
+		).toMatchObject({
+			errorCode: "message_missing",
+			payload: {
+				error: "message is required.",
+			},
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatRequestInput({
+				message: {
+					id: "empty-user",
+					role: "user",
+					parts: [{ type: "text", text: "   " }],
+				},
+				replayQueuedMessageId: null,
+				steerQueuedMessageId: null,
+			}),
+		).toMatchObject({
+			errorCode: "input_empty",
+			payload: {
+				error: "input must not be empty",
+			},
+			statusCode: 400,
+		});
+		expect(
+			validateHostedChatRequestInput({
+				message: null,
+				replayQueuedMessageId: "queued-1",
+				steerQueuedMessageId: null,
+			}),
+		).toBeNull();
 	});
 
 	it("reconstructs accepted steer messages from durable queued content", () => {
