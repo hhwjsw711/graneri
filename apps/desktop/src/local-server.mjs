@@ -23,6 +23,7 @@ import {
 	createHostedActiveStreamKey,
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
+import { prepareHostedChatTurnBranch } from "../../../packages/ai/src/hosted-chat-branch-preparer.mjs";
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
 import { stopOrphanedHostedAssistantRun } from "../../../packages/ai/src/hosted-chat-orphaned-run.mjs";
 import { createHostedChatQueuedInput } from "../../../packages/ai/src/hosted-chat-queued-input.mjs";
@@ -37,7 +38,6 @@ import {
 	getHostedChatRecipeContext,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
-	prepareHostedChatBranch,
 	validateHostedChatActiveRunPolicy,
 	validateHostedChatInput,
 	validateHostedChatRequestInput,
@@ -529,61 +529,40 @@ const handleChatRequest = async ({
 	};
 	const shouldLoadStoredChatMessages = Boolean(effectiveMessage);
 	let preparedBranch = null;
-	let shouldTruncateChatBranch = false;
 	let chatMessages = [];
 	let lastUserMessage = null;
 	let shouldGenerateChatTitle = false;
 	try {
-		const storedChatMessages = shouldLoadStoredChatMessages
-			? await convexClient.query(api.chats.getMessagesSnapshot, {
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-				})
-			: [];
-		const runEvents =
-			shouldLoadStoredChatMessages &&
-			continueRunId &&
-			attachableRun?._id === continueRunId
-				? await convexClient.query(api.assistantRunEvents.listRunEventsAfter, {
-						runId: continueRunId,
-						limit: 500,
-					})
-				: [];
-		const interruptedAssistantMessageIds = runEvents.flatMap((runEvent) =>
-			runEvent.event.type === "assistant.message.interrupted"
-				? [runEvent.event.assistantMessageId]
-				: [],
-		);
-		preparedBranch = prepareHostedChatBranch({
-			interruptedAssistantMessageIds,
+		const branchResult = await prepareHostedChatTurnBranch({
+			attachableRunId: attachableRun?._id,
+			chatId: id,
+			continueRunId,
+			getMessagesSnapshot: (args) =>
+				convexClient.query(api.chats.getMessagesSnapshot, args),
+			listRunEventsAfter: (args) =>
+				convexClient.query(api.assistantRunEvents.listRunEventsAfter, args),
+			logLatency,
 			message: effectiveMessage,
 			messageId,
 			messages,
-			pendingMessages: pendingSteerMessages,
-			storedMessages: effectiveMessage ? storedChatMessages : [],
-			trigger,
-		});
-		shouldTruncateChatBranch = preparedBranch.shouldTruncateChatBranch;
-
-		if (shouldTruncateChatBranch && preparedBranch.truncateMessageId) {
-			try {
-				await convexClient.mutation(api.chats.truncateFromMessage, {
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-					messageId: preparedBranch.truncateMessageId,
-				});
-			} catch (error) {
+			onTruncateError: ({ error }) => {
 				logError({
 					error: error,
 					message: "Failed to truncate regenerated chat message branch",
 				});
-				throw error;
-			}
-		}
-		logLatency("chat.branch_ready", {
-			incomingMessageCount: preparedBranch.incomingMessages.length,
-			shouldTruncateChatBranch,
+				return false;
+			},
+			pendingMessages: pendingSteerMessages,
+			shouldLoadStoredMessages: shouldLoadStoredChatMessages,
+			trigger,
+			truncateFromMessage: (args) =>
+				convexClient.mutation(api.chats.truncateFromMessage, args),
+			workspaceId: resolvedWorkspaceId,
 		});
+		if (!branchResult.ok) {
+			return;
+		}
+		preparedBranch = branchResult.preparedBranch;
 		chatMessages = await validateUIMessages({
 			messages: preparedBranch.incomingMessages,
 		});

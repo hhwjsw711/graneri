@@ -28,6 +28,7 @@ import {
 	type HostedActiveStreamSession,
 	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
+import { prepareHostedChatTurnBranch } from "../../../packages/ai/src/hosted-chat-branch-preparer.mjs";
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
 import { stopOrphanedHostedAssistantRun } from "../../../packages/ai/src/hosted-chat-orphaned-run.mjs";
 import { createHostedChatQueuedInput } from "../../../packages/ai/src/hosted-chat-queued-input.mjs";
@@ -43,7 +44,6 @@ import {
 	getHostedChatSteerTelemetry,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
-	prepareHostedChatBranch,
 	validateHostedChatActiveRunPolicy,
 	validateHostedChatInput,
 	validateHostedChatRequestInput,
@@ -693,12 +693,9 @@ export const handleChatRequest = async (
 		operation: string,
 		options: { tolerateMissing?: boolean } = {},
 	) => await cleanupClaimedSteerQueuedMessageForRoute(operation, options);
-	type HostedChatBranchInput = Parameters<typeof prepareHostedChatBranch>[0] & {
-		pendingMessages?: UIMessage[];
+	let preparedBranch: {
+		incomingMessages: UIMessage[];
 	};
-	let storedChatMessages: NonNullable<HostedChatBranchInput["storedMessages"]>;
-	let preparedBranch: ReturnType<typeof prepareHostedChatBranch>;
-	let shouldTruncateChatBranch: boolean;
 	let notesContext: string;
 	let attachedNoteContext: string;
 	let recipeContext: string;
@@ -723,58 +720,29 @@ export const handleChatRequest = async (
 	let shouldGenerateChatTitle: boolean;
 	let activeStreamSession: HostedActiveStreamSession | null = null;
 	try {
-		storedChatMessages = await convexClient.query(
-			api.chats.getMessagesSnapshot,
-			{
-				workspaceId: resolvedWorkspaceId,
-				chatId: id,
-			},
-		);
-		const runEvents =
-			continueRunId && attachableRun?._id === continueRunId
-				? await convexClient.query(api.assistantRunEvents.listRunEventsAfter, {
-						runId: continueRunId,
-						limit: 500,
-					})
-				: [];
-		const interruptedAssistantMessageIds = runEvents.flatMap((runEvent) =>
-			runEvent.event.type === "assistant.message.interrupted"
-				? [runEvent.event.assistantMessageId]
-				: [],
-		);
-		logLatency("convex.messages_loaded", {
-			messageCount: storedChatMessages.length,
-		});
-		const branchInput: HostedChatBranchInput = {
-			interruptedAssistantMessageIds,
+		const branchResult = await prepareHostedChatTurnBranch({
+			attachableRunId: attachableRun?._id,
+			chatId: id,
+			continueRunId,
+			getMessagesSnapshot: (args) =>
+				convexClient.query(api.chats.getMessagesSnapshot, args),
+			listRunEventsAfter: (args) =>
+				convexClient.query(api.assistantRunEvents.listRunEventsAfter, args),
+			logLatency,
 			message: effectiveMessage,
 			messageId,
-			pendingMessages: pendingSteerMessages,
-			storedMessages: storedChatMessages,
-			trigger,
-		};
-		preparedBranch = prepareHostedChatBranch(branchInput);
-		shouldTruncateChatBranch = preparedBranch.shouldTruncateChatBranch;
-
-		if (shouldTruncateChatBranch && preparedBranch.truncateMessageId) {
-			try {
-				await convexClient.mutation(api.chats.truncateFromMessage, {
-					workspaceId: resolvedWorkspaceId,
-					chatId: id,
-					messageId: preparedBranch.truncateMessageId,
-				});
-			} catch (error) {
+			onTruncateError: async ({ error, messageId: truncateMessageId }) => {
 				if (
 					queuedInput.hasClaimed &&
 					!(await cleanupClaimedSteerQueuedMessage(
 						"steer_queue_branch_truncate_cleanup",
 					))
 				) {
-					return;
+					return true;
 				}
 				recordServerError({
 					details: {
-						message_id: preparedBranch.truncateMessageId,
+						message_id: truncateMessageId,
 					},
 					error,
 					event: wideEvent,
@@ -787,13 +755,18 @@ export const handleChatRequest = async (
 				sendJson(response, 500, {
 					error: "Failed to prepare edited chat branch.",
 				});
-				return;
-			}
-		}
-		logLatency("chat.branch_ready", {
-			incomingMessageCount: preparedBranch.incomingMessages.length,
-			shouldTruncateChatBranch,
+				return true;
+			},
+			pendingMessages: pendingSteerMessages,
+			trigger,
+			truncateFromMessage: (args) =>
+				convexClient.mutation(api.chats.truncateFromMessage, args),
+			workspaceId: resolvedWorkspaceId,
 		});
+		if (!branchResult.ok) {
+			return;
+		}
+		preparedBranch = branchResult.preparedBranch;
 
 		notesContext = await getNotesContext({
 			convexToken,
