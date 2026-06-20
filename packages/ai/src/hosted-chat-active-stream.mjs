@@ -1,6 +1,14 @@
+import {
+	createHostedTurnInputBuffer,
+	HOSTED_TURN_INPUT_ACTIVITY_MAILBOX,
+	HOSTED_TURN_INPUT_ACTIVITY_STEER,
+} from "./hosted-chat-turn-input-buffer.mjs";
+
 export const HOSTED_ACTIVE_STREAM_FLUSH_INTERVAL_MS = 250;
-export const HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX = "mailbox";
-export const HOSTED_ACTIVE_STREAM_ACTIVITY_STEER = "steer";
+export const HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX =
+	HOSTED_TURN_INPUT_ACTIVITY_MAILBOX;
+export const HOSTED_ACTIVE_STREAM_ACTIVITY_STEER =
+	HOSTED_TURN_INPUT_ACTIVITY_STEER;
 
 export const createHostedActiveStreamKey = ({ workspaceId, chatId }) =>
 	`${workspaceId}:${chatId}`;
@@ -202,44 +210,10 @@ export const createHostedActiveStreamSession = ({
 	const abortController = new AbortController();
 	const subscribers = new Set();
 	const replayChunks = [];
-	const pendingSteerInput = [];
-	const pendingMailboxInput = [];
-	const activitySubscribers = new Set();
+	const turnInput = createHostedTurnInputBuffer();
 	let broadcastStarted = false;
 	let broadcastClosed = false;
 	let broadcastError = null;
-	let acceptsMailboxDelivery = true;
-
-	const notifyActivity = (activity) => {
-		for (const subscriber of activitySubscribers) {
-			subscriber(activity);
-		}
-	};
-
-	const getPendingActivity = () => {
-		if (pendingSteerInput.length > 0) {
-			return HOSTED_ACTIVE_STREAM_ACTIVITY_STEER;
-		}
-		if (pendingMailboxInput.length > 0) {
-			return HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX;
-		}
-		return null;
-	};
-
-	const extendPendingSteerInput = (input) => {
-		if (Array.isArray(input)) {
-			pendingSteerInput.push(...input);
-		} else {
-			pendingSteerInput.push(input);
-		}
-		acceptsMailboxDelivery = true;
-		notifyActivity(HOSTED_ACTIVE_STREAM_ACTIVITY_STEER);
-	};
-
-	const drainAllPendingInputForReplacement = () => [
-		...pendingSteerInput.splice(0),
-		...pendingMailboxInput.splice(0),
-	];
 
 	const removeSubscriber = (controller) => {
 		subscribers.delete(controller);
@@ -306,57 +280,34 @@ export const createHostedActiveStreamSession = ({
 			return broadcastClosed;
 		},
 		extendPendingInput(input) {
-			extendPendingSteerInput(input);
+			turnInput.extendSteerInput(input);
 		},
 		enqueueMailboxInput(input) {
-			if (Array.isArray(input)) {
-				pendingMailboxInput.push(...input);
-			} else {
-				pendingMailboxInput.push(input);
-			}
-			notifyActivity(HOSTED_ACTIVE_STREAM_ACTIVITY_MAILBOX);
+			turnInput.enqueueMailboxInput(input);
 		},
 		subscribePendingInputActivity(listener) {
-			activitySubscribers.add(listener);
-			return {
-				pendingActivity: getPendingActivity(),
-				unsubscribe: () => {
-					activitySubscribers.delete(listener);
-				},
-			};
+			return turnInput.subscribeActivity(listener);
 		},
 		takePendingInput() {
-			const pendingInput = pendingSteerInput.splice(0);
-			if (acceptsMailboxDelivery) {
-				pendingInput.push(...pendingMailboxInput.splice(0));
-			}
-			return pendingInput;
+			return turnInput.takeForCurrentTurn();
 		},
 		takeAllPendingInputForReplacement() {
-			return drainAllPendingInputForReplacement();
+			return turnInput.takeAllForReplacement();
 		},
 		hasPendingInput() {
-			return (
-				pendingSteerInput.length > 0 ||
-				(acceptsMailboxDelivery && pendingMailboxInput.length > 0)
-			);
+			return turnInput.hasPendingInput();
 		},
 		hasPendingMailboxInput() {
-			return pendingMailboxInput.length > 0;
+			return turnInput.hasPendingMailboxInput();
 		},
 		deferMailboxDeliveryToNextTurn() {
-			if (pendingSteerInput.length > 0) {
-				return;
-			}
-			acceptsMailboxDelivery = false;
+			turnInput.deferMailboxDeliveryToNextTurn();
 		},
 		acceptMailboxDeliveryForCurrentTurn() {
-			acceptsMailboxDelivery = true;
+			turnInput.acceptMailboxDeliveryForCurrentTurn();
 		},
 		clearPendingInput() {
-			pendingSteerInput.length = 0;
-			pendingMailboxInput.length = 0;
-			acceptsMailboxDelivery = true;
+			turnInput.clear();
 		},
 		append(delta) {
 			persister.append(delta);

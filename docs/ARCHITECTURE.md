@@ -31,6 +31,10 @@ prompt construction, active-turn input preparation, branch preparation,
 tool-loop setup, message persistence payloads, and active-stream persistence
 behavior; callers provide runtime-specific reads, writes, request transport,
 and desktop-local capabilities through small adapter callbacks.
+Turn input buffering is separate from active-stream transport: the hosted turn
+input buffer owns pending steer/mailbox ordering, wait-agent activity
+notifications, and mailbox deferral rules, while active-stream sessions own
+broadcast, replay, abort, and persistence.
 Hosted chat runs are durable Convex lifecycle records. `assistantRuns` owns run
 state, stop/failure/completion history, and the one-active-run-per-chat
 invariant. `chatActiveStreams` and active `chatToolCalls` are temporary render
