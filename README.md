@@ -20,6 +20,8 @@
 Graneri is early. Expect bugs.
 
 Desktop is the primary experience. Public desktop builds are not published yet.
+The current desktop build is macOS Apple Silicon (arm64) only. Intel Mac,
+Windows, and Linux support are planned.
 
 ## Features
 
@@ -60,7 +62,8 @@ Graneri is desktop-first. For now, build the desktop app from source:
 bun run dist:mac
 ```
 
-Published desktop builds will come later.
+This currently creates a macOS Apple Silicon (arm64) package. Published desktop
+builds and broader platform support will come later.
 
 ## Self-hosting
 

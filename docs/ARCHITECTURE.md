@@ -259,6 +259,8 @@ The desktop local server owns renderer-facing AI HTTP routes:
 
 - `/api/chat`
 - `/api/chat/steer`
+- `/api/chat/stop`
+- `/api/chat/:chatId/stream`
 - `/api/apply-template`
 - `/api/enhance-note`
 - `/api/realtime-transcription-session`
