@@ -35,6 +35,10 @@ Turn input buffering is separate from active-stream transport: the hosted turn
 input buffer owns pending steer/mailbox ordering, wait-agent activity
 notifications, and mailbox deferral rules, while active-stream sessions own
 broadcast, replay, abort, and persistence.
+Hosted and desktop chat routes share the same user-message persistence helper
+for normal saves, queued replay accepts, queued steer batch accepts, and
+continued-run message appends; route handlers keep runtime-specific telemetry,
+HTTP response formatting, and local capability adapters.
 Hosted chat runs are durable Convex lifecycle records. `assistantRuns` owns run
 state, stop/failure/completion history, and the one-active-run-per-chat
 invariant. `chatActiveStreams` and active `chatToolCalls` are temporary render

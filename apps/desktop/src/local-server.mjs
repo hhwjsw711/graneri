@@ -31,12 +31,9 @@ import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/
 import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
 import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
 import {
-	buildHostedChatSaveMessageArgs,
 	buildHostedNotesContext,
 	getHostedChatConvexRouteError,
 	getHostedChatRecipeContext,
-	getHostedChatReplayAcceptanceHeaders,
-	getHostedChatSteerAcceptanceHeaders,
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
 	HOSTED_CHAT_INPUT_EMPTY_ERROR_CODE,
@@ -47,6 +44,10 @@ import {
 	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
 import { createHostedChatTurnController } from "../../../packages/ai/src/hosted-chat-turn-controller.mjs";
+import {
+	isHostedQueuedUserMessageAccept,
+	persistHostedChatUserMessage,
+} from "../../../packages/ai/src/hosted-chat-user-message-persistence.mjs";
 import { createHostedWaitAgentTool } from "../../../packages/ai/src/hosted-chat-wait-agent-tool.mjs";
 import {
 	buildLocalFolderSystemContext,
@@ -787,71 +788,37 @@ const handleChatRequest = async ({
 		throw error;
 	}
 	if (lastUserMessage) {
-		const isQueuedAccept = Boolean(
-			(continueRunId && queuedInput.hasClaimed) ||
-				(replayQueuedMessageId && !continueRunId),
-		);
+		const isQueuedAccept = isHostedQueuedUserMessageAccept({
+			continueRunId,
+			queuedInput,
+			replayQueuedMessageId,
+		});
 		try {
-			const saveMessageArgs = buildHostedChatSaveMessageArgs({
+			const persistedUserMessage = await persistHostedChatUserMessage({
 				workspaceId: resolvedWorkspaceId,
 				chatId: id,
 				noteId: resolvedNoteId,
 				model: selectedModel.model,
 				reasoningEffort: resolvedReasoningEffort,
 				message: lastUserMessage,
-			});
-			if (continueRunId && queuedInput.hasClaimed) {
-				const acceptedQueuedMessageId = queuedInput.claimedQueuedMessageId;
-				if (!acceptedQueuedMessageId) {
-					throw new Error("Claimed steered queued message is missing.");
-				}
-				await convexClient.mutation(api.chats.acceptSteeredUserMessages, {
-					workspaceId: saveMessageArgs.workspaceId,
-					chatId: saveMessageArgs.chatId,
-					noteId: saveMessageArgs.noteId,
-					title: saveMessageArgs.title,
-					preview: saveMessageArgs.preview,
-					model: saveMessageArgs.model,
-					reasoningEffort: saveMessageArgs.reasoningEffort,
-					runId: continueRunId,
-					messages: steeredUserMessages.map((steeredMessage, index) => ({
-						queuedMessageId: queuedInput.claimedQueuedMessageIds[index],
-						message: buildHostedChatSaveMessageArgs({
-							workspaceId: resolvedWorkspaceId,
-							chatId: id,
-							noteId: resolvedNoteId,
-							model: selectedModel.model,
-							reasoningEffort: resolvedReasoningEffort,
-							message: steeredMessage,
-						}).message,
-					})),
-				});
-				pendingQueuedAcceptanceHeaders = getHostedChatSteerAcceptanceHeaders({
-					queuedMessageId: acceptedQueuedMessageId,
-					queuedMessageIds: queuedInput.claimedQueuedMessageIds,
-					turnId: continueRunId,
-				});
-				queuedInput.clearClaimed();
-			} else if (replayQueuedMessageId && !continueRunId) {
-				await convexClient.mutation(api.chats.acceptQueuedUserMessage, {
-					...saveMessageArgs,
-					queuedMessageId: replayQueuedMessageId,
-				});
-				pendingQueuedAcceptanceHeaders = getHostedChatReplayAcceptanceHeaders({
-					queuedMessageId: replayQueuedMessageId,
-				});
-			} else {
-				await convexClient.mutation(api.chats.saveMessage, saveMessageArgs);
-				if (continueRunId) {
-					await convexClient.mutation(
+				continueRunId,
+				queuedInput,
+				replayQueuedMessageId,
+				steeredUserMessages,
+				acceptQueuedUserMessage: (args) =>
+					convexClient.mutation(api.chats.acceptQueuedUserMessage, args),
+				acceptSteeredUserMessages: (args) =>
+					convexClient.mutation(api.chats.acceptSteeredUserMessages, args),
+				appendUserMessageToRun: (args) =>
+					convexClient.mutation(
 						api.assistantRuns.appendUserMessageToAssistantRun,
-						{
-							runId: continueRunId,
-							messageId: lastUserMessage.id,
-						},
-					);
-				}
-			}
+						args,
+					),
+				saveMessage: (args) =>
+					convexClient.mutation(api.chats.saveMessage, args),
+			});
+			pendingQueuedAcceptanceHeaders =
+				persistedUserMessage.pendingQueuedAcceptanceHeaders;
 		} catch (error) {
 			const routeError = isQueuedAccept
 				? getHostedChatConvexRouteError(error)
