@@ -366,9 +366,10 @@ The desktop local server keeps Node HTTP transport and route dispatch in
 `apps/desktop/src/local-server.mjs`. Reusable HTTP/CORS behavior, hosted AI
 proxying, note AI routes, realtime transcription session creation, and local
 folder tool execution live behind dedicated local-server modules. Chat
-streaming transport may remain in the local server module, while shared hosted
-chat helpers own prompt construction, run-plan assembly, tool-loop setup, save
-payloads, and active-stream persistence.
+HTTP response formatting and desktop-local logging may remain in the local
+server module, while shared hosted chat helpers own prompt construction,
+run-plan assembly, tool-loop setup, branch preparation, save payloads,
+active-stream persistence, and stream finalization mechanics.
 
 Desktop packages must keep the app runtime in `Contents/Resources/app.asar`.
 Only native helpers and bundled media tools may be unpacked into
