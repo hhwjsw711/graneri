@@ -99,22 +99,23 @@ gates: HTTP chat routes, client queue serialization, `saveMessage`, and
 queued-message mutations reject empty user text and more than 1,048,576 text
 characters before the input can enter the AI SDK loop or durable queue state.
 Claimed replay is still server-owned: the client
-rebuilds request state with a fresh Convex token and sends
-`replayQueuedMessageId`; `/api/chat` must load the claimed durable queue row
-and reconstruct the user message from that row before branch, tool-policy, or
-persistence preparation. It must then atomically save the user message and
-delete the claimed queue row through `acceptQueuedUserMessage` before starting
-the assistant run. A client may call `discardClaimed` only when submission fails
-before the server accepts the replay; successful replay must not depend on a
-second client cleanup mutation. Post-accept replay setup failures must carry
-`X-Graneri-Replay-Accepted: true` and
+rebuilds request state through the queued-intent module with a fresh Convex
+token and sends `replayQueuedMessageId`; `/api/chat` must load the claimed
+durable queue row and reconstruct the user message from that row before branch,
+tool-policy, or persistence preparation. It must then atomically save the user
+message and delete the claimed queue row through `acceptQueuedUserMessage`
+before starting the assistant run. A client may call `discardClaimed` only when
+submission fails before the server accepts the replay; successful replay must
+not depend on a second client cleanup mutation. Post-accept replay setup
+failures must carry `X-Graneri-Replay-Accepted: true` and
 `X-Graneri-Replay-Queued-Message-Id` so the transport can resolve the already
 accepted input as an empty successful stream instead of rolling it back. Manual
-steer must use `/api/chat/steer` with both `steerQueuedMessageId` and the
-expected active `continueRunId`; ordinary `/api/chat` requests must reject steer
-payloads instead of falling back to implicit behavior. Hosted web and desktop
-direct routes must return the same structured `{ error, errorCode }` JSON body
-for queued replay and steer validation failures, and must reject malformed IDs
+steer must be prepared as a queued steer intent and sent through
+`/api/chat/steer` with both `steerQueuedMessageId` and the expected active
+`continueRunId`; ordinary `/api/chat` requests must reject steer payloads
+instead of falling back to implicit behavior. Hosted web and desktop direct
+routes must return the same structured `{ error, errorCode }` JSON body for
+queued replay and steer validation failures, and must reject malformed IDs
 before Convex state lookup or mutation. Steer input is queue-id driven: the
 server reconstructs the user message from the claimed durable queue row and must
 not require or trust a client-supplied `message` body. The hosted chat turn

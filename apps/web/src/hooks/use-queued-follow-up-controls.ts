@@ -3,10 +3,14 @@ import type { FunctionReturnType } from "convex/server";
 import * as React from "react";
 import { toast } from "sonner";
 import type { QueuedFollowUpBarItem } from "@/components/chat/chat-queued-follow-up-bar";
-import { fromQueuedUserMessage } from "@/lib/chat-queue";
 import type { QueuedFollowUpMessage } from "@/lib/chat-queued-followups";
 import { getCachedConvexToken } from "@/lib/convex-token";
 import { logError } from "@/lib/logger";
+import {
+	prepareQueuedSteerIntent,
+	QUEUED_SEND_NOW_PENDING_ID,
+	type QueuedChatSendMessage,
+} from "@/lib/queued-chat-intent";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
@@ -22,12 +26,6 @@ type QueuedMessageEditDraft = {
 	index: number;
 	message: QueuedFollowUpMessage;
 };
-type PreparedQueuedMessage = Awaited<ReturnType<typeof fromQueuedUserMessage>>;
-type QueuedChatSendMessage = (
-	message: PreparedQueuedMessage["message"],
-	options: { body: Record<string, unknown> },
-) => Promise<unknown>;
-const QUEUED_SEND_NOW_PENDING_ID = "__queued_send_now_pending__";
 
 const restoreQueuedMessageAtIndex = (
 	messages: Array<QueuedFollowUpMessage>,
@@ -145,24 +143,16 @@ export const useQueuedFollowUpControls = ({
 					setQueuedMessages((messages) =>
 						messages.filter((message) => message._id !== queuedMessage._id),
 					);
-					const preparedQueuedMessage = await fromQueuedUserMessage({
+					const preparedQueuedIntent = await prepareQueuedSteerIntent({
+						activeRunId: activeRun._id,
 						hasMessageId: (messageId) => localMessageIds.has(messageId),
 						queuedMessage,
 						resolveConvexToken: getCachedConvexToken,
 					});
-					const {
-						replayQueuedMessageId: _replayQueuedMessageId,
-						...queuedBody
-					} = preparedQueuedMessage.body;
-					const requestBody = {
-						...queuedBody,
-						continueRunId: activeRun._id,
-						steerQueuedMessageId: queuedMessage._id,
-					};
-					latestRequestBodyRef.current = requestBody;
+					latestRequestBodyRef.current = preparedQueuedIntent.body;
 					rollbackSteerStart = onSteerStart?.();
-					await sendMessage(preparedQueuedMessage.message, {
-						body: requestBody,
+					await sendMessage(preparedQueuedIntent.message, {
+						body: preparedQueuedIntent.body,
 					});
 				} catch (error) {
 					rollbackSteerStart?.();

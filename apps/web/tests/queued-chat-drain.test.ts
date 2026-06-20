@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { drainQueuedChatMessage } from "../src/lib/queued-chat-drain";
+import { drainQueuedChatMessage } from "../src/lib/queued-chat-intent";
 
 const workspaceId = "workspace-1" as Id<"workspaces">;
 const queuedMessageId = "queued-1" as Id<"assistantQueuedMessages">;

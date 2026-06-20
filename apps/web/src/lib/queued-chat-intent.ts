@@ -10,8 +10,53 @@ type PreparedQueuedMessage = Awaited<ReturnType<typeof fromQueuedUserMessage>>;
 
 export type QueuedChatSendMessage = (
 	message: PreparedQueuedMessage["message"],
-	options: { body: PreparedQueuedMessage["body"] },
+	options: { body: Record<string, unknown> },
 ) => Promise<unknown>;
+
+type PrepareQueuedIntentArgs = {
+	hasMessageId: (messageId: string) => boolean;
+	queuedMessage: ClaimedQueuedMessage;
+	resolveConvexToken: () => Promise<string | null>;
+};
+
+export const QUEUED_SEND_NOW_PENDING_ID = "__queued_send_now_pending__";
+
+export const prepareQueuedReplayIntent = async ({
+	hasMessageId,
+	queuedMessage,
+	resolveConvexToken,
+}: PrepareQueuedIntentArgs) =>
+	await fromQueuedUserMessage({
+		hasMessageId,
+		queuedMessage,
+		resolveConvexToken,
+	});
+
+export const prepareQueuedSteerIntent = async ({
+	activeRunId,
+	hasMessageId,
+	queuedMessage,
+	resolveConvexToken,
+}: PrepareQueuedIntentArgs & {
+	activeRunId: Id<"assistantRuns"> | string;
+}) => {
+	const preparedQueuedMessage = await prepareQueuedReplayIntent({
+		hasMessageId,
+		queuedMessage,
+		resolveConvexToken,
+	});
+	const { replayQueuedMessageId: _replayQueuedMessageId, ...queuedBody } =
+		preparedQueuedMessage.body;
+
+	return {
+		body: {
+			...queuedBody,
+			continueRunId: activeRunId,
+			steerQueuedMessageId: queuedMessage._id,
+		},
+		message: preparedQueuedMessage.message,
+	};
+};
 
 type DrainQueuedChatMessageArgs = {
 	chatId: string;
@@ -104,7 +149,7 @@ export const drainQueuedChatMessage = async ({
 	}
 
 	try {
-		const preparedQueuedMessage = await fromQueuedUserMessage({
+		const preparedQueuedMessage = await prepareQueuedReplayIntent({
 			hasMessageId,
 			queuedMessage,
 			resolveConvexToken: async () => convexToken,

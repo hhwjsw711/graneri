@@ -17,7 +17,7 @@ import { logError } from "@/lib/logger";
 import {
 	drainQueuedChatMessage,
 	type QueuedChatSendMessage,
-} from "@/lib/queued-chat-drain";
+} from "@/lib/queued-chat-intent";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
