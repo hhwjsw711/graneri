@@ -10,7 +10,7 @@ import {
 import type { QueuedFollowUpMessage } from "@/lib/chat-queued-followups";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
-type ActiveRun =
+export type ActiveRun =
 	| {
 			_id: Id<"assistantRuns">;
 	  }
@@ -24,14 +24,14 @@ type SubmitChatTurnMessage = {
 	text: string;
 };
 
-type EnqueueQueuedChatTurn = (args: {
+export type EnqueueQueuedChatTurn = (args: {
 	workspaceId: Id<"workspaces">;
 	chatId: string;
 	runId: Id<"assistantRuns">;
 	message: ReturnType<typeof toQueuedUserMessageInput>;
 }) => Promise<QueuedFollowUpMessage>;
 
-type SendChatTurn = (
+export type SendChatTurn = (
 	message: SubmitChatTurnMessage,
 	options: { body: Record<string, unknown> },
 ) => Promise<unknown> | unknown;

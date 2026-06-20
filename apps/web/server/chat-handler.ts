@@ -37,6 +37,7 @@ import {
 	getChatModelProviderOptions,
 	normalizeReasoningEffort,
 } from "../src/lib/ai/models";
+import { createHostedChatAutomationActions } from "./chat-automation-actions";
 import {
 	pipeHostedActiveStreamSessionToResponse,
 	runHostedChatTurnStreamRuntime,
@@ -746,14 +747,13 @@ export const handleChatRequest = async (
 			tools,
 		} = await buildHostedChatRunContext({
 			appsEnabled,
+			automationActions: createHostedChatAutomationActions({
+				convexClient,
+				workspaceId: resolvedWorkspaceId,
+			}),
 			chatAttachmentsApi: api.chatAttachments,
 			chatId: id,
 			convexClient,
-			createAutomation: async (automation) =>
-				await convexClient.mutation(api.automations.create, {
-					workspaceId: resolvedWorkspaceId,
-					...automation,
-				}),
 			defaultModel: resolvedModel.model,
 			defaultReasoningEffort: resolvedReasoningEffort,
 			defaultTimezone: resolvedTimezone,

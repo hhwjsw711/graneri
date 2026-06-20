@@ -765,6 +765,27 @@ export const list = query({
 	},
 });
 
+export const get = query({
+	args: {
+		automationId: v.id("automations"),
+	},
+	returns: v.union(automationListItemValidator, v.null()),
+	handler: async (ctx, args) => {
+		const identity = await requireIdentity(ctx);
+		const ownerTokenIdentifier = identity.tokenIdentifier;
+		const automation = await ctx.db.get(args.automationId);
+
+		if (
+			!automation ||
+			automation.ownerTokenIdentifier !== ownerTokenIdentifier
+		) {
+			return null;
+		}
+
+		return toListItem(automation);
+	},
+});
+
 export const getRunningRunForChat = query({
 	args: {
 		workspaceId: v.id("workspaces"),

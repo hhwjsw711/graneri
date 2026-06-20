@@ -80,6 +80,7 @@ import {
 	useRevokeAttachmentObjectUrls,
 } from "@/components/ai-elements/file-attachment-controls";
 import { hasUploadingAttachments } from "@/components/ai-elements/file-attachment-utils";
+import { ChatAutomationConfirmationBar } from "@/components/chat/chat-automation-confirmation-bar";
 import { ChatQueuedFollowUpBar } from "@/components/chat/chat-queued-follow-up-bar";
 import {
 	ASSISTANT_CHAT_CONTENT_CLASS,
@@ -131,6 +132,8 @@ import {
 } from "@/lib/ai/reasoning-effort";
 import { waitForBrowserPaint } from "@/lib/browser-paint";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
+import { getPendingAutomationDeleteConfirmation } from "@/lib/chat-automation-confirmation";
+import { submitAutomationConfirmationChatTurn } from "@/lib/chat-automation-confirmation-submit";
 import {
 	appendLocalOptimisticChatMessages,
 	hasRenderableChatMessageText,
@@ -381,6 +384,10 @@ const useNoteComposerController = ({
 		createDraftChatId(),
 	);
 	const [isPreparingRequest, setIsPreparingRequest] = React.useState(false);
+	const [
+		isAutomationConfirmationSubmitting,
+		setIsAutomationConfirmationSubmitting,
+	] = React.useState(false);
 	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
 		DesktopLocalFolder[]
 	>([]);
@@ -930,6 +937,10 @@ const useNoteComposerController = ({
 			mergedDisplayChatMessages,
 			visibleInitialMessages,
 		],
+	);
+	const automationDeleteConfirmation = React.useMemo(
+		() => getPendingAutomationDeleteConfirmation(displayChatMessages),
+		[displayChatMessages],
 	);
 	const streamingMessageIds = React.useMemo(
 		() =>
@@ -1970,6 +1981,109 @@ const useNoteComposerController = ({
 		await handleSend();
 	};
 
+	const submitAutomationConfirmationResponse = React.useCallback(
+		async (text: string) => {
+			const outgoingText = text.trim();
+			if (!outgoingText || isAutomationConfirmationSubmitting) {
+				return;
+			}
+
+			setIsAutomationConfirmationSubmitting(true);
+			setIsPreparingRequest(true);
+			if (presentationMode === "inline") {
+				setPanelMode("chat");
+			} else {
+				openRightSidebar(presentationMode);
+			}
+
+			const currentNoteContext = readNoteContext();
+			await submitAutomationConfirmationChatTurn({
+				activeRun,
+				activeWorkspaceId,
+				buildRequestBody: (confirmationText) =>
+					buildNoteChatRequestBody({
+						localFolderStorageScope,
+						model: selectedModel.model,
+						noteContext: {
+							noteId: currentNoteContext.noteId,
+							title: currentNoteContext.title,
+							text: currentNoteContext.text,
+						},
+						reasoningEffort: selectedReasoningEffort,
+						recipeSlug: null,
+						resolveConvexToken: getCachedConvexToken,
+						text: confirmationText,
+					}),
+				chatId: currentChatId,
+				displayActiveRun,
+				enqueueQueuedMessage,
+				isAiRequestPending,
+				onFinally: () => {
+					setIsAutomationConfirmationSubmitting(false);
+					setIsPreparingRequest(false);
+					requestComposerFocus();
+				},
+				onOptimisticMessage: requestComposerFocus,
+				onRequestPrepared: ({ localFolders, requestBody }) => {
+					setSharedLocalFolders(localFolders);
+					latestRequestBodyRef.current = requestBody;
+				},
+				sendMessage,
+				setLocalOptimisticMessages,
+				setMessages,
+				setQueuedMessages,
+				text: outgoingText,
+			});
+		},
+		[
+			activeRun,
+			activeWorkspaceId,
+			currentChatId,
+			displayActiveRun,
+			enqueueQueuedMessage,
+			isAiRequestPending,
+			isAutomationConfirmationSubmitting,
+			localFolderStorageScope,
+			openRightSidebar,
+			presentationMode,
+			readNoteContext,
+			requestComposerFocus,
+			selectedModel.model,
+			selectedReasoningEffort,
+			sendMessage,
+			setMessages,
+			setPanelMode,
+			setQueuedMessages,
+		],
+	);
+
+	const handleAutomationConfirmationCancel = React.useCallback(() => {
+		if (!automationDeleteConfirmation) {
+			return;
+		}
+
+		void submitAutomationConfirmationResponse(
+			`Cancel deletion of automation ${automationDeleteConfirmation.automationId}.`,
+		);
+	}, [automationDeleteConfirmation, submitAutomationConfirmationResponse]);
+
+	const handleAutomationConfirmationConfirm = React.useCallback(() => {
+		if (!automationDeleteConfirmation) {
+			return;
+		}
+
+		void submitAutomationConfirmationResponse(
+			`Confirm delete automation ${automationDeleteConfirmation.automationId}.`,
+		);
+	}, [automationDeleteConfirmation, submitAutomationConfirmationResponse]);
+
+	const handleAutomationConfirmationTextAnswer = React.useCallback(
+		(answer: string) => {
+			void submitAutomationConfirmationResponse(answer);
+		},
+		[submitAutomationConfirmationResponse],
+	);
+
 	const handleComposerValueChange = (nextValue: string) => {
 		setMessage(nextValue);
 	};
@@ -2334,6 +2448,11 @@ const useNoteComposerController = ({
 		setSelectedRecipeSlug,
 		reasoningEffort: selectedReasoningEffort,
 		selectedModel,
+		automationDeleteConfirmation,
+		isAutomationConfirmationSubmitting,
+		onAutomationConfirmationCancel: handleAutomationConfirmationCancel,
+		onAutomationConfirmationConfirm: handleAutomationConfirmationConfirm,
+		onAutomationConfirmationTextAnswer: handleAutomationConfirmationTextAnswer,
 		queuedFollowUps,
 		onQueuedFollowUpsReorder,
 		suppressRecipePickerUntilUserActionRef,
@@ -3685,6 +3804,15 @@ function ChatComposerForm({
 				<div className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-3 flex justify-center">
 					<div className="pointer-events-auto">{topAccessory}</div>
 				</div>
+			) : null}
+			{controller.automationDeleteConfirmation ? (
+				<ChatAutomationConfirmationBar
+					confirmation={controller.automationDeleteConfirmation}
+					disabled={controller.isAutomationConfirmationSubmitting}
+					onCancel={controller.onAutomationConfirmationCancel}
+					onConfirm={controller.onAutomationConfirmationConfirm}
+					onTextAnswer={controller.onAutomationConfirmationTextAnswer}
+				/>
 			) : null}
 			{controller.queuedFollowUps.length > 0 ? (
 				<ChatQueuedFollowUpBar

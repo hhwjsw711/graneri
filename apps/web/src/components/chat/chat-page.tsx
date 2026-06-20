@@ -66,6 +66,8 @@ import {
 import { waitForBrowserPaint } from "@/lib/browser-paint";
 import { getChatId } from "@/lib/chat";
 import { stopActiveChatStream } from "@/lib/chat-active-stream";
+import { getPendingAutomationDeleteConfirmation } from "@/lib/chat-automation-confirmation";
+import { submitAutomationConfirmationChatTurn } from "@/lib/chat-automation-confirmation-submit";
 import { getChatText } from "@/lib/chat-message";
 import {
 	appendLocalOptimisticChatMessages,
@@ -347,6 +349,10 @@ const useChatPageController = ({
 	);
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [isPreparingRequest, setIsPreparingRequest] = React.useState(false);
+	const [
+		isAutomationConfirmationSubmitting,
+		setIsAutomationConfirmationSubmitting,
+	] = React.useState(false);
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
 		DesktopLocalFolder[]
@@ -655,6 +661,10 @@ const useChatPageController = ({
 			mergedDisplayMessages,
 			visiblePersistedMessages,
 		],
+	);
+	const automationDeleteConfirmation = React.useMemo(
+		() => getPendingAutomationDeleteConfirmation(displayMessages),
+		[displayMessages],
 	);
 	const streamingMessageIds = React.useMemo(
 		() =>
@@ -1075,6 +1085,110 @@ const useChatPageController = ({
 		webSearchEnabled,
 	]);
 
+	const submitAutomationConfirmationResponse = React.useCallback(
+		async (text: string) => {
+			const outgoingText = text.trim();
+			if (
+				!outgoingText ||
+				hasUploadingAttachments(attachedFiles) ||
+				(isChatRequestPending && !displayActiveRun && !activeRun) ||
+				isAutomationRunning
+			) {
+				return;
+			}
+
+			setIsAutomationConfirmationSubmitting(true);
+			setIsPreparingRequest(true);
+			await submitAutomationConfirmationChatTurn({
+				activeRun,
+				activeWorkspaceId,
+				buildRequestBody: (confirmationText) =>
+					buildWorkspaceChatRequestBody({
+						localFolderStorageScope,
+						mentions: [],
+						model: selectedModel.model,
+						reasoningEffort: selectedReasoningEffort,
+						resolveConvexToken: getCachedConvexToken,
+						selectedSourceIds: [],
+						text: confirmationText,
+						webSearchEnabled,
+						workspaceId: activeWorkspaceId,
+					}),
+				chatId,
+				displayActiveRun,
+				enqueueQueuedMessage,
+				isAiRequestPending,
+				onBeforeSubmit: () => {
+					// react-doctor-disable-next-line react-doctor/no-event-handler
+					onChatPersisted?.(chatId);
+				},
+				onFinally: () => {
+					setIsAutomationConfirmationSubmitting(false);
+					setIsPreparingRequest(false);
+				},
+				onRequestPrepared: ({ localFolders, requestBody }) => {
+					setSharedLocalFolders(localFolders);
+					latestRequestBodyRef.current = requestBody;
+				},
+				sendMessage,
+				setLocalOptimisticMessages,
+				setMessages,
+				setQueuedMessages,
+				text: outgoingText,
+			});
+		},
+		[
+			activeWorkspaceId,
+			activeRun,
+			attachedFiles,
+			chatId,
+			displayActiveRun,
+			enqueueQueuedMessage,
+			isAiRequestPending,
+			isAutomationRunning,
+			isChatRequestPending,
+			localFolderStorageScope,
+			onChatPersisted,
+			selectedReasoningEffort,
+			selectedModel.model,
+			sendMessage,
+			setMessages,
+			setQueuedMessages,
+			webSearchEnabled,
+		],
+	);
+
+	const handleAutomationConfirmationCancel = React.useCallback(() => {
+		if (!automationDeleteConfirmation) {
+			return;
+		}
+
+		void submitAutomationConfirmationResponse(
+			`Cancel deletion of automation ${automationDeleteConfirmation.automationId}.`,
+		);
+	}, [automationDeleteConfirmation, submitAutomationConfirmationResponse]);
+
+	const handleAutomationConfirmationConfirm = React.useCallback(() => {
+		if (!automationDeleteConfirmation) {
+			return;
+		}
+
+		void submitAutomationConfirmationResponse(
+			`Confirm delete automation ${automationDeleteConfirmation.automationId}.`,
+		);
+	}, [automationDeleteConfirmation, submitAutomationConfirmationResponse]);
+
+	const handleAutomationConfirmationTextAnswer = React.useCallback(
+		(answer: string) => {
+			if (!automationDeleteConfirmation) {
+				return;
+			}
+
+			void submitAutomationConfirmationResponse(answer);
+		},
+		[automationDeleteConfirmation, submitAutomationConfirmationResponse],
+	);
+
 	const handleDraftKeyDown = React.useCallback(
 		(event: KeyboardEvent) => {
 			if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
@@ -1308,6 +1422,11 @@ const useChatPageController = ({
 		webSearchEnabled,
 		workspaceSources,
 		appSources,
+		automationDeleteConfirmation,
+		isAutomationConfirmationSubmitting,
+		onAutomationConfirmationCancel: handleAutomationConfirmationCancel,
+		onAutomationConfirmationConfirm: handleAutomationConfirmationConfirm,
+		onAutomationConfirmationTextAnswer: handleAutomationConfirmationTextAnswer,
 		editingMessageId,
 		mentions,
 		handleCancelEdit,
@@ -1666,6 +1785,17 @@ export function ChatPage({
 					: "Ask anything. @ to use tools or mention notes"
 			}
 			topAccessory={composerTopAccessory}
+			automationConfirmation={controller.automationDeleteConfirmation}
+			isAutomationConfirmationSubmitting={
+				controller.isAutomationConfirmationSubmitting
+			}
+			onAutomationConfirmationCancel={controller.onAutomationConfirmationCancel}
+			onAutomationConfirmationConfirm={
+				controller.onAutomationConfirmationConfirm
+			}
+			onAutomationConfirmationTextAnswer={
+				controller.onAutomationConfirmationTextAnswer
+			}
 			queuedFollowUps={queuedFollowUps}
 			onQueuedFollowUpsReorder={controller.onQueuedFollowUpsReorder}
 			onDraftChange={controller.setDraft}

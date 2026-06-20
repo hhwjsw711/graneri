@@ -606,14 +606,30 @@ const handleChatRequest = async ({
 		({ agent, finalizedToolSet, systemPrompt } =
 			await buildHostedChatRunContext({
 				appsEnabled,
+				automationActions: {
+					createAutomation: async (automation) =>
+						await convexClient.mutation(api.automations.create, {
+							workspaceId: resolvedWorkspaceId,
+							...automation,
+						}),
+					deleteAutomation: async (args) =>
+						await convexClient.mutation(api.automations.remove, args),
+					getAutomation: async (args) =>
+						await convexClient.query(api.automations.get, args),
+					listAutomations: async () =>
+						await convexClient.query(api.automations.list, {
+							workspaceId: resolvedWorkspaceId,
+						}),
+					runAutomationNow: async (args) =>
+						await convexClient.mutation(api.automations.runNow, args),
+					togglePaused: async (args) =>
+						await convexClient.mutation(api.automations.togglePaused, args),
+					updateAutomation: async (automation) =>
+						await convexClient.mutation(api.automations.update, automation),
+				},
 				chatAttachmentsApi: api.chatAttachments,
 				chatId: id,
 				convexClient,
-				createAutomation: async (automation) =>
-					await convexClient.mutation(api.automations.create, {
-						workspaceId: resolvedWorkspaceId,
-						...automation,
-					}),
 				defaultModel: selectedModel.model,
 				defaultReasoningEffort: resolvedReasoningEffort,
 				defaultTimezone: resolvedTimezone,

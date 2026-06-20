@@ -1,8 +1,5 @@
 import type { ProviderOptions, ToolLoopAgent, ToolSet, UIMessage } from "ai";
-import type {
-	AutomationToolInput,
-	AutomationToolResult,
-} from "./automation-tools.mjs";
+import type { AutomationActions } from "./automation-tools.mjs";
 import type { HostedActiveStreamSession } from "./hosted-chat-active-stream.mjs";
 
 type LogLatencyDetails = Record<
@@ -37,12 +34,10 @@ export declare const getHostedChatLocalFolderReferenceIds: (
 
 export declare const buildHostedChatRunContext: (args: {
 	appsEnabled?: boolean;
+	automationActions?: AutomationActions | null;
 	chatAttachmentsApi: ChatAttachmentsApi;
 	chatId: string;
 	convexClient: unknown;
-	createAutomation: (
-		automation: AutomationToolInput,
-	) => Promise<AutomationToolResult>;
 	defaultModel: string;
 	defaultReasoningEffort: string;
 	defaultTimezone: string;

@@ -28,10 +28,10 @@ export const getHostedChatLocalFolderReferenceIds = (localFolders = []) =>
 
 export const buildHostedChatRunContext = async ({
 	appsEnabled = false,
+	automationActions,
 	chatAttachmentsApi,
 	chatId,
 	convexClient,
-	createAutomation,
 	defaultModel,
 	defaultReasoningEffort,
 	defaultTimezone,
@@ -100,8 +100,8 @@ export const buildHostedChatRunContext = async ({
 	});
 	const automationContext = buildChatAutomationContext({
 		appConnections: selectedAppConnections,
+		automationActions,
 		chatId,
-		createAutomation,
 		defaultModel,
 		defaultReasoningEffort,
 		defaultTimezone,
@@ -124,7 +124,9 @@ export const buildHostedChatRunContext = async ({
 		coreToolPolicy,
 		localFolderContext,
 		localFolderTools:
-			localFolderRoots.length > 0 ? buildLocalFolderTools(localFolderRoots) : {},
+			localFolderRoots.length > 0
+				? buildLocalFolderTools(localFolderRoots)
+				: {},
 		model: defaultModel,
 		providerOptions,
 		selectedAppSourceInstructions,
