@@ -24,7 +24,6 @@ import {
 import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
 import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
 import {
-	createHostedActiveChatStreamSession,
 	createHostedActiveStreamKey,
 	type HostedActiveStreamSession,
 	pipeHostedActiveStreamText,
@@ -35,6 +34,7 @@ import { createHostedChatQueuedInput } from "../../../packages/ai/src/hosted-cha
 import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/src/hosted-chat-run-finalization-queue.mjs";
 import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
 import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
+import { startHostedChatRun } from "../../../packages/ai/src/hosted-chat-run-starter.mjs";
 import {
 	buildHostedNotesContext,
 	getHostedChatConvexRouteError,
@@ -1047,78 +1047,45 @@ export const handleChatRequest = async (
 	});
 
 	const assistantMessageId = `stream-${crypto.randomUUID()}`;
-	let assistantRun: {
-		_id: Id<"assistantRuns">;
-		chatId: Id<"chats">;
-	} | null = null;
-	try {
-		assistantRun =
-			continueRunId && attachableRun?._id === continueRunId
-				? attachableRun
-				: await convexClient.mutation(api.assistantRuns.startAssistantRun, {
-						workspaceId: resolvedWorkspaceId,
-						chatId: id,
-						assistantMessageId,
-						model: resolvedModel.model,
-						reasoningEffort: resolvedReasoningEffort,
-						policy:
-							trigger === "regenerate-message" || supersedeActiveRun
-								? "supersede"
-								: "reject",
-					});
-		activeStreamSession = createHostedActiveChatStreamSession({
-			controllers: activeChatStreamControllers,
-			workspaceId: resolvedWorkspaceId,
-			chatId: id,
-			messageId: assistantMessageId,
-			runId: assistantRun._id,
-			callbacks: {
-				startActiveStream: (args) =>
-					convexClient.mutation(api.chats.startActiveStream, {
-						...args,
-						assistantMessageId,
-					}),
-				appendActiveStreamText: (args) =>
-					convexClient.mutation(api.chats.appendActiveStreamText, args),
-				finishActiveStream: (args) =>
-					convexClient.mutation(api.chats.deleteActiveStreamSnapshot, args),
-				startActiveStreamToolCall: (args) =>
-					convexClient.mutation(
-						api.chatToolCalls.startActiveStreamToolCall,
-						args,
-					),
-				finishActiveStreamToolCall: (args) =>
-					convexClient.mutation(
-						api.chatToolCalls.finishActiveStreamToolCall,
-						args,
-					),
-			},
-		});
-		await activeStreamSession.start();
-	} catch (error) {
-		if (assistantRun) {
-			await convexClient
-				.mutation(api.assistantRuns.failAssistantRun, {
-					runId: assistantRun._id,
-					errorText:
-						error instanceof Error
-							? error.message
-							: "Unknown stream start error",
-				})
-				.catch((failError) => {
-					recordServerError({
-						error: failError,
-						event: wideEvent,
-						operation: "assistant_run_start_failure_terminalize",
-					});
-				});
+	const startedRun = await startHostedChatRun({
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+		assistantMessageId,
+		attachableRun,
+		continueRunId,
+		model: resolvedModel.model,
+		reasoningEffort: resolvedReasoningEffort,
+		trigger,
+		supersedeActiveRun,
+		controllers: activeChatStreamControllers,
+		startAssistantRun: (args) =>
+			convexClient.mutation(api.assistantRuns.startAssistantRun, args),
+		failAssistantRun: (args) =>
+			convexClient.mutation(api.assistantRuns.failAssistantRun, args),
+		startActiveStream: (args) =>
+			convexClient.mutation(api.chats.startActiveStream, args),
+		appendActiveStreamText: (args) =>
+			convexClient.mutation(api.chats.appendActiveStreamText, args),
+		deleteActiveStreamSnapshot: (args) =>
+			convexClient.mutation(api.chats.deleteActiveStreamSnapshot, args),
+		startActiveStreamToolCall: (args) =>
+			convexClient.mutation(api.chatToolCalls.startActiveStreamToolCall, args),
+		finishActiveStreamToolCall: (args) =>
+			convexClient.mutation(api.chatToolCalls.finishActiveStreamToolCall, args),
+	});
+	if (!startedRun.ok) {
+		if (startedRun.terminalizationError) {
+			recordServerError({
+				error: startedRun.terminalizationError,
+				event: wideEvent,
+				operation: "assistant_run_start_failure_terminalize",
+			});
 		}
-		activeStreamSession?.cleanup();
 		wideEvent.outcome = "error";
 		wideEvent.status_code = 500;
 		wideEvent.error_code = "stream_start_failed";
 		recordServerError({
-			error,
+			error: startedRun.error,
 			event: wideEvent,
 			operation: "stream_start",
 		});
@@ -1133,21 +1100,8 @@ export const handleChatRequest = async (
 		);
 		return;
 	}
-	if (!assistantRun || !activeStreamSession) {
-		wideEvent.outcome = "error";
-		wideEvent.status_code = 500;
-		wideEvent.error_code = "stream_start_failed";
-		emitWideEvent("error");
-		sendJson(
-			response,
-			500,
-			{
-				error: "Failed to start assistant stream.",
-			},
-			pendingQueuedAcceptanceHeaders,
-		);
-		return;
-	}
+	const { assistantRun } = startedRun;
+	activeStreamSession = startedRun.activeStreamSession;
 	wideEvent.assistant_run_id = assistantRun._id;
 	wideEvent.assistant_message_id = assistantMessageId;
 	logLatency("convex.active_stream_started", {
