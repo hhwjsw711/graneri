@@ -223,6 +223,7 @@ type ScopedLocalOptimisticMessages = {
 	chatId: string;
 	messages: UIMessage[];
 };
+const EMPTY_STEER_HANDOFF_STREAMING_MESSAGE_IDS = new Set<string>();
 const noteRecipePickerListboxProps = {
 	role: "listbox" as const,
 	"aria-label": "Recipe suggestions",
@@ -789,8 +790,10 @@ const useNoteComposerController = ({
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
 	const [localOptimisticMessages, setLocalOptimisticMessages] =
 		React.useState<ScopedLocalOptimisticMessages | null>(null);
-	const [steerHandoffStreamingMessageIds, setSteerHandoffStreamingMessageIds] =
-		React.useState<ReadonlySet<string>>(() => new Set());
+	const [
+		activeSteerHandoffStreamingMessageIds,
+		setActiveSteerHandoffStreamingMessageIds,
+	] = React.useState<ReadonlySet<string>>(() => new Set());
 	const handleToolCall = React.useMemo(
 		() =>
 			createDesktopLocalToolCallHandler({
@@ -874,15 +877,10 @@ const useNoteComposerController = ({
 			displayActiveRun.assistantMessageId
 		);
 	}, [controllerMessages, displayActiveRun, visibleInitialMessages]);
-	React.useEffect(() => {
-		if (displayActiveRun || isAiRequestPending || isPreparingRequest) {
-			return;
-		}
-
-		setSteerHandoffStreamingMessageIds((messageIds) =>
-			messageIds.size > 0 ? new Set() : messageIds,
-		);
-	}, [displayActiveRun, isAiRequestPending, isPreparingRequest]);
+	const steerHandoffStreamingMessageIds =
+		displayActiveRun || isAiRequestPending || isPreparingRequest
+			? activeSteerHandoffStreamingMessageIds
+			: EMPTY_STEER_HANDOFF_STREAMING_MESSAGE_IDS;
 	const mergedDisplayChatMessages = React.useMemo(() => {
 		if (!activeAssistantMessageId || !displayActiveRun) {
 			return controllerMessages.length > 0
@@ -1449,7 +1447,7 @@ const useNoteComposerController = ({
 				return undefined;
 			}
 
-			setSteerHandoffStreamingMessageIds((messageIds) => {
+			setActiveSteerHandoffStreamingMessageIds((messageIds) => {
 				const nextMessageIds = new Set(messageIds);
 				for (const messageId of handoffMessageIds) {
 					nextMessageIds.add(messageId);
@@ -1458,7 +1456,7 @@ const useNoteComposerController = ({
 			});
 
 			return () =>
-				setSteerHandoffStreamingMessageIds((messageIds) => {
+				setActiveSteerHandoffStreamingMessageIds((messageIds) => {
 					const nextMessageIds = new Set(messageIds);
 					for (const messageId of handoffMessageIds) {
 						nextMessageIds.delete(messageId);
@@ -1516,7 +1514,7 @@ const useNoteComposerController = ({
 		previousNoteIdRef.current = noteId;
 
 		if (canStop) {
-			// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
+			// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 			handleStop();
 		}
 

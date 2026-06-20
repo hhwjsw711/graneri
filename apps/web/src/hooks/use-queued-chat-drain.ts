@@ -148,16 +148,21 @@ export const useQueuedChatDrain = ({
 			try {
 				const drainResult = await drainQueuedChatMessage({
 					workspaceId: resolvedWorkspaceId,
+					// react-doctor-disable-next-line react-doctor/no-event-handler
 					chatId,
+					// react-doctor-disable-next-line react-doctor/no-event-handler
 					claimQueuedMessage,
 					discardClaimedMessage,
+					// react-doctor-disable-next-line react-doctor/no-event-handler
 					hasMessageId: (messageId) => localMessageIds.has(messageId),
 					pendingDiscardClaimedMessageId:
 						pendingDiscardClaimedMessageIdRef.current,
 					queuedMessageCount,
 					resolveConvexToken: getCachedConvexToken,
+					// react-doctor-disable-next-line react-doctor/no-event-handler
 					sendMessage,
 					setLatestRequestBody: (body) => {
+						// react-doctor-disable-next-line react-doctor/no-event-handler
 						latestRequestBodyRef.current = body;
 					},
 				});

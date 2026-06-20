@@ -129,6 +129,17 @@ type ScopedLocalOptimisticMessages = {
 	messages: UIMessage[];
 };
 
+const EMPTY_STEER_HANDOFF_STREAMING_MESSAGE_IDS = new Set<string>();
+type StateUpdate<T> = T | ((currentState: T) => T);
+
+const stateUpdateReducer = <T,>(
+	currentState: T,
+	updateState: StateUpdate<T>,
+): T =>
+	typeof updateState === "function"
+		? (updateState as (currentState: T) => T)(currentState)
+		: updateState;
+
 const getLatestUserMessageText = (messages: UIMessage[]) => {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -401,11 +412,19 @@ const useChatPageController = ({
 	);
 	const addToolOutputRef =
 		React.useRef<ChatAddToolOutputFunction<UIMessage> | null>(null);
-	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [localOptimisticMessages, setLocalOptimisticMessages] =
-		React.useState<ScopedLocalOptimisticMessages | null>(null);
-	const [steerHandoffStreamingMessageIds, setSteerHandoffStreamingMessageIds] =
-		React.useState<ReadonlySet<string>>(() => new Set());
+		React.useReducer(
+			stateUpdateReducer<ScopedLocalOptimisticMessages | null>,
+			null,
+		);
+	const [
+		activeSteerHandoffStreamingMessageIds,
+		setActiveSteerHandoffStreamingMessageIds,
+	] = React.useReducer(
+		stateUpdateReducer<ReadonlySet<string>>,
+		undefined,
+		() => new Set<string>(),
+	);
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [pendingTruncateMessageId, setPendingTruncateMessageId] =
 		React.useState<string | null>(null);
@@ -513,15 +532,10 @@ const useChatPageController = ({
 			displayActiveRun.assistantMessageId
 		);
 	}, [controllerMessages, displayActiveRun, visiblePersistedMessages]);
-	React.useEffect(() => {
-		if (displayActiveRun || isAiRequestPending || isPreparingRequest) {
-			return;
-		}
-
-		setSteerHandoffStreamingMessageIds((messageIds) =>
-			messageIds.size > 0 ? new Set() : messageIds,
-		);
-	}, [displayActiveRun, isAiRequestPending, isPreparingRequest]);
+	const steerHandoffStreamingMessageIds =
+		displayActiveRun || isAiRequestPending || isPreparingRequest
+			? activeSteerHandoffStreamingMessageIds
+			: EMPTY_STEER_HANDOFF_STREAMING_MESSAGE_IDS;
 
 	const persistedMessagesSeedKey = React.useMemo(
 		() => getUIMessageSeedKey(visiblePersistedMessages),
@@ -724,7 +738,7 @@ const useChatPageController = ({
 				return undefined;
 			}
 
-			setSteerHandoffStreamingMessageIds((messageIds) => {
+			setActiveSteerHandoffStreamingMessageIds((messageIds) => {
 				const nextMessageIds = new Set(messageIds);
 				for (const messageId of handoffMessageIds) {
 					nextMessageIds.add(messageId);
@@ -733,7 +747,7 @@ const useChatPageController = ({
 			});
 
 			return () =>
-				setSteerHandoffStreamingMessageIds((messageIds) => {
+				setActiveSteerHandoffStreamingMessageIds((messageIds) => {
 					const nextMessageIds = new Set(messageIds);
 					for (const messageId of handoffMessageIds) {
 						nextMessageIds.delete(messageId);

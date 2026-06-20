@@ -44,7 +44,7 @@ export type SubmitChatTurnResult =
 			status: "sent";
 	  };
 
-export const isAssistantRunNoLongerActiveError = (error: unknown) => {
+const isAssistantRunNoLongerActiveError = (error: unknown) => {
 	const maybeError = error as
 		| { data?: unknown; message?: unknown; code?: unknown }
 		| null

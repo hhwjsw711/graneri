@@ -39,6 +39,10 @@ Hosted and desktop chat routes share the same user-message persistence helper
 for normal saves, queued replay accepts, queued steer batch accepts, and
 continued-run message appends; route handlers keep runtime-specific telemetry,
 HTTP response formatting, and local capability adapters.
+The hosted web chat route delegates active-run policy, same-run validation,
+queued acceptance headers, assistant-run start, stream finalization, initial
+AI SDK stream piping, and reconnect stream piping to its hosted stream runtime
+module so HTTP parsing/context assembly stays separate from turn execution.
 Assistant run start and active-stream session start share one runtime helper so
 both web and desktop choose the same reject/supersede policy, reuse matching
 continued runs, terminalize failed starts, and clean up partially-created stream

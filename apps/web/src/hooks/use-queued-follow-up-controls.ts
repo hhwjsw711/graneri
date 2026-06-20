@@ -78,8 +78,14 @@ export const useQueuedFollowUpControls = ({
 	const [deletingId, setDeletingId] = React.useState<string | null>(null);
 	const [editDraft, setEditDraft] =
 		React.useState<QueuedMessageEditDraft | null>(null);
-	const sendingNowIdsRef = React.useRef<Set<string>>(new Set());
-	const sendNowChainRef = React.useRef<Promise<void>>(Promise.resolve());
+	const sendingNowIdsRef = React.useRef<Set<string> | null>(null);
+	if (sendingNowIdsRef.current === null) {
+		sendingNowIdsRef.current = new Set();
+	}
+	const sendNowChainRef = React.useRef<Promise<void> | null>(null);
+	if (sendNowChainRef.current === null) {
+		sendNowChainRef.current = Promise.resolve();
+	}
 
 	const restoreEditedQueuedMessage = React.useCallback(() => {
 		if (!editDraft) {
@@ -119,11 +125,16 @@ export const useQueuedFollowUpControls = ({
 			}
 
 			const nextSendingNowId = queuedMessageId ?? QUEUED_SEND_NOW_PENDING_ID;
-			if (sendingNowIdsRef.current.has(nextSendingNowId)) {
+			const sendingNowIds = sendingNowIdsRef.current;
+			const sendNowChain = sendNowChainRef.current;
+			if (!sendingNowIds || !sendNowChain) {
 				return;
 			}
-			sendingNowIdsRef.current.add(nextSendingNowId);
-			setSendingNowIds(new Set(sendingNowIdsRef.current));
+			if (sendingNowIds.has(nextSendingNowId)) {
+				return;
+			}
+			sendingNowIds.add(nextSendingNowId);
+			setSendingNowIds(new Set(sendingNowIds));
 			const queuedMessage = queuedMessageId
 				? queuedMessages.find((message) => message._id === queuedMessageId)
 				: (queuedMessages[0] ?? null);
@@ -175,11 +186,11 @@ export const useQueuedFollowUpControls = ({
 							: "Failed to send queued message now",
 					);
 				} finally {
-					sendingNowIdsRef.current.delete(nextSendingNowId);
-					setSendingNowIds(new Set(sendingNowIdsRef.current));
+					sendingNowIds.delete(nextSendingNowId);
+					setSendingNowIds(new Set(sendingNowIds));
 				}
 			};
-			const nextSend = sendNowChainRef.current.then(
+			const nextSend = sendNowChain.then(
 				sendQueuedMessageNow,
 				sendQueuedMessageNow,
 			);
