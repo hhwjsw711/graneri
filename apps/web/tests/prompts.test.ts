@@ -18,6 +18,7 @@ import {
 	hostedChatSteerTurnIdHeader,
 	prepareHostedChatBranch,
 	toHostedQueuedUserMessage,
+	validateHostedChatActiveRunPolicy,
 	validateHostedChatRequestInput,
 	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
@@ -641,5 +642,44 @@ describe("prompt helpers", () => {
 		expect(branch.shouldTruncateChatBranch).toBe(true);
 		expect(branch.truncateMessageId).toBe("missing-message");
 		expect(branch.incomingMessages).toHaveLength(1);
+	});
+
+	it("rejects new sends when an active run is still attachable", () => {
+		expect(
+			validateHostedChatActiveRunPolicy({
+				attachableRun: { _id: "run-1" },
+				trigger: "submit-message",
+			}),
+		).toEqual({
+			activeRunId: "run-1",
+			error: "Chat already has an active assistant run.",
+			errorCode: "active_run_exists",
+			statusCode: 409,
+		});
+	});
+
+	it("allows active run continuations, regeneration, and superseding sends", () => {
+		const attachableRun = { _id: "run-1" };
+
+		expect(
+			validateHostedChatActiveRunPolicy({
+				attachableRun,
+				continueRunId: "run-1",
+				trigger: "submit-message",
+			}),
+		).toBeNull();
+		expect(
+			validateHostedChatActiveRunPolicy({
+				attachableRun,
+				trigger: "regenerate-message",
+			}),
+		).toBeNull();
+		expect(
+			validateHostedChatActiveRunPolicy({
+				attachableRun,
+				supersedeActiveRun: true,
+				trigger: "submit-message",
+			}),
+		).toBeNull();
 	});
 });

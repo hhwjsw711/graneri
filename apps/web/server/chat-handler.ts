@@ -44,6 +44,7 @@ import {
 	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
 	prepareHostedChatBranch,
+	validateHostedChatActiveRunPolicy,
 	validateHostedChatInput,
 	validateHostedChatRequestInput,
 	validateHostedChatSteerRoute,
@@ -944,22 +945,22 @@ export const handleChatRequest = async (
 		throw error;
 	}
 
-	if (
-		trigger !== "regenerate-message" &&
-		!continueRunId &&
-		!supersedeActiveRun
-	) {
-		if (attachableRun) {
-			wideEvent.outcome = "error";
-			wideEvent.status_code = 409;
-			wideEvent.error_code = "active_run_exists";
-			wideEvent.active_run_id = attachableRun._id;
-			emitWideEvent("error");
-			sendJson(response, 409, {
-				error: "Chat already has an active assistant run.",
-			});
-			return;
-		}
+	const activeRunPolicyError = validateHostedChatActiveRunPolicy({
+		attachableRun,
+		continueRunId,
+		supersedeActiveRun,
+		trigger,
+	});
+	if (activeRunPolicyError) {
+		wideEvent.outcome = "error";
+		wideEvent.status_code = activeRunPolicyError.statusCode;
+		wideEvent.error_code = activeRunPolicyError.errorCode;
+		wideEvent.active_run_id = activeRunPolicyError.activeRunId;
+		emitWideEvent("error");
+		sendJson(response, activeRunPolicyError.statusCode, {
+			error: activeRunPolicyError.error,
+		});
+		return;
 	}
 	const sameActiveRun = await turnController.requireSameActiveRun({
 		continueRunId,

@@ -371,6 +371,29 @@ export const validateHostedChatRequestInput = ({
 	return null;
 };
 
+export const validateHostedChatActiveRunPolicy = ({
+	attachableRun,
+	continueRunId,
+	supersedeActiveRun = false,
+	trigger,
+}) => {
+	if (
+		trigger === "regenerate-message" ||
+		continueRunId ||
+		supersedeActiveRun ||
+		!attachableRun
+	) {
+		return null;
+	}
+
+	return {
+		activeRunId: attachableRun._id,
+		error: "Chat already has an active assistant run.",
+		errorCode: "active_run_exists",
+		statusCode: 409,
+	};
+};
+
 const generateMessageId = createIdGenerator({
 	prefix: "msg",
 	size: 16,

@@ -99,6 +99,17 @@ export declare const validateHostedChatRequestInput: (args: {
 	};
 	statusCode: 400;
 };
+export declare const validateHostedChatActiveRunPolicy: (args: {
+	attachableRun?: { _id: string } | null;
+	continueRunId?: string | null;
+	supersedeActiveRun?: boolean;
+	trigger?: "submit-message" | "regenerate-message" | string | null;
+}) => null | {
+	activeRunId: string;
+	error: "Chat already has an active assistant run.";
+	errorCode: "active_run_exists";
+	statusCode: 409;
+};
 export declare const getHostedChatMessageTextCharCount: (
 	message: UIMessage,
 ) => number;
