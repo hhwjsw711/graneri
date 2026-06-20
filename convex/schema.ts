@@ -59,6 +59,7 @@ const automationRunStatusValidator = v.union(
 	v.literal("completed"),
 	v.literal("failed"),
 	v.literal("skipped"),
+	v.literal("stopped"),
 );
 
 const inboxItemProviderValidator = v.union(

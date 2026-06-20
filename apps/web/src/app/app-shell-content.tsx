@@ -71,7 +71,7 @@ export type AppShellContentView =
 			onDeleteAutomation: (automationId: Id<"automations">) => void;
 			onEditAutomation: (automationId: Id<"automations">) => void;
 			onOpenAutomation: (automation: AutomationListItem) => void;
-			onRunAutomationNow: (automationId: Id<"automations">) => void;
+			onRunAutomationNow: (automationId: Id<"automations">) => Promise<void>;
 			onToggleAutomationPaused: (automationId: Id<"automations">) => void;
 	  }
 	| {

@@ -263,6 +263,7 @@ function useCreateAutomationDialogElement({
 		() => createAutomationDialogState(initialAutomation, initialTitle),
 	);
 	const [isDisabling, setIsDisabling] = React.useState(false);
+	const [isSaving, setIsSaving] = React.useState(false);
 	const {
 		schedulePickerOpen,
 		modelPickerOpen,
@@ -419,6 +420,10 @@ function useCreateAutomationDialogElement({
 	);
 
 	const handleCreate = React.useCallback(async () => {
+		if (isSaving) {
+			return;
+		}
+
 		const trimmedTitle = title.trim();
 		const trimmedPrompt = promptRef.current.trim();
 		const promptMentionNoteIds = promptMentionsRef.current.flatMap((mention) =>
@@ -482,20 +487,26 @@ function useCreateAutomationDialogElement({
 			return;
 		}
 
-		await onCreateAutomation({
-			title: trimmedTitle,
-			prompt: trimmedPrompt,
-			model: selectedModel.model,
-			reasoningEffort,
-			webSearchEnabled,
-			appsEnabled,
-			appSources: effectiveSelectedConnectedAppSources,
-			schedulePeriod,
-			scheduledAt: scheduledAt.getTime(),
-			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-			target: effectiveTarget,
-		});
+		setIsSaving(true);
+		try {
+			await onCreateAutomation({
+				title: trimmedTitle,
+				prompt: trimmedPrompt,
+				model: selectedModel.model,
+				reasoningEffort,
+				webSearchEnabled,
+				appsEnabled,
+				appSources: effectiveSelectedConnectedAppSources,
+				schedulePeriod,
+				scheduledAt: scheduledAt.getTime(),
+				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+				target: effectiveTarget,
+			});
+		} finally {
+			setIsSaving(false);
+		}
 	}, [
+		isSaving,
 		connectedAppSources,
 		noteSources,
 		onCreateAutomation,
@@ -651,16 +662,16 @@ function useCreateAutomationDialogElement({
 							type="button"
 							variant="ghost"
 							onClick={() => onOpenChange(false)}
-							disabled={isDisabling}
+							disabled={isDisabling || isSaving}
 						>
 							Cancel
 						</Button>
 						<Button
 							type="button"
-							disabled={!canCreateAutomation || isDisabling}
+							disabled={!canCreateAutomation || isDisabling || isSaving}
 							onClick={() => void handleCreate()}
 						>
-							{initialAutomation ? "Save" : "Create"}
+							{isSaving ? "Saving" : initialAutomation ? "Save" : "Create"}
 						</Button>
 					</div>
 				</div>

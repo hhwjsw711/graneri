@@ -213,6 +213,44 @@ describe("automation prompt mentions", () => {
 		]);
 	});
 
+	it("counts paragraph separators when extracting mention offsets", () => {
+		expect(
+			getPromptMentionsFromContent({
+				type: "doc",
+				content: [
+					{
+						type: "paragraph",
+						content: [{ type: "text", text: "First line" }],
+					},
+					{
+						type: "paragraph",
+						content: [
+							{ type: "text", text: "Ask " },
+							{
+								type: "mention",
+								attrs: {
+									id: "app:posthog",
+									label: "PostHog",
+									type: "tool",
+									provider: "posthog",
+								},
+							},
+						],
+					},
+				],
+			}),
+		).toEqual([
+			{
+				id: "app:posthog",
+				label: "PostHog",
+				from: 15,
+				to: 23,
+				type: "tool",
+				provider: "posthog",
+			},
+		]);
+	});
+
 	it("hydrates initial prompt mentions from an automation draft", () => {
 		const automation: AutomationDraft = {
 			title: "Weekly review",

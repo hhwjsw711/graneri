@@ -18,10 +18,7 @@ export type AiToolUi = {
 	subtitleKeys?: string[];
 };
 
-export type AiToolDefinition<
-	TInput = unknown,
-	TOutput = unknown,
-> = {
+export type AiToolDefinition<TInput = unknown> = {
 	description: string;
 	inputSchema: z.ZodType<TInput>;
 	name: string;
@@ -38,7 +35,7 @@ export declare function defineAiTool<TInput, TOutput>(args: {
 	name: string;
 	policy: AiToolPolicy;
 	ui: AiToolUi;
-}): AiToolDefinition<TInput, TOutput>;
+}): AiToolDefinition<TInput>;
 
 export declare function buildAiToolSet(
 	definitions: AiToolDefinition[],

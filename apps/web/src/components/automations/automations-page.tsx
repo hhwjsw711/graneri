@@ -52,7 +52,7 @@ export type AutomationsPageProps = {
 	onDeleteAutomation: (automationId: AutomationListItem["id"]) => void;
 	onEditAutomation: (automationId: AutomationListItem["id"]) => void;
 	onOpenAutomation: (automation: AutomationListItem) => void;
-	onRunAutomationNow: (automationId: AutomationListItem["id"]) => void;
+	onRunAutomationNow: (automationId: AutomationListItem["id"]) => Promise<void>;
 	onToggleAutomationPaused: (automationId: AutomationListItem["id"]) => void;
 };
 
@@ -137,7 +137,7 @@ function AutomationsList({
 	onDeleteAutomation: (automationId: AutomationListItem["id"]) => void;
 	onEditAutomation: (automationId: AutomationListItem["id"]) => void;
 	onOpenAutomation: (automation: AutomationListItem) => void;
-	onRunAutomationNow: (automationId: AutomationListItem["id"]) => void;
+	onRunAutomationNow: (automationId: AutomationListItem["id"]) => Promise<void>;
 	onToggleAutomationPaused: (automationId: AutomationListItem["id"]) => void;
 }) {
 	const groupedAutomations = groupItemsByRelativeDate(
@@ -193,11 +193,24 @@ function AutomationListItemRow({
 	onDeleteAutomation: (automationId: AutomationListItem["id"]) => void;
 	onEditAutomation: (automationId: AutomationListItem["id"]) => void;
 	onOpenAutomation: (automation: AutomationListItem) => void;
-	onRunAutomationNow: (automationId: AutomationListItem["id"]) => void;
+	onRunAutomationNow: (automationId: AutomationListItem["id"]) => Promise<void>;
 	onToggleAutomationPaused: (automationId: AutomationListItem["id"]) => void;
 }) {
 	const [confirmDeleteOpen, setConfirmDeleteOpen] = React.useState(false);
+	const [isRunningNow, setIsRunningNow] = React.useState(false);
 	const authorName = automation.authorName?.trim() || "Unknown user";
+	const handleRunNow = React.useCallback(async () => {
+		if (isRunningNow) {
+			return;
+		}
+
+		setIsRunningNow(true);
+		try {
+			await onRunAutomationNow(automation.id);
+		} finally {
+			setIsRunningNow(false);
+		}
+	}, [automation.id, isRunningNow, onRunAutomationNow]);
 
 	return (
 		<>
@@ -244,10 +257,11 @@ function AutomationListItemRow({
 							Edit
 						</DropdownMenuItem>
 						<DropdownMenuItem
-							onSelect={() => onRunAutomationNow(automation.id)}
+							disabled={isRunningNow}
+							onSelect={() => void handleRunNow()}
 						>
 							<Play className="size-4" />
-							Run now
+							{isRunningNow ? "Running" : "Run now"}
 						</DropdownMenuItem>
 						<DropdownMenuItem
 							onSelect={() => onToggleAutomationPaused(automation.id)}

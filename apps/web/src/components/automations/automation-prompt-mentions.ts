@@ -65,7 +65,11 @@ export const getPromptMentionsFromContent = (
 ): AutomationPromptMention[] => {
 	const mentions: AutomationPromptMention[] = [];
 	let textOffset = 0;
-	const walk = (node: JSONContent) => {
+	const walk = (node: JSONContent, childIndex = 0) => {
+		if (node.type === "paragraph" && childIndex > 0) {
+			textOffset += 1;
+		}
+
 		if (node.type === "mention" && typeof node.attrs?.id === "string") {
 			const mentionId = node.attrs.id;
 			const label =
@@ -94,8 +98,8 @@ export const getPromptMentionsFromContent = (
 			return;
 		}
 
-		for (const child of node.content ?? []) {
-			walk(child);
+		for (const [index, child] of (node.content ?? []).entries()) {
+			walk(child, index);
 		}
 	};
 

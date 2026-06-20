@@ -226,6 +226,182 @@ test("creating a note automation does not seed a chat transcript", async () => {
 	expect(messages).toHaveLength(0);
 });
 
+test("runNow reserves a manual automation run before the action executes", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	const automation = await asOwner.mutation(api.automations.create, {
+		workspaceId,
+		title: "Manual review",
+		prompt: "Review the workspace.",
+		model: "gpt-5.4",
+		reasoningEffort: "medium",
+		webSearchEnabled: false,
+		appsEnabled: true,
+		appSources: [],
+		schedulePeriod: "daily",
+		scheduledAt: 2_000,
+		timezone: "UTC",
+		target: {
+			kind: "workspace",
+		},
+	});
+
+	const result = await asOwner.mutation(api.automations.runNow, {
+		automationId: automation.id,
+	});
+	const secondResult = await asOwner.mutation(api.automations.runNow, {
+		automationId: automation.id,
+	});
+	const rows = await t.run(async (ctx) => {
+		const savedAutomation = await ctx.db.get(automation.id);
+		const runs = await ctx.db
+			.query("automationRuns")
+			.withIndex("by_automationId_and_scheduledFor", (q) =>
+				q.eq("automationId", automation.id),
+			)
+			.collect();
+
+		return { savedAutomation, runs };
+	});
+
+	expect(result).toMatchObject({
+		status: "started",
+		chatId: automation.chatId,
+	});
+	expect(secondResult).toEqual({
+		status: "already_running",
+		chatId: automation.chatId,
+	});
+	expect(rows.runs).toHaveLength(1);
+	expect(rows.runs[0]?.status).toBe("running");
+	expect(rows.savedAutomation?.activeRunId).toBe(rows.runs[0]?._id);
+});
+
+test("runNow does not start while the automation chat has an active assistant run", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	await asOwner.mutation(api.chats.saveMessage, {
+		workspaceId,
+		chatId: "chat-with-active-assistant-run",
+		title: "Automation chat",
+		preview: "Create an automation",
+		message: {
+			id: "msg-user",
+			role: "user",
+			partsJson: JSON.stringify([
+				{ type: "text", text: "Create an automation" },
+			]),
+			text: "Create an automation",
+			createdAt: 1_500,
+		},
+	});
+	const automation = await asOwner.mutation(api.automations.create, {
+		workspaceId,
+		title: "Daily review",
+		prompt: "Review the workspace.",
+		model: "gpt-5.4",
+		reasoningEffort: "medium",
+		webSearchEnabled: false,
+		appsEnabled: true,
+		appSources: [],
+		schedulePeriod: "daily",
+		scheduledAt: 2_000,
+		timezone: "UTC",
+		target: {
+			kind: "workspace",
+		},
+		chatId: "chat-with-active-assistant-run",
+	});
+	await t.run(async (ctx) => {
+		const chat = await ctx.db
+			.query("chats")
+			.withIndex("by_ownerTokenIdentifier_and_workspaceId_and_chatId", (q) =>
+				q
+					.eq("ownerTokenIdentifier", ownerIdentity.tokenIdentifier)
+					.eq("workspaceId", workspaceId)
+					.eq("chatId", automation.chatId),
+			)
+			.unique();
+		if (!chat) {
+			throw new Error("Expected chat to exist.");
+		}
+
+		await ctx.db.insert("assistantRuns", {
+			ownerTokenIdentifier: ownerIdentity.tokenIdentifier,
+			workspaceId,
+			chatId: chat._id,
+			assistantMessageId: "assistant-running",
+			status: "running",
+			model: "gpt-5.4",
+			reasoningEffort: "medium",
+			startedAt: 2_000,
+			updatedAt: 2_000,
+		});
+	});
+
+	const result = await asOwner.mutation(api.automations.runNow, {
+		automationId: automation.id,
+	});
+	const runs = await t.run(async (ctx) =>
+		ctx.db
+			.query("automationRuns")
+			.withIndex("by_automationId_and_scheduledFor", (q) =>
+				q.eq("automationId", automation.id),
+			)
+			.collect(),
+	);
+
+	expect(result).toEqual({
+		status: "chat_busy",
+		chatId: automation.chatId,
+	});
+	expect(runs).toHaveLength(0);
+});
+
+test("stopping an automation run prevents late completion from winning", async () => {
+	const { asOwner, t, workspaceId } = await createWorkspace();
+	const automation = await asOwner.mutation(api.automations.create, {
+		workspaceId,
+		title: "Manual review",
+		prompt: "Review the workspace.",
+		model: "gpt-5.4",
+		reasoningEffort: "medium",
+		webSearchEnabled: false,
+		appsEnabled: true,
+		appSources: [],
+		schedulePeriod: "daily",
+		scheduledAt: 2_000,
+		timezone: "UTC",
+		target: {
+			kind: "workspace",
+		},
+	});
+	const result = await asOwner.mutation(api.automations.runNow, {
+		automationId: automation.id,
+	});
+
+	if (result.status !== "started") {
+		throw new Error("Expected runNow to start.");
+	}
+
+	await asOwner.mutation(api.automations.stopRun, {
+		automationId: automation.id,
+		runId: result.runId,
+	});
+	await t.mutation(internal.automations.completeRun, {
+		automationId: automation.id,
+		runId: result.runId,
+		userMessageId: "late-user",
+		assistantMessageId: "late-assistant",
+	});
+
+	const rows = await t.run(async (ctx) => ({
+		automation: await ctx.db.get(automation.id),
+		run: await ctx.db.get(result.runId),
+	}));
+
+	expect(rows.run?.status).toBe("stopped");
+	expect(rows.automation?.activeRunId).toBeUndefined();
+});
+
 test("moving a chat to trash pauses its automation and restoring resumes it", async () => {
 	const { asOwner, workspaceId } = await createWorkspace();
 

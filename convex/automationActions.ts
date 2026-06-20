@@ -3,17 +3,17 @@
 import { openai } from "@ai-sdk/openai";
 import { stepCountIs, ToolLoopAgent } from "ai";
 import { v } from "convex/values";
+import { getSelectedAppSourceIds } from "../packages/ai/src/capability-metadata.mjs";
 import {
 	buildCapabilityToolSet,
 	type WorkspaceToolConnection,
 } from "../packages/ai/src/capability-registry.mjs";
-import { getSelectedAppSourceIds } from "../packages/ai/src/capability-metadata.mjs";
 import { getChatModelProviderOptions } from "../packages/ai/src/models.mjs";
 import { finalizeOpenAIToolSet } from "../packages/ai/src/openai-tool-search.mjs";
 import { BASE_CHAT_SYSTEM_PROMPT } from "../packages/ai/src/prompts.mjs";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { internalAction, type ActionCtx } from "./_generated/server";
+import { type ActionCtx, internalAction } from "./_generated/server";
 import { listYandexUpcomingEvents } from "./yandexCalendar";
 
 const MAX_AUTOMATION_HISTORY_MESSAGES = 40;
@@ -45,28 +45,30 @@ const createTextMessage = ({
 	createdAt: Date.now(),
 });
 
-const buildAutomationYandexCalendarAdapter = () => (connection: {
-	displayName: string;
-	email: string;
-	password: string;
-	serverAddress: string;
-	calendarHomePath: string;
-}) => ({
-	listUpcomingEvents: async ({ lookaheadMs }: { lookaheadMs: number }) => {
-		const now = Date.now();
-		const result = await listYandexUpcomingEvents({
-			connection,
-			now,
-			timeMin: now,
-			timeMax: now + lookaheadMs,
-		});
+const buildAutomationYandexCalendarAdapter =
+	() =>
+	(connection: {
+		displayName: string;
+		email: string;
+		password: string;
+		serverAddress: string;
+		calendarHomePath: string;
+	}) => ({
+		listUpcomingEvents: async ({ lookaheadMs }: { lookaheadMs: number }) => {
+			const now = Date.now();
+			const result = await listYandexUpcomingEvents({
+				connection,
+				now,
+				timeMin: now,
+				timeMax: now + lookaheadMs,
+			});
 
-		return {
-			connection: connection.displayName,
-			events: result.events,
-		};
-	},
-});
+			return {
+				connection: connection.displayName,
+				events: result.events,
+			};
+		},
+	});
 
 const getAutomationAppTools = async (
 	ctx: ActionCtx,
@@ -98,9 +100,12 @@ const getAutomationAppTools = async (
 		},
 	);
 
-	return await buildCapabilityToolSet(connections as WorkspaceToolConnection[], {
-		yandexCalendar: buildAutomationYandexCalendarAdapter(),
-	});
+	return await buildCapabilityToolSet(
+		connections as WorkspaceToolConnection[],
+		{
+			yandexCalendar: buildAutomationYandexCalendarAdapter(),
+		},
+	);
 };
 
 const buildAutomationSystemPrompt = ({
@@ -146,6 +151,7 @@ export const runAutomation = internalAction({
 		automationId: v.id("automations"),
 		scheduledFor: v.number(),
 		reason: automationRunReasonValidator,
+		reservedRunId: v.optional(v.id("automationRuns")),
 	},
 	returns: v.null(),
 	handler: async (ctx, args) => {
@@ -153,8 +159,15 @@ export const runAutomation = internalAction({
 			throw new Error("OPENAI_API_KEY is not configured in Convex.");
 		}
 
-		const run = await ctx.runMutation(internal.automations.beginRun, args);
-		if (run.status === "skipped") {
+		const run = args.reservedRunId
+			? await ctx.runMutation(internal.automations.activateRun, {
+					automationId: args.automationId,
+					runId: args.reservedRunId,
+					scheduledFor: args.scheduledFor,
+					reason: args.reason,
+				})
+			: await ctx.runMutation(internal.automations.beginRun, args);
+		if (run.status !== "started") {
 			return null;
 		}
 
@@ -169,6 +182,17 @@ export const runAutomation = internalAction({
 		};
 
 		try {
+			const isActiveBeforeUserMessage = await ctx.runMutation(
+				internal.automations.isRunActive,
+				{
+					automationId: run.automationId,
+					runId: run.runId,
+				},
+			);
+			if (!isActiveBeforeUserMessage) {
+				return null;
+			}
+
 			await ctx.runMutation(internal.chats.saveMessageForOwner, {
 				ownerTokenIdentifier: run.ownerTokenIdentifier,
 				workspaceId: run.workspaceId,
@@ -238,6 +262,17 @@ export const runAutomation = internalAction({
 				messages,
 			});
 
+			const isActiveBeforeAssistantMessage = await ctx.runMutation(
+				internal.automations.isRunActive,
+				{
+					automationId: run.automationId,
+					runId: run.runId,
+				},
+			);
+			if (!isActiveBeforeAssistantMessage) {
+				return null;
+			}
+
 			await ctx.runMutation(internal.chats.saveMessageForOwner, {
 				ownerTokenIdentifier: run.ownerTokenIdentifier,
 				workspaceId: run.workspaceId,
@@ -263,7 +298,18 @@ export const runAutomation = internalAction({
 				assistantMessageId,
 			});
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			const isActiveBeforeFailureMessage = await ctx.runMutation(
+				internal.automations.isRunActive,
+				{
+					automationId: run.automationId,
+					runId: run.runId,
+				},
+			);
+			if (!isActiveBeforeFailureMessage) {
+				return null;
+			}
 			try {
 				await ctx.runMutation(internal.chats.saveMessageForOwner, {
 					ownerTokenIdentifier: run.ownerTokenIdentifier,

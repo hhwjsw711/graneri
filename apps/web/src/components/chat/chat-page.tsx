@@ -391,6 +391,7 @@ const useChatPageController = ({
 	const updateQueuedMessage = useMutation(
 		api.assistantQueuedMessages.updateQueued,
 	);
+	const stopAutomationRun = useMutation(api.automations.stopRun);
 	const userPreferences = useQuery(api.userPreferences.get, {});
 	const storedMessages = useQuery(
 		api.chats.getMessages,
@@ -596,7 +597,8 @@ const useChatPageController = ({
 	const isPersistedChatStreaming = Boolean(displayActiveRun);
 	const isChatUiPending =
 		isChatRequestPending || isPersistedChatStreaming || isAutomationRunning;
-	const canStop = isChatRequestPending || isPersistedChatStreaming;
+	const canStop =
+		isChatRequestPending || isPersistedChatStreaming || isAutomationRunning;
 	const mergedDisplayMessages = React.useMemo(() => {
 		if (!activeAssistantMessageId || !displayActiveRun) {
 			return controllerMessages.length > 0
@@ -680,6 +682,14 @@ const useChatPageController = ({
 		async ({ interruptActiveRun = false } = {}) => {
 			stop();
 
+			if (runningAutomationRun) {
+				await stopAutomationRun({
+					automationId: runningAutomationRun.automationId,
+					runId: runningAutomationRun.runId,
+				});
+				return;
+			}
+
 			if (!displayActiveRun) {
 				return;
 			}
@@ -693,7 +703,14 @@ const useChatPageController = ({
 				workspaceId: activeWorkspaceId,
 			});
 		},
-		[activeWorkspaceId, chatId, displayActiveRun, stop],
+		[
+			activeWorkspaceId,
+			chatId,
+			displayActiveRun,
+			runningAutomationRun,
+			stop,
+			stopAutomationRun,
+		],
 	);
 	const { queuedMessages, setQueuedMessages } = useQueuedChatDrain({
 		activeRun: displayActiveRun,

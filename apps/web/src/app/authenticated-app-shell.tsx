@@ -1126,6 +1126,16 @@ const useAppShellState = ({
 		async (automationId: Id<"automations">) => {
 			try {
 				const result = await runAutomationNow({ automationId });
+				if (result.status === "already_running") {
+					toast.info("Automation is already running");
+					openStoredChat(result.chatId);
+					return;
+				}
+				if (result.status === "chat_busy") {
+					toast.error("Wait for the current chat run to finish first");
+					openStoredChat(result.chatId);
+					return;
+				}
 				openStoredChat(result.chatId);
 			} catch (error) {
 				logError({
