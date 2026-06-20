@@ -131,6 +131,7 @@ import {
 	ActiveWorkspaceProvider,
 	useActiveWorkspaceId,
 } from "@/hooks/use-active-workspace";
+import { useAutomationActions } from "@/hooks/use-automation-actions";
 import { prefetchChatMessagesSnapshot } from "@/hooks/use-chat-messages-snapshot";
 import { applyDesktopAppearancePreferenceAttributes } from "@/lib/appearance-preferences";
 import { type AuthSession, authClient } from "@/lib/auth-client";
@@ -486,11 +487,6 @@ const useAppShellState = ({
 	);
 	const saveNote = useMutation(api.notes.save);
 	const createWorkspace = useMutation(api.workspaces.create);
-	const createAutomation = useMutation(api.automations.create);
-	const updateAutomation = useMutation(api.automations.update);
-	const runAutomationNow = useMutation(api.automations.runNow);
-	const toggleAutomationPaused = useMutation(api.automations.togglePaused);
-	const deleteAutomation = useMutation(api.automations.remove);
 	const listUpcomingGoogleEvents = useAction(
 		api.calendar.listUpcomingGoogleEvents,
 	);
@@ -1002,6 +998,10 @@ const useAppShellState = ({
 	const currentChatHasAutomation = currentChatId
 		? automationChatIds.has(currentChatId)
 		: false;
+	const automationActions = useAutomationActions({
+		openChat: openStoredChat,
+		workspaceId: resolvedActiveWorkspaceId,
+	});
 
 	const handleAutomationDialogOpenChange = React.useCallback(
 		(open: boolean) => {
@@ -1050,69 +1050,18 @@ const useAppShellState = ({
 
 	const handleAutomationSave = React.useCallback(
 		async (automation: AutomationDraft) => {
-			if (!resolvedActiveWorkspaceId) {
-				toast.error("Select a workspace before creating an automation");
-				return;
-			}
-
-			const target =
-				automation.target.kind === "notes"
-					? {
-							kind: "notes" as const,
-							noteIds: automation.target.noteIds,
-						}
-					: {
-							kind: "workspace" as const,
-						};
-			const input = {
-				title: automation.title,
-				prompt: automation.prompt,
-				model: automation.model,
-				reasoningEffort: automation.reasoningEffort,
-				webSearchEnabled: automation.webSearchEnabled,
-				appsEnabled: automation.appsEnabled,
-				appSources: automation.appSources,
-				schedulePeriod: automation.schedulePeriod,
-				scheduledAt: automation.scheduledAt,
-				timezone: automation.timezone,
-				target,
-			};
-
-			try {
-				if (editingAutomationId) {
-					await updateAutomation({
-						automationId: editingAutomationId,
-						...input,
-					});
-					toast.success("Automation updated");
-				} else {
-					await createAutomation({
-						workspaceId: resolvedActiveWorkspaceId,
-						chatId: automationChatId ?? undefined,
-						...input,
-					});
-					toast.success("Automation created");
-				}
-
+			const saved = await automationActions.saveAutomation({
+				automation,
+				automationChatId,
+				editingAutomationId,
+			});
+			if (saved) {
 				setAutomationDialogOpen(false);
 				setEditingAutomationId(null);
 				setAutomationChatId(null);
-			} catch (error) {
-				logError({
-					event: "client.error",
-					error: error,
-					message: "Failed to save automation",
-				});
-				toast.error("Failed to save automation");
 			}
 		},
-		[
-			createAutomation,
-			automationChatId,
-			editingAutomationId,
-			resolvedActiveWorkspaceId,
-			updateAutomation,
-		],
+		[automationActions, automationChatId, editingAutomationId],
 	);
 
 	const handleOpenAutomation = React.useCallback(
@@ -1124,90 +1073,34 @@ const useAppShellState = ({
 
 	const handleRunAutomationNow = React.useCallback(
 		async (automationId: Id<"automations">) => {
-			try {
-				const result = await runAutomationNow({ automationId });
-				if (result.status === "already_running") {
-					toast.info("Automation is already running");
-					openStoredChat(result.chatId);
-					return;
-				}
-				if (result.status === "chat_busy") {
-					toast.error("Wait for the current chat run to finish first");
-					openStoredChat(result.chatId);
-					return;
-				}
-				openStoredChat(result.chatId);
-			} catch (error) {
-				logError({
-					event: "client.error",
-					error: error,
-					message: "Failed to run automation",
-				});
-				toast.error("Failed to run automation");
-			}
+			await automationActions.runAutomationNow(automationId);
 		},
-		[openStoredChat, runAutomationNow],
+		[automationActions],
 	);
 
 	const handleToggleAutomationPaused = React.useCallback(
 		async (automationId: Id<"automations">) => {
-			try {
-				const automation = await toggleAutomationPaused({ automationId });
-				toast.success(
-					automation.isPaused ? "Automation paused" : "Automation resumed",
-				);
-			} catch (error) {
-				logError({
-					event: "client.error",
-					error: error,
-					message: "Failed to update automation",
-				});
-				toast.error("Failed to update automation");
-			}
+			await automationActions.toggleAutomationPaused(automationId);
 		},
-		[toggleAutomationPaused],
+		[automationActions],
 	);
 
 	const handleDisableEditingAutomation = React.useCallback(async () => {
-		if (!editingAutomationId || editingAutomation?.isPaused) {
-			return;
-		}
-
-		try {
-			await toggleAutomationPaused({ automationId: editingAutomationId });
-			toast.success("Automation paused");
+		const paused = await automationActions.pauseAutomation(
+			editingAutomation ?? null,
+		);
+		if (paused) {
 			setAutomationDialogOpen(false);
 			setEditingAutomationId(null);
 			setAutomationChatId(null);
-		} catch (error) {
-			logError({
-				event: "client.error",
-				error: error,
-				message: "Failed to disable automation",
-			});
-			toast.error("Failed to disable automation");
 		}
-	}, [
-		editingAutomation?.isPaused,
-		editingAutomationId,
-		toggleAutomationPaused,
-	]);
+	}, [automationActions, editingAutomation]);
 
 	const handleDeleteAutomation = React.useCallback(
 		async (automationId: Id<"automations">) => {
-			try {
-				await deleteAutomation({ automationId });
-				toast.success("Automation deleted");
-			} catch (error) {
-				logError({
-					event: "client.error",
-					error: error,
-					message: "Failed to delete automation",
-				});
-				toast.error("Failed to delete automation");
-			}
+			await automationActions.deleteAutomation(automationId);
 		},
-		[deleteAutomation],
+		[automationActions],
 	);
 
 	const handleViewChange = React.useCallback(
