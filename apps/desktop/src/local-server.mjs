@@ -7,9 +7,7 @@ import {
 } from "ai";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
-import { buildChatAutomationContext } from "../../../packages/ai/src/automation-tools.mjs";
 import {
-	buildSelectedAppSourceInstructions,
 	getSelectedNoteSourceIds,
 	loadSelectedAppSourceConnections,
 } from "../../../packages/ai/src/capability-metadata.mjs";
@@ -17,8 +15,6 @@ import {
 	createChatLatencyLogger,
 	createChatStreamLatencyTracker,
 } from "../../../packages/ai/src/chat-latency-logger.mjs";
-import { buildCoreChatToolPolicy } from "../../../packages/ai/src/chat-tool-policy.mjs";
-import { buildConvexWorkspaceToolSet } from "../../../packages/ai/src/convex-workspace-tools.mjs";
 import {
 	createHostedActiveStreamKey,
 	pipeHostedActiveStreamText,
@@ -27,16 +23,17 @@ import { prepareHostedChatTurnBranch } from "../../../packages/ai/src/hosted-cha
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
 import { stopOrphanedHostedAssistantRun } from "../../../packages/ai/src/hosted-chat-orphaned-run.mjs";
 import { createHostedChatQueuedInput } from "../../../packages/ai/src/hosted-chat-queued-input.mjs";
+import {
+	buildHostedChatRunContext,
+	getHostedChatLocalFolderReferenceIds,
+} from "../../../packages/ai/src/hosted-chat-run-context.mjs";
 import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/src/hosted-chat-run-finalization-queue.mjs";
 import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
-import { buildHostedChatRunPlan } from "../../../packages/ai/src/hosted-chat-run-plan.mjs";
 import { startHostedChatRun } from "../../../packages/ai/src/hosted-chat-run-starter.mjs";
 import {
 	buildHostedNotesContext,
 	getHostedChatConvexRouteError,
 	getHostedChatInputValidationErrorResponse,
-	getHostedChatRecipeContext,
-	getInlineHostedNoteContext,
 	getStoredHostedNoteContext,
 	validateHostedChatActiveRunPolicy,
 	validateHostedChatInput,
@@ -48,11 +45,6 @@ import {
 	isHostedQueuedUserMessageAccept,
 	persistHostedChatUserMessage,
 } from "../../../packages/ai/src/hosted-chat-user-message-persistence.mjs";
-import { createHostedWaitAgentTool } from "../../../packages/ai/src/hosted-chat-wait-agent-tool.mjs";
-import {
-	buildLocalFolderSystemContext,
-	buildLocalFolderTools,
-} from "../../../packages/ai/src/local-folder-tools.mjs";
 import {
 	CHAT_SERVER_MODELS,
 	getChatModelProviderOptions,
@@ -615,116 +607,64 @@ const handleChatRequest = async ({
 	let systemPrompt = "";
 	let activeStreamSession = null;
 	try {
-		const notesContext = await getNotesContext({
-			convexToken,
-			mentions,
-			workspaceId: resolvedWorkspaceId,
-		});
-		const attachedNoteContext = resolvedNoteId
-			? await getStoredNoteContext({
-					convexToken,
-					noteId: resolvedNoteId,
-					workspaceId: resolvedWorkspaceId,
-				})
-			: getInlineHostedNoteContext({
-					title: noteContext?.title,
-					text: noteContext?.text,
-				});
-		const selectedRecipe = await getSelectedRecipe({
-			convexToken,
-			recipeSlug,
-			workspaceId: resolvedWorkspaceId,
-		});
-		const recipeContext = getHostedChatRecipeContext(selectedRecipe);
-		const userProfileContext = await convexClient.query(
-			api.userPreferences.getAiProfileContext,
-			{},
-		);
-		const selectedAppConnections = appsEnabled
-			? await getSelectedAppConnections({
-					convexToken,
-					selectedSourceIds,
-					workspaceId: resolvedWorkspaceId,
-				})
-			: [];
-		const selectedAppSourceInstructions = buildSelectedAppSourceInstructions(
-			selectedAppConnections,
-		);
-		logLatency("context.sources_loaded", {
-			appConnectionCount: selectedAppConnections.length,
-			hasAttachedNoteContext: attachedNoteContext.length > 0,
-			hasNotesContext: notesContext.length > 0,
-			hasRecipeContext: recipeContext.length > 0,
-			hasUserProfileContext: Boolean(userProfileContext),
-		});
-		const appTools = await buildConvexWorkspaceToolSet({
-			connections: selectedAppConnections,
-			convexClient,
-			workspaceId: resolvedWorkspaceId,
-		});
-		const localFolderRoots =
-			typeof getSharedLocalFolders === "function"
-				? getSharedLocalFolders(
-						(localFolders ?? [])
-							.map((folder) => folder?.id)
-							.filter((id) => typeof id === "string" && id),
-					)
-				: [];
-		const localFolderContext = buildLocalFolderSystemContext(localFolderRoots);
-		logLatency("tools.workspace_ready", {
-			appToolCount: Object.keys(appTools).length,
-			localFolderCount: localFolderRoots.length,
-		});
-		const coreToolPolicy = buildCoreChatToolPolicy({
-			chatAttachmentsApi: api.chatAttachments,
-			convexClient,
-			message: effectiveMessage,
-			webSearchEnabled,
-		});
-		const automationContext = buildChatAutomationContext({
-			appConnections: selectedAppConnections,
-			chatId: id,
-			createAutomation: async (automation) =>
-				await convexClient.mutation(api.automations.create, {
-					workspaceId: resolvedWorkspaceId,
-					...automation,
-				}),
-			defaultModel: selectedModel.model,
-			defaultReasoningEffort: resolvedReasoningEffort,
-			defaultTimezone: resolvedTimezone,
-			webSearchEnabled,
-		});
-		({ agent, finalizedToolSet, systemPrompt } = buildHostedChatRunPlan({
-			additionalAgentTools: {
-				wait_agent: createHostedWaitAgentTool({
-					getActiveStreamSession: () => activeStreamSession,
-				}),
-			},
-			appTools,
-			automationContext,
-			context: {
-				notesContext,
-				attachedNoteContext,
-				recipeContext,
-				userProfileContext,
-			},
-			coreToolPolicy,
-			localFolderContext,
-			localFolderTools:
-				localFolderRoots.length > 0
-					? buildLocalFolderTools(localFolderRoots)
-					: {},
-			model: selectedModel.model,
-			providerOptions,
-			selectedAppSourceInstructions,
-			webSearchEnabled,
-		}));
-		logLatency("tools.finalized", {
-			deferredToolCount: finalizedToolSet.deferredToolCount,
-			hasEnabledTools: finalizedToolSet.hasTools,
-			hasToolSearch: finalizedToolSet.hasToolSearch,
-			toolCount: finalizedToolSet.toolCount,
-		});
+		({ agent, finalizedToolSet, systemPrompt } =
+			await buildHostedChatRunContext({
+				appsEnabled,
+				chatAttachmentsApi: api.chatAttachments,
+				chatId: id,
+				convexClient,
+				createAutomation: async (automation) =>
+					await convexClient.mutation(api.automations.create, {
+						workspaceId: resolvedWorkspaceId,
+						...automation,
+					}),
+				defaultModel: selectedModel.model,
+				defaultReasoningEffort: resolvedReasoningEffort,
+				defaultTimezone: resolvedTimezone,
+				getActiveStreamSession: () => activeStreamSession,
+				getNotesContext: () =>
+					getNotesContext({
+						convexToken,
+						mentions,
+						workspaceId: resolvedWorkspaceId,
+					}),
+				getSelectedAppConnections: (args) =>
+					getSelectedAppConnections({
+						convexToken,
+						selectedSourceIds: args.selectedSourceIds,
+						workspaceId: args.workspaceId,
+					}),
+				getSelectedRecipe: (args) =>
+					getSelectedRecipe({
+						convexToken,
+						recipeSlug: args.recipeSlug,
+						workspaceId: args.workspaceId,
+					}),
+				getStoredNoteContext: (args) =>
+					getStoredNoteContext({
+						convexToken,
+						noteId: args.noteId,
+						workspaceId: args.workspaceId,
+					}),
+				getUserProfileContext: () =>
+					convexClient.query(api.userPreferences.getAiProfileContext, {}),
+				localFolders,
+				logLatency,
+				message: effectiveMessage,
+				noteContext,
+				noteId: resolvedNoteId,
+				providerOptions,
+				recipeSlug,
+				resolveLocalFolderRoots: (folders) =>
+					typeof getSharedLocalFolders === "function"
+						? getSharedLocalFolders(
+								getHostedChatLocalFolderReferenceIds(folders),
+							)
+						: [],
+				selectedSourceIds,
+				webSearchEnabled,
+				workspaceId: resolvedWorkspaceId,
+			}));
 	} catch (error) {
 		if (queuedInput.hasClaimed) {
 			await failClaimedSteerPreparation(
