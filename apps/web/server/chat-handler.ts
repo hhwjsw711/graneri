@@ -52,6 +52,7 @@ import {
 	validateHostedChatInput,
 	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
+import { createHostedChatTurnController } from "../../../packages/ai/src/hosted-chat-turn-controller.mjs";
 import { createHostedWaitAgentTool } from "../../../packages/ai/src/hosted-chat-wait-agent-tool.mjs";
 import {
 	buildLocalFolderSystemContext,
@@ -145,18 +146,6 @@ const interruptActiveChatRun = async ({
 	});
 
 	return drainedPendingInput;
-};
-
-const isPendingUserMessage = (input: unknown): input is UIMessage => {
-	if (!input || typeof input !== "object") {
-		return false;
-	}
-	const maybeMessage = input as Partial<UIMessage>;
-	return (
-		typeof maybeMessage.id === "string" &&
-		maybeMessage.role === "user" &&
-		Array.isArray(maybeMessage.parts)
-	);
 };
 
 const getConvexUrl = () => {
@@ -605,17 +594,31 @@ export const handleChatRequest = async (
 		getClaimedForChat: (args) =>
 			convexClient.query(api.assistantQueuedMessages.getClaimedForChat, args),
 	});
-	let steeredUserMessages: UIMessage[] = [];
-	let steeredUserMessage: UIMessage | null = null;
-	let replayedUserMessage: UIMessage | null = null;
-	let interruptedPendingInput: unknown[] = [];
-	const cleanupClaimedSteerQueuedMessage = async (
+	const turnController = createHostedChatTurnController({
+		workspaceId: resolvedWorkspaceId,
+		chatId: id,
+		attachableRun,
+		queuedInput,
+		interruptActiveRun: (args) =>
+			interruptActiveChatRun({ ...args, client: convexClient }),
+		validateInput: (inputMessage) => {
+			try {
+				validateHostedChatInput(inputMessage);
+				return { ok: true };
+			} catch (error) {
+				return {
+					ok: false,
+					...getHostedChatInputValidationErrorResponse(error).payload,
+				};
+			}
+		},
+	});
+	const cleanupClaimedSteerQueuedMessageForRoute = async (
 		operation: string,
 		options: { tolerateMissing?: boolean } = {},
 	) => {
-		const cleanupResult = await queuedInput.cleanupClaimed({
-			tolerateMissing: options.tolerateMissing,
-		});
+		const cleanupResult =
+			await turnController.cleanupClaimedSteerQueuedMessage(options);
 		if (cleanupResult.ok) {
 			return true;
 		}
@@ -640,7 +643,9 @@ export const handleChatRequest = async (
 		error: unknown,
 		operation: string,
 	) => {
-		if (!(await cleanupClaimedSteerQueuedMessage(`${operation}_cleanup`))) {
+		if (
+			!(await cleanupClaimedSteerQueuedMessageForRoute(`${operation}_cleanup`))
+		) {
 			return;
 		}
 		wideEvent.outcome = "error";
@@ -656,152 +661,73 @@ export const handleChatRequest = async (
 			error: "Failed to prepare steered assistant run.",
 		});
 	};
-	if (steerQueuedMessageId) {
-		if (!continueRunId || attachableRun?._id !== continueRunId) {
-			wideEvent.outcome = "error";
-			wideEvent.status_code = 409;
-			wideEvent.error_code = "active_run_mismatch";
-			emitWideEvent("error");
-			sendJson(response, 409, {
-				error:
-					"Active assistant run changed before the queued message could steer.",
-			});
-			return;
-		}
-
-		let claimedSteerMessages: unknown[];
-		try {
-			const claimedSteer = await queuedInput.claimSteer({
-				runId: continueRunId,
-				queuedMessageId: steerQueuedMessageId,
-			});
-			claimedSteerMessages = claimedSteer.claimedMessages;
-			steeredUserMessages = claimedSteer.userMessages;
-			steeredUserMessage = claimedSteer.userMessage;
-		} catch (error) {
-			const routeError = getHostedChatConvexRouteError(error);
-			if (!routeError) {
-				throw error;
-			}
-			wideEvent.outcome = "error";
-			wideEvent.status_code = routeError.statusCode;
-			wideEvent.error_code = routeError.errorCode;
-			emitWideEvent("error");
-			sendJson(response, routeError.statusCode, {
-				error: routeError.error,
-				errorCode: routeError.errorCode,
-			});
-			return;
-		}
-
-		if (claimedSteerMessages.length === 0) {
-			wideEvent.outcome = "error";
-			wideEvent.status_code = 409;
-			wideEvent.error_code = "queued_message_unavailable";
-			emitWideEvent("error");
-			sendJson(response, 409, {
-				error: "Queued message is no longer available.",
-			});
-			return;
-		}
-
-		if (attachableRun.status === "running") {
-			try {
-				interruptedPendingInput = await interruptActiveChatRun({
-					chatId: id,
-					client: convexClient,
-					pendingInput: steeredUserMessages,
-					runId: continueRunId,
-					workspaceId: resolvedWorkspaceId,
-				});
-			} catch (error) {
-				if (
-					!(await cleanupClaimedSteerQueuedMessage(
-						"steer_queue_interrupt_cleanup",
-					))
-				) {
-					return;
-				}
-				wideEvent.outcome = "error";
-				wideEvent.status_code = 500;
-				wideEvent.error_code = "active_run_interrupt_failed";
-				recordServerError({
-					details: {
-						run_id: continueRunId,
-					},
-					error,
-					event: wideEvent,
-					operation: "active_run_interrupt",
-				});
-				emitWideEvent("error");
-				sendJson(response, 500, {
-					error: "Failed to interrupt active assistant run.",
-				});
-				return;
-			}
-		}
-	}
-	if (replayQueuedMessageId && !continueRunId) {
-		try {
-			replayedUserMessage = await queuedInput.loadClaimedReplay({
-				queuedMessageId: replayQueuedMessageId,
-			});
-		} catch (error) {
-			const routeError = getHostedChatConvexRouteError(error);
-			if (!routeError) {
-				throw error;
-			}
-			wideEvent.outcome = "error";
-			wideEvent.status_code = routeError.statusCode;
-			wideEvent.error_code = routeError.errorCode;
-			emitWideEvent("error");
-			sendJson(response, routeError.statusCode, {
-				error: routeError.error,
-				errorCode: routeError.errorCode,
-			});
-			return;
-		}
-
-		if (!replayedUserMessage) {
-			wideEvent.outcome = "error";
-			wideEvent.status_code = 409;
-			wideEvent.error_code = "queued_message_unavailable";
-			emitWideEvent("error");
-			sendJson(response, 409, {
-				error: "Queued message is no longer available.",
-			});
-			return;
-		}
-	}
-	const effectiveMessage = steeredUserMessage ?? replayedUserMessage ?? message;
-	if (!effectiveMessage) {
+	const sendTurnControllerError = (turnError: {
+		cause?: unknown;
+		cleanupError?: unknown;
+		error: string;
+		errorCode?: string;
+		logMessage?: string;
+		phase: string;
+		statusCode: 400 | 409 | 500;
+	}) => {
 		wideEvent.outcome = "error";
-		wideEvent.status_code = 400;
-		wideEvent.error_code = "message_missing";
+		wideEvent.status_code = turnError.statusCode;
+		wideEvent.error_code = turnError.errorCode ?? turnError.phase;
+		if (turnError.cleanupError) {
+			recordServerError({
+				error: turnError.cleanupError,
+				event: wideEvent,
+				operation: turnError.logMessage ?? turnError.phase,
+			});
+		} else if (turnError.cause || turnError.logMessage) {
+			recordServerError({
+				details: continueRunId ? { run_id: continueRunId } : undefined,
+				error: turnError.cause,
+				event: wideEvent,
+				operation: turnError.logMessage ?? turnError.phase,
+			});
+		}
 		emitWideEvent("error");
-		sendJson(response, 400, {
-			error: "message is required.",
+		sendJson(response, turnError.statusCode, {
+			error: turnError.error,
+			...(turnError.errorCode ? { errorCode: turnError.errorCode } : {}),
+		});
+	};
+	let preparedTurnInput: Awaited<
+		ReturnType<typeof turnController.prepareInput>
+	>;
+	try {
+		preparedTurnInput = await turnController.prepareInput({
+			continueRunId,
+			message,
+			replayQueuedMessageId,
+			steerQueuedMessageId,
+		});
+	} catch (error) {
+		const routeError = getHostedChatConvexRouteError(error);
+		if (!routeError) {
+			throw error;
+		}
+		wideEvent.outcome = "error";
+		wideEvent.status_code = routeError.statusCode;
+		wideEvent.error_code = routeError.errorCode;
+		emitWideEvent("error");
+		sendJson(response, routeError.statusCode, {
+			error: routeError.error,
+			errorCode: routeError.errorCode,
 		});
 		return;
 	}
-	try {
-		validateHostedChatInput(effectiveMessage);
-	} catch (error) {
-		const validationError = getHostedChatInputValidationErrorResponse(error);
-		if (
-			!(await cleanupClaimedSteerQueuedMessage(
-				"steer_queue_input_size_cleanup",
-			))
-		) {
-			return;
-		}
-		wideEvent.outcome = "error";
-		wideEvent.status_code = 400;
-		wideEvent.error_code = validationError.errorCode;
-		emitWideEvent("error");
-		sendJson(response, 400, validationError.payload);
+	if (!preparedTurnInput.ok) {
+		sendTurnControllerError(preparedTurnInput);
 		return;
 	}
+	const { effectiveMessage, pendingSteerMessages, steeredUserMessages } =
+		preparedTurnInput;
+	const cleanupClaimedSteerQueuedMessage = async (
+		operation: string,
+		options: { tolerateMissing?: boolean } = {},
+	) => await cleanupClaimedSteerQueuedMessageForRoute(operation, options);
 	type HostedChatBranchInput = Parameters<typeof prepareHostedChatBranch>[0] & {
 		pendingMessages?: UIMessage[];
 	};
@@ -854,10 +780,6 @@ export const handleChatRequest = async (
 		logLatency("convex.messages_loaded", {
 			messageCount: storedChatMessages.length,
 		});
-		const pendingSteerMessages =
-			interruptedPendingInput.length > 0
-				? interruptedPendingInput.filter(isPendingUserMessage)
-				: steeredUserMessages;
 		const branchInput: HostedChatBranchInput = {
 			interruptedAssistantMessageIds,
 			message: effectiveMessage,
@@ -1075,22 +997,11 @@ export const handleChatRequest = async (
 			return;
 		}
 	}
-	if (continueRunId && attachableRun?._id !== continueRunId) {
-		if (
-			!(await cleanupClaimedSteerQueuedMessage(
-				"steer_queue_active_run_cleanup",
-			))
-		) {
-			return;
-		}
-		wideEvent.outcome = "error";
-		wideEvent.status_code = 409;
-		wideEvent.error_code = "active_run_mismatch";
-		emitWideEvent("error");
-		sendJson(response, 409, {
-			error:
-				"Active assistant run changed before the queued message could steer.",
-		});
+	const sameActiveRun = await turnController.requireSameActiveRun({
+		continueRunId,
+	});
+	if (!sameActiveRun.ok) {
+		sendTurnControllerError(sameActiveRun);
 		return;
 	}
 	let pendingQueuedAcceptanceHeaders: Record<string, string> | null = null;

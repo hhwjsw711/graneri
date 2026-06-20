@@ -27,10 +27,10 @@ Renderer code must access desktop capabilities through this package.
 client/action boundaries. Imports from `convex/_generated` are allowed only for
 typed client function references and generated data-model types, not server
 implementation coupling. Hosted chat helpers own shared run-plan assembly,
-prompt construction, branch preparation, tool-loop setup, message persistence
-payloads, and active-stream persistence behavior; callers provide
-runtime-specific reads, writes, request transport, and desktop-local
-capabilities through small adapter callbacks.
+prompt construction, active-turn input preparation, branch preparation,
+tool-loop setup, message persistence payloads, and active-stream persistence
+behavior; callers provide runtime-specific reads, writes, request transport,
+and desktop-local capabilities through small adapter callbacks.
 Hosted chat runs are durable Convex lifecycle records. `assistantRuns` owns run
 state, stop/failure/completion history, and the one-active-run-per-chat
 invariant. `chatActiveStreams` and active `chatToolCalls` are temporary render
@@ -117,11 +117,11 @@ direct routes must return the same structured `{ error, errorCode }` JSON body
 for queued replay and steer validation failures, and must reject malformed IDs
 before Convex state lookup or mutation. Steer input is queue-id driven: the
 server reconstructs the user message from the claimed durable queue row and must
-not require or trust a client-supplied `message` body. The server claims the
-queued message, interrupts an actively running stream and saves partial
-assistant output, or resumes the same run directly when the run is
-`waiting_for_user`. It then atomically accepts the claimed queue row by saving
-the user message, recording
+not require or trust a client-supplied `message` body. The hosted chat turn
+controller claims the queued message through adapter callbacks, interrupts an
+actively running stream and saves partial assistant output, or resumes the same
+run directly when the run is `waiting_for_user`. The route then atomically
+accepts the claimed queue row by saving the user message, recording
 `turn.steer.accepted` plus `user.message.appended` on the same `assistantRuns`
 timeline, clearing any pending decision, deleting the claimed queue row, and
 starting the next assistant stream without terminalizing the run. Both replay
