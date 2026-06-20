@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import {
 	consumeStream,
-	createAgentUIStream,
 	type InferUITools,
 	pipeUIMessageStreamToResponse,
 	type UIMessage,
@@ -22,7 +21,6 @@ import {
 import {
 	createHostedActiveStreamKey,
 	type HostedActiveStreamSession,
-	pipeHostedActiveStreamText,
 } from "../../../packages/ai/src/hosted-chat-active-stream.mjs";
 import { prepareHostedChatTurnBranch } from "../../../packages/ai/src/hosted-chat-branch-preparer.mjs";
 import { getBearerTokenFromAuthorizationHeader } from "../../../packages/ai/src/hosted-chat-http.mjs";
@@ -32,7 +30,6 @@ import {
 	buildHostedChatRunContext,
 	getHostedChatLocalFolderReferencePaths,
 } from "../../../packages/ai/src/hosted-chat-run-context.mjs";
-import { createHostedAssistantRunFinalizationQueue } from "../../../packages/ai/src/hosted-chat-run-finalization-queue.mjs";
 import { createHostedAssistantRunFinalizer } from "../../../packages/ai/src/hosted-chat-run-finalizer.mjs";
 import { startHostedChatRun } from "../../../packages/ai/src/hosted-chat-run-starter.mjs";
 import {
@@ -46,6 +43,7 @@ import {
 	validateHostedChatRequestInput,
 	validateHostedChatSteerRoute,
 } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
+import { createHostedChatRunResponseStream } from "../../../packages/ai/src/hosted-chat-stream-lifecycle.mjs";
 import { createHostedChatTurnController } from "../../../packages/ai/src/hosted-chat-turn-controller.mjs";
 import {
 	isHostedQueuedUserMessageAccept,
@@ -1025,72 +1023,8 @@ export const handleChatRequest = async (
 		runId: assistantRun._id,
 	});
 
-	let finalizationQueue: ReturnType<
-		typeof createHostedAssistantRunFinalizationQueue
-	> | null = null;
-	logLatency("ai.agent_created", {
-		hasEnabledTools: finalizedToolSet.hasTools,
-		systemPromptLength: systemPrompt.length,
-	});
-
 	const streamLatencyTracker =
 		createChatStreamLatencyTracker<UIMessageChunk>(logLatency);
-	const stream = await (async () => {
-		try {
-			return await createAgentUIStream({
-				agent,
-				uiMessages: chatMessages,
-				abortSignal: activeStreamSession.abortSignal,
-				originalMessages: chatMessages,
-				generateMessageId: () => assistantMessageId,
-				sendReasoning: true,
-				sendSources: true,
-				onFinish: ({ isAborted, responseMessage }) => {
-					logLatency("stream.finish", streamLatencyTracker.getFinishDetails());
-					if (isAborted) {
-						return;
-					}
-
-					finalizationQueue?.setTerminalization({
-						responseMessage,
-						status: "completed",
-					});
-				},
-				onError: () => "Something went wrong.",
-			});
-		} catch (error) {
-			recordServerError({
-				error,
-				event: wideEvent,
-				operation: "stream_create",
-			});
-			wideEvent.outcome = "error";
-			wideEvent.status_code = 500;
-			wideEvent.error_code = "stream_create_failed";
-			emitWideEvent("error");
-			await convexClient.mutation(api.assistantRuns.failAssistantRun, {
-				runId: assistantRun._id,
-				errorText: error instanceof Error ? error.message : "Unknown error",
-			});
-			activeStreamSession.cleanup();
-			if (pendingQueuedAcceptanceHeaders) {
-				sendJson(
-					response,
-					500,
-					{
-						error: "Failed to create assistant stream.",
-					},
-					pendingQueuedAcceptanceHeaders,
-				);
-				return null;
-			}
-			throw error;
-		}
-	})();
-	if (!stream) {
-		return;
-	}
-	logLatency("ai.stream_created");
 	const finalizeAssistantRun = createHostedAssistantRunFinalizer({
 		activeStreamSession,
 		assistantMessageId,
@@ -1157,29 +1091,45 @@ export const handleChatRequest = async (
 			convexClient.mutation(api.chats.updateTitle, args),
 		workspaceId: resolvedWorkspaceId,
 	});
-	finalizationQueue = createHostedAssistantRunFinalizationQueue({
+	const responseStreamResult = await createHostedChatRunResponseStream({
+		activeStreamSession,
+		agent,
+		assistantMessageId,
+		assistantRunId: assistantRun._id,
+		chatMessages,
+		failAssistantRun: (args) =>
+			convexClient.mutation(api.assistantRuns.failAssistantRun, args),
 		finalizeAssistantRun,
+		finalizedToolSet,
 		logLatency,
-		runId: assistantRun._id,
-	});
-	const persistedStream = pipeHostedActiveStreamText({
-		onError: async (error) => {
-			finalizationQueue?.setTerminalization({
-				errorText:
-					error instanceof Error
-						? error.message
-						: "Unknown active stream persistence error",
-				status: "failed",
+		onStreamCreateError: (error) => {
+			recordServerError({
+				error,
+				event: wideEvent,
+				operation: "stream_create",
 			});
-			await finalizationQueue?.flushAfterClientStream();
+			wideEvent.outcome = "error";
+			wideEvent.status_code = 500;
+			wideEvent.error_code = "stream_create_failed";
+			emitWideEvent("error");
 		},
-		onFlush: async () => {
-			await finalizationQueue?.flushAfterClientStream();
-		},
-		persister: activeStreamSession,
-		stream: streamLatencyTracker.wrapStream(stream),
+		streamLatencyTracker,
+		systemPrompt,
 	});
-	const responseStream = activeStreamSession.startBroadcast(persistedStream);
+	if (!responseStreamResult.ok) {
+		if (pendingQueuedAcceptanceHeaders) {
+			sendJson(
+				response,
+				500,
+				{
+					error: "Failed to create assistant stream.",
+				},
+				pendingQueuedAcceptanceHeaders,
+			);
+			return;
+		}
+		throw responseStreamResult.error;
+	}
 	wideEvent.tool_count = finalizedToolSet.toolCount;
 	wideEvent.deferred_tool_count = finalizedToolSet.deferredToolCount;
 	wideEvent.local_folder_root_count = localFolderRoots.length;
@@ -1194,7 +1144,7 @@ export const handleChatRequest = async (
 
 	pipeUIMessageStreamToResponse({
 		response,
-		stream: responseStream,
+		stream: responseStreamResult.responseStream,
 		consumeSseStream: consumeStream,
 	});
 };
