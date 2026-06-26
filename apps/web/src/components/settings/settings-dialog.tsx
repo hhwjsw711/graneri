@@ -265,6 +265,7 @@ type VisibleCalendarRowProps = {
 };
 
 type ToolConnectionRowProps = {
+	group: PluginGroup;
 	icon: React.ReactNode;
 	name: string;
 	buttonLabel: string;
@@ -273,6 +274,17 @@ type ToolConnectionRowProps = {
 	buttonIcon?: React.ReactNode;
 	onButtonClick: () => void;
 };
+
+const pluginGroups = [
+	"Productivity",
+	"Tracking",
+	"Knowledge",
+	"Design",
+	"Analytics",
+	"Meetings",
+] as const;
+
+type PluginGroup = (typeof pluginGroups)[number];
 
 const getWorkspaceFormState = (
 	workspace: WorkspaceRecord | null,
@@ -2474,6 +2486,7 @@ function useConnectionsSettingsController() {
 
 	const toolConnections: ToolConnectionRowProps[] = [
 		{
+			group: "Productivity",
 			icon: (
 				<AppSourceIcon provider="google-calendar" className="size-5 shrink-0" />
 			),
@@ -2494,6 +2507,7 @@ function useConnectionsSettingsController() {
 			},
 		},
 		{
+			group: "Productivity",
 			icon: (
 				<AppSourceIcon provider="google-drive" className="size-5 shrink-0" />
 			),
@@ -2514,6 +2528,7 @@ function useConnectionsSettingsController() {
 			},
 		},
 		{
+			group: "Productivity",
 			icon: (
 				<AppSourceIcon provider="yandex-calendar" className="size-5 shrink-0" />
 			),
@@ -2526,6 +2541,7 @@ function useConnectionsSettingsController() {
 				yandexCalendarDialog.handleYandexCalendarDialogOpenChange(true),
 		},
 		{
+			group: "Tracking",
 			icon: (
 				<AppSourceIcon provider="yandex-tracker" className="size-5 shrink-0" />
 			),
@@ -2535,6 +2551,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handleYandexTrackerDialogOpenChange(true),
 		},
 		{
+			group: "Tracking",
 			icon: <AppSourceIcon provider="jira" className="size-5 shrink-0" />,
 			name: "Jira",
 			buttonLabel: jiraMcpConnection ? "Manage" : "Connect",
@@ -2546,6 +2563,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handleJiraMcpDialogOpenChange(true),
 		},
 		{
+			group: "Tracking",
 			icon: <AppSourceIcon provider="jira" className="size-5 shrink-0" />,
 			name: "Jira Sync",
 			buttonLabel: jiraConnection ? "Manage" : "Connect",
@@ -2553,6 +2571,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handleJiraDialogOpenChange(true),
 		},
 		{
+			group: "Analytics",
 			icon: <AppSourceIcon provider="posthog" className="size-5 shrink-0" />,
 			name: "PostHog",
 			buttonLabel: posthogConnection ? "Manage" : "Connect",
@@ -2560,6 +2579,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handlePostHogDialogOpenChange(true),
 		},
 		{
+			group: "Knowledge",
 			icon: <AppSourceIcon provider="context7" className="size-5 shrink-0" />,
 			name: "Context7",
 			buttonLabel: context7Connection ? "Manage" : "Connect",
@@ -2571,6 +2591,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handleContext7DialogOpenChange(true),
 		},
 		{
+			group: "Design",
 			icon: <AppSourceIcon provider="figma" className="size-5 shrink-0" />,
 			name: "Figma",
 			buttonLabel: figmaConnection ? "Manage" : "Connect",
@@ -2582,6 +2603,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handleFigmaDialogOpenChange(true),
 		},
 		{
+			group: "Tracking",
 			icon: <AppSourceIcon provider="linear" className="size-5 shrink-0" />,
 			name: "Linear",
 			buttonLabel: linearConnection ? "Manage" : "Connect",
@@ -2593,6 +2615,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handleLinearDialogOpenChange(true),
 		},
 		{
+			group: "Knowledge",
 			icon: <AppSourceIcon provider="notion" className="size-5 shrink-0" />,
 			name: "Notion",
 			buttonLabel: notionConnection ? "Manage" : "Connect",
@@ -2600,6 +2623,7 @@ function useConnectionsSettingsController() {
 			onButtonClick: () => handleNotionDialogOpenChange(true),
 		},
 		{
+			group: "Meetings",
 			icon: <AppSourceIcon provider="zoom" className="size-5 shrink-0" />,
 			name: "Zoom",
 			buttonLabel:
@@ -2819,11 +2843,29 @@ function ToolConnectionsSection({
 }) {
 	return (
 		<Field>
-			<Label className={SETTINGS_LABEL_CLASSNAME}>Tools</Label>
-			<div className="space-y-3">
-				{connections.map((connection) => (
-					<ToolConnectionRow key={connection.name} {...connection} />
-				))}
+			<div className="space-y-6">
+				{pluginGroups.map((group) => {
+					const groupConnections = connections.filter(
+						(connection) => connection.group === group,
+					);
+
+					if (groupConnections.length === 0) {
+						return null;
+					}
+
+					return (
+						<div key={group} className="space-y-3">
+							<Label className="text-xs font-medium text-muted-foreground">
+								{group}
+							</Label>
+							<div className="space-y-3">
+								{groupConnections.map((connection) => (
+									<ToolConnectionRow key={connection.name} {...connection} />
+								))}
+							</div>
+						</div>
+					);
+				})}
 			</div>
 		</Field>
 	);

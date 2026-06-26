@@ -71,6 +71,7 @@ export function ChatAutomationConfirmationBar({
 				</span>
 				<input
 					type="text"
+					aria-label="Custom answer"
 					value={textAnswer}
 					disabled={disabled}
 					onChange={(event) => setTextAnswer(event.target.value)}

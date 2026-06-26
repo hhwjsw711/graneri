@@ -349,10 +349,6 @@ const useChatPageController = ({
 	);
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [isPreparingRequest, setIsPreparingRequest] = React.useState(false);
-	const [
-		isAutomationConfirmationSubmitting,
-		setIsAutomationConfirmationSubmitting,
-	] = React.useState(false);
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const [sharedLocalFolders, setSharedLocalFolders] = React.useState<
 		DesktopLocalFolder[]
@@ -1097,7 +1093,6 @@ const useChatPageController = ({
 				return;
 			}
 
-			setIsAutomationConfirmationSubmitting(true);
 			setIsPreparingRequest(true);
 			await submitAutomationConfirmationChatTurn({
 				activeRun,
@@ -1123,7 +1118,6 @@ const useChatPageController = ({
 					onChatPersisted?.(chatId);
 				},
 				onFinally: () => {
-					setIsAutomationConfirmationSubmitting(false);
 					setIsPreparingRequest(false);
 				},
 				onRequestPrepared: ({ localFolders, requestBody }) => {
@@ -1423,7 +1417,7 @@ const useChatPageController = ({
 		workspaceSources,
 		appSources,
 		automationDeleteConfirmation,
-		isAutomationConfirmationSubmitting,
+		isAutomationConfirmationSubmitting: isPreparingRequest,
 		onAutomationConfirmationCancel: handleAutomationConfirmationCancel,
 		onAutomationConfirmationConfirm: handleAutomationConfirmationConfirm,
 		onAutomationConfirmationTextAnswer: handleAutomationConfirmationTextAnswer,
