@@ -13,7 +13,7 @@ export type SettingsPage =
 	| "Notifications"
 	| "Workspace"
 	| "Calendar"
-	| "Connections"
+	| "Plugins"
 	| "Data controls";
 
 export type SettingsDialogProps = {

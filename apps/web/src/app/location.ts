@@ -8,7 +8,8 @@ const SETTINGS_PAGE_BY_SLUG = {
 	notifications: "Notifications",
 	workspace: "Workspace",
 	calendar: "Calendar",
-	connections: "Connections",
+	connections: "Plugins",
+	plugins: "Plugins",
 	"data-controls": "Data controls",
 } as const satisfies Record<string, SettingsPage>;
 
@@ -19,7 +20,7 @@ const SETTINGS_SLUG_BY_PAGE: Record<SettingsPage, string> = {
 	Notifications: "notifications",
 	Workspace: "workspace",
 	Calendar: "calendar",
-	Connections: "connections",
+	Plugins: "plugins",
 	"Data controls": "data-controls",
 };
 

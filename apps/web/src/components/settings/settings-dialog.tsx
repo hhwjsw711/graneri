@@ -186,7 +186,7 @@ const settingsNav = [
 	{ name: "Notifications", icon: Bell },
 	{ name: "Workspace", icon: FolderKanban },
 	{ name: "Calendar", icon: CalendarDays },
-	{ name: "Connections", icon: LayoutGrid },
+	{ name: "Plugins", icon: LayoutGrid },
 	{ name: "Data controls", icon: Database },
 ] as const;
 
@@ -442,7 +442,7 @@ export function SettingsDialog({
 								/>
 							) : activePage === "Calendar" ? (
 								<CalendarSettings />
-							) : activePage === "Connections" ? (
+							) : activePage === "Plugins" ? (
 								<ConnectionsSettings />
 							) : activePage === "Data controls" ? (
 								<DataControlsSettings

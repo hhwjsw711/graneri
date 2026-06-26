@@ -2824,7 +2824,7 @@ export function AuthenticatedAppShell({
 		initialDesktopMac,
 	});
 	const handleOpenConnectionsSettings = React.useCallback(
-		() => controller.handleSettingsOpenChange(true, "Connections"),
+		() => controller.handleSettingsOpenChange(true, "Plugins"),
 		[controller.handleSettingsOpenChange],
 	);
 	const handleNoteCommentsOpenChange = React.useCallback(
