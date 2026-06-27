@@ -85,7 +85,6 @@ export function ChatMessageListContent({
 	errorClassName,
 	includeSources = true,
 	scrollAnchorUserMessages = true,
-	useMessageScrollerItems = false,
 	renderAssistantActions,
 	renderUserActions,
 	onOpenMention,
@@ -105,7 +104,6 @@ export function ChatMessageListContent({
 	errorClassName?: string;
 	includeSources?: boolean;
 	scrollAnchorUserMessages?: boolean;
-	useMessageScrollerItems?: boolean;
 	renderAssistantActions?: (
 		context: ChatMessageActionContext,
 	) => React.ReactNode;
@@ -152,10 +150,8 @@ export function ChatMessageListContent({
 					(includeSources && collectMessageSources(message).length > 0),
 			));
 
-	const Content = useMessageScrollerItems ? MessageScrollerContent : "div";
-
 	return (
-		<Content className={className}>
+		<MessageScrollerContent className={className}>
 			{turns.map((turn, turnIndex) => {
 				const isLastTurn = turnIndex === turns.length - 1;
 				const turnKey = turn.userMessage?.id ?? `assistant-turn-${turnIndex}`;
@@ -163,17 +159,26 @@ export function ChatMessageListContent({
 					...(turn.userMessage ? [turn.userMessage] : []),
 					...turn.assistantMessages,
 				];
+				const scrollAnchor =
+					scrollAnchorUserMessages && turn.userMessage !== undefined;
 
 				return (
-					<div key={turnKey} className={turnClassName?.(isLastTurn)}>
+					<MessageScrollerItem
+						key={turnKey}
+						messageId={turnKey}
+						scrollAnchor={scrollAnchor}
+						className={turnClassName?.(isLastTurn)}
+					>
 						{turnMessages.map((message) => (
-							<ChatMessageListRow
+							<div
 								key={message.id}
-								messageId={message.id}
-								scrollAnchor={
+								data-chat-message-scroll-row={message.id}
+								data-message-id={message.id}
+								data-scroll-anchor={
 									scrollAnchorUserMessages && message.role === "user"
+										? "true"
+										: "false"
 								}
-								useMessageScrollerItem={useMessageScrollerItems}
 							>
 								<ChatMessageListItem
 									message={message}
@@ -188,9 +193,9 @@ export function ChatMessageListContent({
 									streamdownClassName={streamdownClassName}
 									textContainerClassName={textContainerClassName}
 								/>
-							</ChatMessageListRow>
+							</div>
 						))}
-					</div>
+					</MessageScrollerItem>
 				);
 			})}
 
@@ -203,29 +208,7 @@ export function ChatMessageListContent({
 					{error.message}
 				</p>
 			) : null}
-		</Content>
-	);
-}
-
-function ChatMessageListRow({
-	children,
-	messageId,
-	scrollAnchor,
-	useMessageScrollerItem,
-}: {
-	children: React.ReactNode;
-	messageId: string;
-	scrollAnchor: boolean;
-	useMessageScrollerItem: boolean;
-}) {
-	if (!useMessageScrollerItem) {
-		return <>{children}</>;
-	}
-
-	return (
-		<MessageScrollerItem messageId={messageId} scrollAnchor={scrollAnchor}>
-			{children}
-		</MessageScrollerItem>
+		</MessageScrollerContent>
 	);
 }
 

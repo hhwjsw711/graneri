@@ -1844,7 +1844,6 @@ export function ChatPage({
 												onPlusAction={handleCreateNoteFromResponse}
 												onRegenerateMessage={controller.onRegenerateMessage}
 												streamingMessageIds={controller.streamingMessageIds}
-												useMessageScrollerItems
 											/>
 										</div>
 

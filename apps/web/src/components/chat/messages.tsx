@@ -51,7 +51,6 @@ export type ChatMessagesProps = {
 	onRegenerateMessage?: (messageId: string) => void;
 	onOpenMention?: (noteId: string) => void;
 	streamingMessageIds?: ReadonlySet<string>;
-	useMessageScrollerItems?: boolean;
 };
 
 // react-doctor-disable-next-line deslop/unused-export
@@ -65,7 +64,6 @@ export default function ChatMessages({
 	onRegenerateMessage,
 	onOpenMention,
 	streamingMessageIds,
-	useMessageScrollerItems = false,
 }: ChatMessagesProps) {
 	const [messageIdPendingDelete, setMessageIdPendingDelete] = React.useState<
 		string | null
@@ -125,7 +123,6 @@ export default function ChatMessages({
 			streamdownClassName="note-streamdown"
 			textContainerClassName="mt-2 flex flex-row items-start gap-2 first:mt-0"
 			turnClassName={getTurnClassName}
-			useMessageScrollerItems={useMessageScrollerItems}
 			renderAssistantActions={renderAssistantActions}
 			renderUserActions={renderUserActions}
 			onOpenMention={onOpenMention}

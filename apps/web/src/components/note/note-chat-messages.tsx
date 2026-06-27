@@ -97,7 +97,6 @@ export default function NoteChatMessages({
 						}
 						textContainerClassName=""
 						turnClassName={getTurnClassName}
-						useMessageScrollerItems
 						renderAssistantActions={renderAssistantActions}
 						renderUserActions={renderUserActions}
 						streamingMessageIds={streamingMessageIds}

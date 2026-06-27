@@ -1,4 +1,9 @@
 import { cleanup, render } from "@testing-library/react";
+import {
+	MessageScroller,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+} from "@workspace/ui/components/message-scroller";
 import { TooltipProvider } from "@workspace/ui/components/tooltip";
 import type { UIMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -53,6 +58,16 @@ const createTextMessage = ({
 	parts: [{ type: "text", text }],
 });
 
+function TestMessageScroller({ children }: { children: React.ReactNode }) {
+	return (
+		<MessageScrollerProvider autoScroll>
+			<MessageScroller>
+				<MessageScrollerViewport>{children}</MessageScrollerViewport>
+			</MessageScroller>
+		</MessageScrollerProvider>
+	);
+}
+
 describe("ChatMessageListContent performance", () => {
 	afterEach(() => {
 		cleanup();
@@ -88,36 +103,40 @@ describe("ChatMessageListContent performance", () => {
 		const renderUserActions = () => null;
 
 		const { rerender } = render(
-			<ChatMessageListContent
-				messages={[
-					userMessage,
-					historicalAssistantMessage,
-					streamingAssistantMessage,
-				]}
-				isLoading={true}
-				renderAssistantActions={renderAssistantActions}
-				renderUserActions={renderUserActions}
-			/>,
+			<TestMessageScroller>
+				<ChatMessageListContent
+					messages={[
+						userMessage,
+						historicalAssistantMessage,
+						streamingAssistantMessage,
+					]}
+					isLoading={true}
+					renderAssistantActions={renderAssistantActions}
+					renderUserActions={renderUserActions}
+				/>
+			</TestMessageScroller>,
 		);
 
 		expect(streamdownRenderCounts.get(longHistoricalText)).toBe(1);
 		expect(streamdownRenderCounts.get("The morning starts softly.")).toBe(1);
 
 		rerender(
-			<ChatMessageListContent
-				messages={[
-					userMessage,
-					historicalAssistantMessage,
-					createTextMessage({
-						id: "assistant-2",
-						role: "assistant",
-						text: "The morning starts softly. More light gathers on the street.",
-					}),
-				]}
-				isLoading={true}
-				renderAssistantActions={renderAssistantActions}
-				renderUserActions={renderUserActions}
-			/>,
+			<TestMessageScroller>
+				<ChatMessageListContent
+					messages={[
+						userMessage,
+						historicalAssistantMessage,
+						createTextMessage({
+							id: "assistant-2",
+							role: "assistant",
+							text: "The morning starts softly. More light gathers on the street.",
+						}),
+					]}
+					isLoading={true}
+					renderAssistantActions={renderAssistantActions}
+					renderUserActions={renderUserActions}
+				/>
+			</TestMessageScroller>,
 		);
 
 		expect(streamdownRenderCounts.get(longHistoricalText)).toBe(1);
@@ -144,11 +163,13 @@ describe("ChatMessageListContent performance", () => {
 
 		render(
 			<TooltipProvider>
-				<ChatMessageListContent
-					messages={[interruptedAssistantMessage]}
-					isLoading={false}
-					renderAssistantActions={() => null}
-				/>
+				<TestMessageScroller>
+					<ChatMessageListContent
+						messages={[interruptedAssistantMessage]}
+						isLoading={false}
+						renderAssistantActions={() => null}
+					/>
+				</TestMessageScroller>
 			</TooltipProvider>,
 		);
 
@@ -172,12 +193,14 @@ describe("ChatMessageListContent performance", () => {
 
 		render(
 			<TooltipProvider>
-				<ChatMessageListContent
-					messages={[handoffAssistantMessage]}
-					isLoading={true}
-					streamingMessageIds={new Set(["assistant-handoff"])}
-					renderAssistantActions={() => null}
-				/>
+				<TestMessageScroller>
+					<ChatMessageListContent
+						messages={[handoffAssistantMessage]}
+						isLoading={true}
+						streamingMessageIds={new Set(["assistant-handoff"])}
+						renderAssistantActions={() => null}
+					/>
+				</TestMessageScroller>
 			</TooltipProvider>,
 		);
 
@@ -216,22 +239,24 @@ describe("ChatMessageListContent performance", () => {
 
 		const { rerender } = render(
 			<TooltipProvider>
-				<ChatMessages
-					messages={[
-						userMessage,
-						historicalAssistantMessage,
-						createTextMessage({
-							id: "assistant-2",
-							role: "assistant",
-							text: "The morning starts softly.",
-						}),
-					]}
-					isLoading={true}
-					onDeleteMessage={onDeleteMessage}
-					onEditMessage={onEditMessage}
-					onPlusAction={onPlusAction}
-					onRegenerateMessage={onRegenerateMessage}
-				/>
+				<TestMessageScroller>
+					<ChatMessages
+						messages={[
+							userMessage,
+							historicalAssistantMessage,
+							createTextMessage({
+								id: "assistant-2",
+								role: "assistant",
+								text: "The morning starts softly.",
+							}),
+						]}
+						isLoading={true}
+						onDeleteMessage={onDeleteMessage}
+						onEditMessage={onEditMessage}
+						onPlusAction={onPlusAction}
+						onRegenerateMessage={onRegenerateMessage}
+					/>
+				</TestMessageScroller>
 			</TooltipProvider>,
 		);
 
@@ -240,22 +265,24 @@ describe("ChatMessageListContent performance", () => {
 
 		rerender(
 			<TooltipProvider>
-				<ChatMessages
-					messages={[
-						userMessage,
-						historicalAssistantMessage,
-						createTextMessage({
-							id: "assistant-2",
-							role: "assistant",
-							text: "The morning starts softly. More light gathers on the street.",
-						}),
-					]}
-					isLoading={true}
-					onDeleteMessage={onDeleteMessage}
-					onEditMessage={onEditMessage}
-					onPlusAction={onPlusAction}
-					onRegenerateMessage={onRegenerateMessage}
-				/>
+				<TestMessageScroller>
+					<ChatMessages
+						messages={[
+							userMessage,
+							historicalAssistantMessage,
+							createTextMessage({
+								id: "assistant-2",
+								role: "assistant",
+								text: "The morning starts softly. More light gathers on the street.",
+							}),
+						]}
+						isLoading={true}
+						onDeleteMessage={onDeleteMessage}
+						onEditMessage={onEditMessage}
+						onPlusAction={onPlusAction}
+						onRegenerateMessage={onRegenerateMessage}
+					/>
+				</TestMessageScroller>
 			</TooltipProvider>,
 		);
 
