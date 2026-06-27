@@ -1,21 +1,10 @@
 import { cn } from "@workspace/ui/lib/utils";
-import { cva, type VariantProps } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import type * as React from "react";
-
-const markerVariants = cva("flex min-w-0 items-center gap-2 text-sm", {
-	variants: {
-		variant: {
-			default: "text-muted-foreground",
-			border: "border-border border-b pb-2 text-muted-foreground",
-			separator:
-				"w-full justify-center text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border",
-		},
-	},
-	defaultVariants: {
-		variant: "default",
-	},
-});
+import { MarkerContent } from "./marker-content";
+import { MarkerIcon } from "./marker-icon";
+import { markerVariants } from "./marker-variants";
 
 function Marker({
 	asChild = false,
@@ -38,25 +27,4 @@ function Marker({
 	);
 }
 
-function MarkerIcon({ className, ...props }: React.ComponentProps<"span">) {
-	return (
-		<span
-			aria-hidden="true"
-			data-slot="marker-icon"
-			className={cn("flex shrink-0 items-center justify-center", className)}
-			{...props}
-		/>
-	);
-}
-
-function MarkerContent({ className, ...props }: React.ComponentProps<"span">) {
-	return (
-		<span
-			data-slot="marker-content"
-			className={cn("min-w-0 truncate", className)}
-			{...props}
-		/>
-	);
-}
-
-export { Marker, MarkerContent, MarkerIcon, markerVariants };
+export { Marker, MarkerContent, MarkerIcon };

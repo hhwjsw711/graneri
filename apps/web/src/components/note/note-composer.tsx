@@ -4094,19 +4094,26 @@ function NoteComposerTranscriptPanelContent({
 }: {
 	controller: NoteComposerController;
 }) {
+	return (
+		<MessageScrollerProvider autoScroll>
+			<NoteComposerTranscriptPanelContentBody controller={controller} />
+		</MessageScrollerProvider>
+	);
+}
+
+function NoteComposerTranscriptPanelContentBody({
+	controller,
+}: {
+	controller: NoteComposerController;
+}) {
 	const shouldRenderInlineComposer = controller.shouldShowInlinePanel;
-	const [isTranscriptScrollButtonVisible, setIsTranscriptScrollButtonVisible] =
-		React.useState(false);
+	const transcriptScrollable = useMessageScrollerScrollable();
+	const isTranscriptScrollButtonVisible =
+		Boolean(controller.fullTranscript) &&
+		controller.displayTranscriptEntries.length > 0 &&
+		transcriptScrollable.end;
 	const { footerHeight: overlayFooterHeight, footerRef: overlayFooterRef } =
 		useInlineFooterHeight();
-	const handleTranscriptScrollButtonVisibilityChange = React.useCallback(
-		(isVisible: boolean) => {
-			setIsTranscriptScrollButtonVisible((current) =>
-				current === isVisible ? current : isVisible,
-			);
-		},
-		[],
-	);
 
 	return (
 		<>
@@ -4127,12 +4134,7 @@ function NoteComposerTranscriptPanelContent({
 						: undefined
 				}
 			>
-				<NoteTranscriptPanel
-					controller={controller}
-					onScrollButtonVisibilityChange={
-						handleTranscriptScrollButtonVisibilityChange
-					}
-				/>
+				<NoteTranscriptPanel controller={controller} />
 			</CardContent>
 
 			<TranscriptPanelNoticeStack
@@ -4339,10 +4341,8 @@ function NoteComposerPanelContent({
 
 function NoteTranscriptPanel({
 	controller,
-	onScrollButtonVisibilityChange,
 }: {
 	controller: NoteComposerController;
-	onScrollButtonVisibilityChange: (isVisible: boolean) => void;
 }) {
 	const deferredDisplayTranscriptEntries = React.useDeferredValue(
 		controller.displayTranscriptEntries,
@@ -4402,14 +4402,6 @@ function NoteTranscriptPanel({
 	const isProgressivelyRenderingTranscript =
 		!renderFullTranscriptEntries &&
 		deferredDisplayTranscriptEntries.length > renderedTranscriptEntries.length;
-	const canRenderTranscriptScroller = Boolean(controller.fullTranscript);
-
-	React.useEffect(() => {
-		if (!canRenderTranscriptScroller) {
-			onScrollButtonVisibilityChange(false);
-		}
-	}, [canRenderTranscriptScroller, onScrollButtonVisibilityChange]);
-
 	if (
 		controller.isStoredTranscriptLoading &&
 		!controller.fullTranscript &&
@@ -4430,100 +4422,77 @@ function NoteTranscriptPanel({
 
 	return (
 		<div className="relative flex min-h-0 w-full flex-1 flex-col">
-			<MessageScrollerProvider autoScroll>
-				<TranscriptScrollButtonVisibilityReporter
-					hasTranscriptEntries={renderedTranscriptEntries.length > 0}
-					onVisibilityChange={onScrollButtonVisibilityChange}
-				/>
-				<MessageScroller className="min-h-0 w-full flex-1">
-					<MessageScrollerViewport className="pr-4">
-						<MessageScrollerContent className="gap-4">
-							{isDeferringTranscriptEntries &&
-							deferredDisplayTranscriptEntries.length === 0 ? (
-								<div className="flex flex-1 py-12" aria-hidden="true" />
-							) : null}
-							{isProgressivelyRenderingTranscript ? (
-								<div className="h-4" aria-hidden="true" />
-							) : null}
-							{renderedTranscriptEntries.map((utterance) => {
-								const isUserTranscript = utterance.speaker === "you";
-								const elapsed =
-									controller.transcriptStartedAt != null
-										? formatTranscriptElapsed(
-												utterance.startedAt - controller.transcriptStartedAt,
-											)
-										: null;
+			<MessageScroller className="min-h-0 w-full flex-1">
+				<MessageScrollerViewport className="pr-4">
+					<MessageScrollerContent className="gap-4">
+						{isDeferringTranscriptEntries &&
+						deferredDisplayTranscriptEntries.length === 0 ? (
+							<div className="flex flex-1 py-12" aria-hidden="true" />
+						) : null}
+						{isProgressivelyRenderingTranscript ? (
+							<div className="h-4" aria-hidden="true" />
+						) : null}
+						{renderedTranscriptEntries.map((utterance) => {
+							const isUserTranscript = utterance.speaker === "you";
+							const elapsed =
+								controller.transcriptStartedAt != null
+									? formatTranscriptElapsed(
+											utterance.startedAt - controller.transcriptStartedAt,
+										)
+									: null;
 
-								return (
-									<MessageScrollerItem
-										key={utterance.id}
-										messageId={utterance.id}
+							return (
+								<MessageScrollerItem
+									key={utterance.id}
+									messageId={utterance.id}
+									className={cn(
+										"group/message flex w-full flex-col gap-1 transition-colors",
+										isUserTranscript ? "items-end" : "items-start",
+									)}
+								>
+									<div
 										className={cn(
-											"group/message flex w-full flex-col gap-1 transition-colors",
-											isUserTranscript ? "items-end" : "items-start",
+											CHAT_MESSAGE_MAX_WIDTH_CLASS,
+											isUserTranscript
+												? utterance.isLive
+													? cn(
+															USER_CHAT_BUBBLE_CLASS,
+															"bg-secondary/70 text-muted-foreground",
+														)
+													: USER_CHAT_BUBBLE_CLASS
+												: utterance.isLive
+													? cn(
+															ASSISTANT_CHAT_CONTENT_CLASS,
+															"text-muted-foreground",
+														)
+													: ASSISTANT_CHAT_CONTENT_CLASS,
 										)}
+										style={{
+											containIntrinsicSize: "120px",
+											contentVisibility: "auto",
+										}}
 									>
-										<div
-											className={cn(
-												CHAT_MESSAGE_MAX_WIDTH_CLASS,
-												isUserTranscript
-													? utterance.isLive
-														? cn(
-																USER_CHAT_BUBBLE_CLASS,
-																"bg-secondary/70 text-muted-foreground",
-															)
-														: USER_CHAT_BUBBLE_CLASS
-													: utterance.isLive
-														? cn(
-																ASSISTANT_CHAT_CONTENT_CLASS,
-																"text-muted-foreground",
-															)
-														: ASSISTANT_CHAT_CONTENT_CLASS,
-											)}
-											style={{
-												containIntrinsicSize: "120px",
-												contentVisibility: "auto",
-											}}
-										>
-											<p className="whitespace-pre-wrap">{utterance.text}</p>
-										</div>
-										{elapsed ? (
-											<p className="px-1 text-[11px] font-medium tabular-nums text-muted-foreground/65">
-												{elapsed}
-											</p>
-										) : null}
-									</MessageScrollerItem>
-								);
-							})}
-						</MessageScrollerContent>
-					</MessageScrollerViewport>
-					{renderedTranscriptEntries.length > 0 ? (
-						<MessageScrollerButton
-							aria-label="Scroll to latest transcript"
-							className={NOTE_POPOVER_SCROLLER_BUTTON_CLASS}
-						/>
-					) : null}
-				</MessageScroller>
-			</MessageScrollerProvider>
+										<p className="whitespace-pre-wrap">{utterance.text}</p>
+									</div>
+									{elapsed ? (
+										<p className="px-1 text-[11px] font-medium tabular-nums text-muted-foreground/65">
+											{elapsed}
+										</p>
+									) : null}
+								</MessageScrollerItem>
+							);
+						})}
+					</MessageScrollerContent>
+				</MessageScrollerViewport>
+				{renderedTranscriptEntries.length > 0 ? (
+					<MessageScrollerButton
+						aria-label="Scroll to latest transcript"
+						className={NOTE_POPOVER_SCROLLER_BUTTON_CLASS}
+					/>
+				) : null}
+			</MessageScroller>
 		</div>
 	);
-}
-
-function TranscriptScrollButtonVisibilityReporter({
-	hasTranscriptEntries,
-	onVisibilityChange,
-}: {
-	hasTranscriptEntries: boolean;
-	onVisibilityChange: (isVisible: boolean) => void;
-}) {
-	const scrollable = useMessageScrollerScrollable();
-	const isVisible = hasTranscriptEntries && scrollable.end;
-
-	React.useEffect(() => {
-		onVisibilityChange(isVisible);
-	}, [isVisible, onVisibilityChange]);
-
-	return null;
 }
 
 function NoteComposerDock({

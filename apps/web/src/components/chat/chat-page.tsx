@@ -1858,7 +1858,7 @@ export function ChatPage({
 													{controller.hasMessages ? (
 														<MessageScrollerButton
 															aria-label="Scroll to latest messages"
-															className="!bottom-[calc(100%+0.75rem)] rounded-full"
+															className="!bottom-[calc(100%+0.75rem)] size-8 rounded-full"
 														/>
 													) : null}
 													{composer}
