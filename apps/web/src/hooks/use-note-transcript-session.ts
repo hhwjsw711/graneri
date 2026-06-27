@@ -4,7 +4,6 @@ import {
 } from "@workspace/platform/desktop";
 import * as React from "react";
 import { useNoteTranscriptScope } from "@/hooks/use-note-transcript-scope";
-import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import { useTranscriptSessionStopController } from "@/hooks/use-transcript-session-stop-controller";
 import { logError } from "@/lib/logger";
 import {
@@ -66,11 +65,6 @@ export const useNoteTranscriptSession = ({
 	const [pendingAutoStartKey, setPendingAutoStartKey] = React.useState<
 		string | null
 	>(null);
-	const {
-		containerRef: transcriptViewportRef,
-		isAtBottom: isTranscriptViewportAtBottom,
-		scrollToBottom: scrollTranscriptToBottom,
-	} = useStickyScrollToBottom();
 	const previousSpeechListeningRef = React.useRef(false);
 	const lastQueuedAutoStartKeyRef = React.useRef<string | null>(null);
 	const hasHandledAutoStartRef = React.useRef(false);
@@ -972,14 +966,9 @@ export const useNoteTranscriptSession = ({
 		recoveryStatus: isViewingCaptureScope
 			? recoveryStatus
 			: createTranscriptRecoveryStatus(),
-		scrollTranscriptToBottom,
 		systemAudioStatus: isViewingCaptureScope
 			? systemAudioStatus
 			: createSystemAudioCaptureStatus(),
-		isTranscriptViewportAtBottom: isViewingCaptureScope
-			? isTranscriptViewportAtBottom
-			: true,
 		transcriptStartedAt: visibleTranscriptStartedAt,
-		transcriptViewportRef,
 	};
 };

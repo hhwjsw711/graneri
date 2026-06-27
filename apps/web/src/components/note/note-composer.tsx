@@ -21,7 +21,15 @@ import {
 	InputGroupButton,
 } from "@workspace/ui/components/input-group";
 import { Kbd } from "@workspace/ui/components/kbd";
-import { ScrollArea } from "@workspace/ui/components/scroll-area";
+import {
+	MessageScroller,
+	MessageScrollerButton,
+	MessageScrollerContent,
+	MessageScrollerItem,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+	useMessageScrollerScrollable,
+} from "@workspace/ui/components/message-scroller";
 import {
 	Select,
 	SelectContent,
@@ -51,7 +59,6 @@ import type { ChatAddToolOutputFunction, FileUIPart, UIMessage } from "ai";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { useConvex, useMutation, useQuery } from "convex/react";
 import {
-	ArrowDown,
 	ArrowUp,
 	AtSign,
 	AudioWaveform,
@@ -114,7 +121,6 @@ import { useNoteTranscriptSession } from "@/hooks/use-note-transcript-session";
 import { useQueuedChatDrain } from "@/hooks/use-queued-chat-drain";
 import { useQueuedFollowUpControls } from "@/hooks/use-queued-follow-up-controls";
 import { useResumeActiveChatRun } from "@/hooks/use-resume-active-chat-run";
-import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import { useTranscriptionSession } from "@/hooks/use-transcription-session";
 import { useWorkspaceChatTransport } from "@/hooks/use-workspace-chat-transport";
 import {
@@ -220,6 +226,7 @@ import {
 	getMessageTextWithoutRecipeMention,
 	getRecipeSlugFromComposerContent,
 } from "./note-composer-recipe-mentions";
+import { NOTE_POPOVER_SCROLLER_BUTTON_CLASS } from "./note-popover-scroll";
 
 type NoteChatPresentation = "inline" | "floating" | "sidebar";
 type ScopedLocalOptimisticMessages = {
@@ -486,11 +493,6 @@ const useNoteComposerController = ({
 		desktopLeadingOffset: leftSidebarReservedWidth,
 		desktopTrailingOffset: reservedCommentsPanelWidth,
 	});
-	const {
-		containerRef: chatViewportRef,
-		isAtBottom: isChatViewportAtBottom,
-		scrollToBottom: scrollChatToBottom,
-	} = useStickyScrollToBottom();
 	const previousSpeechListeningRef = React.useRef(false);
 	const panelModeRef = React.useRef(panelModeState);
 	const presentationModeRef = React.useRef(presentationModeState);
@@ -2363,8 +2365,6 @@ const useNoteComposerController = ({
 		chatError,
 		chatMessages: displayChatMessages,
 		chatTitle,
-		chatViewportRef,
-		isChatViewportAtBottom,
 		closeRightSidebar,
 		composerPlaceholder,
 		currentChatId,
@@ -2398,8 +2398,6 @@ const useNoteComposerController = ({
 		attachedFiles,
 		setAttachedFiles,
 		streamingMessageIds,
-		isTranscriptViewportAtBottom:
-			transcriptSession.isTranscriptViewportAtBottom,
 		systemAudioStatus: transcriptSession.systemAudioStatus,
 		recoveryStatus: transcriptSession.recoveryStatus,
 		inlinePanelRef,
@@ -2430,12 +2428,9 @@ const useNoteComposerController = ({
 		presentationMode: resolvedPresentationMode,
 		floatingPanelHeight,
 		floatingPanelRightOffset,
-		transcriptViewportRef: transcriptSession.transcriptViewportRef,
 		rootRef,
 		recipePopoverOpen,
 		recipes,
-		scrollChatToBottom,
-		scrollTranscriptToBottom: transcriptSession.scrollTranscriptToBottom,
 		selectedRecipe,
 		sidebarPanelWidth,
 		sidebarPanelWidthCss,
@@ -3647,17 +3642,20 @@ function NoteRecipeMentionPicker({
 function TranscriptInlinePopoverFooter({
 	containerRef,
 	controller,
+	hideConsentNotice,
 	isSpeechListening,
 	speechControls,
 	topAccessory,
 }: {
 	containerRef?: React.Ref<HTMLDivElement>;
 	controller: NoteComposerController;
+	hideConsentNotice: boolean;
 	isSpeechListening: boolean;
 	speechControls: React.ReactNode;
 	topAccessory?: React.ReactNode;
 }) {
-	const shouldShowConsentNotice = isSpeechListening && !topAccessory;
+	const shouldShowConsentNotice =
+		isSpeechListening && !hideConsentNotice && !topAccessory;
 
 	return (
 		<InlinePopoverFooterContainer
@@ -3982,19 +3980,17 @@ function TranscriptPanelHeader({
 
 function TranscriptPanelNoticeStack({
 	controller,
+	isTranscriptScrollButtonVisible,
 	shouldRenderInlineComposer,
 }: {
 	controller: NoteComposerController;
+	isTranscriptScrollButtonVisible: boolean;
 	shouldRenderInlineComposer: boolean;
 }) {
-	const isScrollToBottomVisible =
-		!controller.isTranscriptViewportAtBottom &&
-		controller.displayTranscriptEntries.length > 0;
-
 	if (
 		shouldRenderInlineComposer ||
 		!controller.isSpeechListening ||
-		isScrollToBottomVisible
+		isTranscriptScrollButtonVisible
 	) {
 		return null;
 	}
@@ -4044,21 +4040,6 @@ function NoteComposerChatPanelContent({
 					: undefined
 			}
 			speechControls={null}
-			topAccessory={
-				controller.chatMessages.length > 0 &&
-				!controller.isChatViewportAtBottom ? (
-					<Button
-						type="button"
-						variant="secondary"
-						size="icon-lg"
-						className="rounded-full"
-						onClick={() => controller.scrollChatToBottom()}
-						aria-label="Scroll to latest messages"
-					>
-						<ArrowDown className="size-4" />
-					</Button>
-				) : undefined
-			}
 		/>
 	);
 
@@ -4114,8 +4095,18 @@ function NoteComposerTranscriptPanelContent({
 	controller: NoteComposerController;
 }) {
 	const shouldRenderInlineComposer = controller.shouldShowInlinePanel;
+	const [isTranscriptScrollButtonVisible, setIsTranscriptScrollButtonVisible] =
+		React.useState(false);
 	const { footerHeight: overlayFooterHeight, footerRef: overlayFooterRef } =
 		useInlineFooterHeight();
+	const handleTranscriptScrollButtonVisibilityChange = React.useCallback(
+		(isVisible: boolean) => {
+			setIsTranscriptScrollButtonVisible((current) =>
+				current === isVisible ? current : isVisible,
+			);
+		},
+		[],
+	);
 
 	return (
 		<>
@@ -4138,12 +4129,15 @@ function NoteComposerTranscriptPanelContent({
 			>
 				<NoteTranscriptPanel
 					controller={controller}
-					showFloatingScrollButton={!shouldRenderInlineComposer}
+					onScrollButtonVisibilityChange={
+						handleTranscriptScrollButtonVisibilityChange
+					}
 				/>
 			</CardContent>
 
 			<TranscriptPanelNoticeStack
 				controller={controller}
+				isTranscriptScrollButtonVisible={isTranscriptScrollButtonVisible}
 				shouldRenderInlineComposer={shouldRenderInlineComposer}
 			/>
 
@@ -4151,24 +4145,10 @@ function NoteComposerTranscriptPanelContent({
 				<TranscriptInlinePopoverFooter
 					containerRef={overlayFooterRef}
 					controller={controller}
+					hideConsentNotice={isTranscriptScrollButtonVisible}
 					isSpeechListening={controller.isSpeechListening}
 					speechControls={
 						<NoteComposerSpeechControls controller={controller} />
-					}
-					topAccessory={
-						!controller.isTranscriptViewportAtBottom &&
-						controller.displayTranscriptEntries.length > 0 ? (
-							<Button
-								type="button"
-								variant="secondary"
-								size="icon-lg"
-								className="rounded-full"
-								onClick={() => controller.scrollTranscriptToBottom()}
-								aria-label="Scroll to latest transcript"
-							>
-								<ArrowDown className="size-4" />
-							</Button>
-						) : undefined
 					}
 				/>
 			) : null}
@@ -4218,7 +4198,6 @@ function NoteComposerPanels({
 		<NoteChatMessagesEntry
 			chatError={controller.chatError}
 			chatMessages={controller.chatMessages}
-			chatViewportRef={controller.chatViewportRef}
 			disableAddToNote={!onAddMessageToNote}
 			disablePadding={controller.isSidebarPresentation}
 			isChatLoading={controller.isChatLoading}
@@ -4360,10 +4339,10 @@ function NoteComposerPanelContent({
 
 function NoteTranscriptPanel({
 	controller,
-	showFloatingScrollButton = true,
+	onScrollButtonVisibilityChange,
 }: {
 	controller: NoteComposerController;
-	showFloatingScrollButton?: boolean;
+	onScrollButtonVisibilityChange: (isVisible: boolean) => void;
 }) {
 	const deferredDisplayTranscriptEntries = React.useDeferredValue(
 		controller.displayTranscriptEntries,
@@ -4423,6 +4402,13 @@ function NoteTranscriptPanel({
 	const isProgressivelyRenderingTranscript =
 		!renderFullTranscriptEntries &&
 		deferredDisplayTranscriptEntries.length > renderedTranscriptEntries.length;
+	const canRenderTranscriptScroller = Boolean(controller.fullTranscript);
+
+	React.useEffect(() => {
+		if (!canRenderTranscriptScroller) {
+			onScrollButtonVisibilityChange(false);
+		}
+	}, [canRenderTranscriptScroller, onScrollButtonVisibilityChange]);
 
 	if (
 		controller.isStoredTranscriptLoading &&
@@ -4444,87 +4430,100 @@ function NoteTranscriptPanel({
 
 	return (
 		<div className="relative flex min-h-0 w-full flex-1 flex-col">
-			<ScrollArea
-				className="min-h-0 w-full flex-1"
-				viewportClassName="flex flex-col gap-4 pr-4"
-				viewportRef={controller.transcriptViewportRef}
-			>
-				<div className={cn("flex flex-col gap-4")}>
-					{isDeferringTranscriptEntries &&
-					deferredDisplayTranscriptEntries.length === 0 ? (
-						<div className="flex flex-1 py-12" aria-hidden="true" />
-					) : null}
-					{isProgressivelyRenderingTranscript ? (
-						<div className="h-4" aria-hidden="true" />
-					) : null}
-					{renderedTranscriptEntries.map((utterance) => {
-						const isUserTranscript = utterance.speaker === "you";
-						const elapsed =
-							controller.transcriptStartedAt != null
-								? formatTranscriptElapsed(
-										utterance.startedAt - controller.transcriptStartedAt,
-									)
-								: null;
+			<MessageScrollerProvider autoScroll>
+				<TranscriptScrollButtonVisibilityReporter
+					hasTranscriptEntries={renderedTranscriptEntries.length > 0}
+					onVisibilityChange={onScrollButtonVisibilityChange}
+				/>
+				<MessageScroller className="min-h-0 w-full flex-1">
+					<MessageScrollerViewport className="pr-4">
+						<MessageScrollerContent className="gap-4">
+							{isDeferringTranscriptEntries &&
+							deferredDisplayTranscriptEntries.length === 0 ? (
+								<div className="flex flex-1 py-12" aria-hidden="true" />
+							) : null}
+							{isProgressivelyRenderingTranscript ? (
+								<div className="h-4" aria-hidden="true" />
+							) : null}
+							{renderedTranscriptEntries.map((utterance) => {
+								const isUserTranscript = utterance.speaker === "you";
+								const elapsed =
+									controller.transcriptStartedAt != null
+										? formatTranscriptElapsed(
+												utterance.startedAt - controller.transcriptStartedAt,
+											)
+										: null;
 
-						return (
-							<div
-								key={utterance.id}
-								className={cn(
-									"group/message flex w-full flex-col gap-1 transition-colors",
-									isUserTranscript ? "items-end" : "items-start",
-								)}
-							>
-								<div
-									className={cn(
-										CHAT_MESSAGE_MAX_WIDTH_CLASS,
-										isUserTranscript
-											? utterance.isLive
-												? cn(
-														USER_CHAT_BUBBLE_CLASS,
-														"bg-secondary/70 text-muted-foreground",
-													)
-												: USER_CHAT_BUBBLE_CLASS
-											: utterance.isLive
-												? cn(
-														ASSISTANT_CHAT_CONTENT_CLASS,
-														"text-muted-foreground",
-													)
-												: ASSISTANT_CHAT_CONTENT_CLASS,
-									)}
-									style={{
-										containIntrinsicSize: "120px",
-										contentVisibility: "auto",
-									}}
-								>
-									<p className="whitespace-pre-wrap">{utterance.text}</p>
-								</div>
-								{elapsed ? (
-									<p className="px-1 text-[11px] font-medium tabular-nums text-muted-foreground/65">
-										{elapsed}
-									</p>
-								) : null}
-							</div>
-						);
-					})}
-				</div>
-			</ScrollArea>
-			{showFloatingScrollButton &&
-			!controller.isTranscriptViewportAtBottom &&
-			renderedTranscriptEntries.length > 0 ? (
-				<div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center">
-					<Button
-						type="button"
-						variant="secondary"
-						size="icon-lg"
-						className="pointer-events-auto rounded-full"
-						onClick={() => controller.scrollTranscriptToBottom()}
-					>
-						<ArrowDown className="size-4" />
-					</Button>
-				</div>
-			) : null}
+								return (
+									<MessageScrollerItem
+										key={utterance.id}
+										messageId={utterance.id}
+										className={cn(
+											"group/message flex w-full flex-col gap-1 transition-colors",
+											isUserTranscript ? "items-end" : "items-start",
+										)}
+									>
+										<div
+											className={cn(
+												CHAT_MESSAGE_MAX_WIDTH_CLASS,
+												isUserTranscript
+													? utterance.isLive
+														? cn(
+																USER_CHAT_BUBBLE_CLASS,
+																"bg-secondary/70 text-muted-foreground",
+															)
+														: USER_CHAT_BUBBLE_CLASS
+													: utterance.isLive
+														? cn(
+																ASSISTANT_CHAT_CONTENT_CLASS,
+																"text-muted-foreground",
+															)
+														: ASSISTANT_CHAT_CONTENT_CLASS,
+											)}
+											style={{
+												containIntrinsicSize: "120px",
+												contentVisibility: "auto",
+											}}
+										>
+											<p className="whitespace-pre-wrap">{utterance.text}</p>
+										</div>
+										{elapsed ? (
+											<p className="px-1 text-[11px] font-medium tabular-nums text-muted-foreground/65">
+												{elapsed}
+											</p>
+										) : null}
+									</MessageScrollerItem>
+								);
+							})}
+						</MessageScrollerContent>
+					</MessageScrollerViewport>
+					{renderedTranscriptEntries.length > 0 ? (
+						<MessageScrollerButton
+							aria-label="Scroll to latest transcript"
+							className={NOTE_POPOVER_SCROLLER_BUTTON_CLASS}
+						/>
+					) : null}
+				</MessageScroller>
+			</MessageScrollerProvider>
 		</div>
 	);
+}
+
+function TranscriptScrollButtonVisibilityReporter({
+	hasTranscriptEntries,
+	onVisibilityChange,
+}: {
+	hasTranscriptEntries: boolean;
+	onVisibilityChange: (isVisible: boolean) => void;
+}) {
+	const scrollable = useMessageScrollerScrollable();
+	const isVisible = hasTranscriptEntries && scrollable.end;
+
+	React.useEffect(() => {
+		onVisibilityChange(isVisible);
+	}, [isVisible, onVisibilityChange]);
+
+	return null;
 }
 
 function NoteComposerDock({

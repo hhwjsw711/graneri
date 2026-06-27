@@ -4,6 +4,7 @@ import type { UIMessage } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatMessageListContent } from "../src/components/chat/message-list";
 import ChatMessages from "../src/components/chat/messages";
+import NoteChatMessages from "../src/components/note/note-chat-messages";
 import { parseMarkdownIntoStableBlocks } from "../src/lib/markdown-stable-blocks";
 
 const streamdownRenderCounts = new Map<string, number>();
@@ -264,6 +265,42 @@ describe("ChatMessageListContent performance", () => {
 				"The morning starts softly. More light gathers on the street.",
 			),
 		).toBe(1);
+	});
+
+	it("does not anchor note composer user messages above streaming replies", () => {
+		const userMessage = createTextMessage({
+			id: "user-1",
+			role: "user",
+			text: "write a short note",
+		});
+		const assistantMessage = createTextMessage({
+			id: "assistant-1",
+			role: "assistant",
+			text: "Here is the generated note text.",
+		});
+
+		render(
+			<TooltipProvider>
+				<NoteChatMessages
+					chatError={undefined}
+					chatMessages={[userMessage, assistantMessage]}
+					disableAddToNote={false}
+					disablePadding={false}
+					isChatLoading={true}
+				/>
+			</TooltipProvider>,
+		);
+
+		expect(
+			document
+				.querySelector('[data-message-id="user-1"]')
+				?.getAttribute("data-scroll-anchor"),
+		).toBe("false");
+		expect(
+			document
+				.querySelector('[data-message-id="assistant-1"]')
+				?.getAttribute("data-scroll-anchor"),
+		).toBe("false");
 	});
 
 	it("keeps completed streaming markdown blocks stable as the final block grows", () => {

@@ -84,6 +84,7 @@ export function ChatMessageListContent({
 	breathingSpaceClassName = "min-h-[max(140px,24vh)] w-full",
 	errorClassName,
 	includeSources = true,
+	scrollAnchorUserMessages = true,
 	useMessageScrollerItems = false,
 	renderAssistantActions,
 	renderUserActions,
@@ -103,6 +104,7 @@ export function ChatMessageListContent({
 	breathingSpaceClassName?: string;
 	errorClassName?: string;
 	includeSources?: boolean;
+	scrollAnchorUserMessages?: boolean;
 	useMessageScrollerItems?: boolean;
 	renderAssistantActions?: (
 		context: ChatMessageActionContext,
@@ -168,7 +170,9 @@ export function ChatMessageListContent({
 							<ChatMessageListRow
 								key={message.id}
 								messageId={message.id}
-								scrollAnchor={message.role === "user"}
+								scrollAnchor={
+									scrollAnchorUserMessages && message.role === "user"
+								}
 								useMessageScrollerItem={useMessageScrollerItems}
 							>
 								<ChatMessageListItem

@@ -20,11 +20,11 @@ import {
 	type ChatMessageActionContext,
 	ChatMessageListContent,
 } from "@/components/chat/message-list";
+import { NOTE_POPOVER_SCROLLER_BUTTON_CLASS } from "./note-popover-scroll";
 
 export type NoteChatMessagesProps = {
 	chatError: Error | undefined;
 	chatMessages: UIMessage[];
-	chatViewportRef: React.Ref<HTMLDivElement>;
 	disableAddToNote: boolean;
 	disablePadding: boolean;
 	isChatLoading: boolean;
@@ -39,7 +39,6 @@ export type NoteChatMessagesProps = {
 export default function NoteChatMessages({
 	chatError,
 	chatMessages,
-	chatViewportRef,
 	disableAddToNote,
 	disablePadding,
 	isChatLoading,
@@ -80,7 +79,6 @@ export default function NoteChatMessages({
 		<MessageScrollerProvider autoScroll>
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport
-					ref={chatViewportRef}
 					className={cn(
 						"flex min-h-full flex-col gap-4 pr-4 pb-2",
 						disablePadding && "px-2",
@@ -93,6 +91,7 @@ export default function NoteChatMessages({
 						isLoading={isChatLoading}
 						messageStackClassName="gap-2"
 						messages={chatMessages}
+						scrollAnchorUserMessages={false}
 						streamdownClassName={
 							disablePadding ? "note-chat-sidebar-streamdown" : undefined
 						}
@@ -107,7 +106,7 @@ export default function NoteChatMessages({
 				{chatMessages.length > 0 ? (
 					<MessageScrollerButton
 						aria-label="Scroll to latest messages"
-						className="rounded-full"
+						className={NOTE_POPOVER_SCROLLER_BUTTON_CLASS}
 					/>
 				) : null}
 			</MessageScroller>
