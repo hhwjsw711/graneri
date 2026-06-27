@@ -143,6 +143,8 @@ type SidebarDockedPanelsContextProps = {
 	setLeftOverlayPanelWidth: (width: string | null) => void;
 	rightInsetPanelWidth: string | null;
 	setRightInsetPanelWidth: (width: string | null) => void;
+	rightOverlayPanelWidth: string | null;
+	setRightOverlayPanelWidth: (width: string | null) => void;
 	syncDockedPanelWidths: (widths: DockedPanelWidthsUpdate) => void;
 };
 
@@ -150,6 +152,7 @@ type DockedPanelWidthsState = {
 	leftInsetPanelWidth: string | null;
 	leftOverlayPanelWidth: string | null;
 	rightInsetPanelWidth: string | null;
+	rightOverlayPanelWidth: string | null;
 };
 
 type DockedPanelWidthsUpdate = Partial<DockedPanelWidthsState>;
@@ -158,12 +161,14 @@ const INITIAL_DOCKED_PANEL_WIDTHS: DockedPanelWidthsState = {
 	leftInsetPanelWidth: null,
 	leftOverlayPanelWidth: null,
 	rightInsetPanelWidth: null,
+	rightOverlayPanelWidth: null,
 };
 
 const DOCKED_PANEL_WIDTH_KEYS = [
 	"leftInsetPanelWidth",
 	"leftOverlayPanelWidth",
 	"rightInsetPanelWidth",
+	"rightOverlayPanelWidth",
 ] as const satisfies Array<keyof DockedPanelWidthsState>;
 
 type SidebarProviderState = {
@@ -393,8 +398,12 @@ function useSidebarProviderElement({
 		dockedPanelWidthsReducer,
 		INITIAL_DOCKED_PANEL_WIDTHS,
 	);
-	const { leftInsetPanelWidth, leftOverlayPanelWidth, rightInsetPanelWidth } =
-		dockedPanelWidths;
+	const {
+		leftInsetPanelWidth,
+		leftOverlayPanelWidth,
+		rightInsetPanelWidth,
+		rightOverlayPanelWidth,
+	} = dockedPanelWidths;
 	const {
 		hasRightSidebar,
 		open: uncontrolledOpen,
@@ -554,6 +563,12 @@ function useSidebarProviderElement({
 		},
 		[syncDockedPanelWidths],
 	);
+	const setRightOverlayPanelWidth = React.useCallback(
+		(width: string | null) => {
+			syncDockedPanelWidths({ rightOverlayPanelWidth: width });
+		},
+		[syncDockedPanelWidths],
+	);
 
 	const toggleSidebar = React.useCallback(() => {
 		return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
@@ -653,6 +668,8 @@ function useSidebarProviderElement({
 				setLeftOverlayPanelWidth,
 				rightInsetPanelWidth,
 				setRightInsetPanelWidth,
+				rightOverlayPanelWidth,
+				setRightOverlayPanelWidth,
 				syncDockedPanelWidths,
 			}),
 			[
@@ -662,6 +679,8 @@ function useSidebarProviderElement({
 				setLeftOverlayPanelWidth,
 				rightInsetPanelWidth,
 				setRightInsetPanelWidth,
+				rightOverlayPanelWidth,
+				setRightOverlayPanelWidth,
 				syncDockedPanelWidths,
 			],
 		);

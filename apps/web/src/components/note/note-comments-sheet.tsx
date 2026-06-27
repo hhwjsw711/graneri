@@ -85,6 +85,7 @@ import {
 	DesktopDockedSidePanel,
 	DockedPanelPinButton,
 	useDockedPanelInset,
+	useDockedPanelOverlayWidth,
 } from "@/components/layout/docked-side-panel";
 import { parseCssLengthToPixels } from "@/components/layout/parse-css-length";
 import {
@@ -2275,6 +2276,13 @@ export function NoteCommentsSheet(props: NoteCommentsSheetProps) {
 	});
 
 	useDockedPanelInset({
+		side: "right",
+		isMobile,
+		isPinned,
+		open,
+		panelWidth,
+	});
+	useDockedPanelOverlayWidth({
 		side: "right",
 		isMobile,
 		isPinned,

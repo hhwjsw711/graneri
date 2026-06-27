@@ -19,9 +19,10 @@ type DockedPanelWidthsUpdate = {
 	leftInsetPanelWidth?: string | null;
 	leftOverlayPanelWidth?: string | null;
 	rightInsetPanelWidth?: string | null;
+	rightOverlayPanelWidth?: string | null;
 };
 
-const DOCKED_PANEL_TRANSITION_DURATION_MS = 220;
+const DOCKED_PANEL_TRANSITION_DURATION_MS = 300;
 const useIsomorphicLayoutEffect =
 	typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
@@ -68,6 +69,10 @@ const clearDockedPanelWidths = (widths: DockedPanelWidthsUpdate) => {
 		nextWidths.rightInsetPanelWidth = null;
 	}
 
+	if ("rightOverlayPanelWidth" in widths) {
+		nextWidths.rightOverlayPanelWidth = null;
+	}
+
 	return nextWidths;
 };
 
@@ -75,6 +80,7 @@ function useSyncDockedPanelWidths({
 	leftInsetPanelWidth,
 	leftOverlayPanelWidth,
 	rightInsetPanelWidth,
+	rightOverlayPanelWidth,
 }: DockedPanelWidthsUpdate) {
 	const dockedPanelWidths = useOptionalDockedPanelWidths();
 
@@ -97,6 +103,10 @@ function useSyncDockedPanelWidths({
 			widths.rightInsetPanelWidth = rightInsetPanelWidth;
 		}
 
+		if (rightOverlayPanelWidth !== undefined) {
+			widths.rightOverlayPanelWidth = rightOverlayPanelWidth;
+		}
+
 		dockedPanelWidths.syncDockedPanelWidths(widths);
 
 		return () => {
@@ -107,6 +117,7 @@ function useSyncDockedPanelWidths({
 		leftInsetPanelWidth,
 		leftOverlayPanelWidth,
 		rightInsetPanelWidth,
+		rightOverlayPanelWidth,
 	]);
 }
 
@@ -133,9 +144,13 @@ export function useDockedPanelOverlayWidth(args: {
 	open: boolean;
 	panelWidth: number;
 }) {
-	useSyncDockedPanelWidths({
-		leftOverlayPanelWidth: getDockedPanelOverlayWidth(args),
-	});
+	const overlayPanelWidth = getDockedPanelOverlayWidth(args);
+
+	useSyncDockedPanelWidths(
+		args.side === "left"
+			? { leftOverlayPanelWidth: overlayPanelWidth }
+			: { rightOverlayPanelWidth: overlayPanelWidth },
+	);
 }
 
 export function DockedPanelPinButton({
@@ -291,7 +306,7 @@ export function DesktopDockedSidePanel({
 				<div
 					data-app-region={desktopSafeTop && open ? "no-drag" : undefined}
 					className={cn(
-						"group/docked-sheet relative flex h-svh flex-col bg-background text-foreground transition-transform duration-200 ease-linear",
+						"group/docked-sheet relative flex h-svh flex-col bg-background text-foreground transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
 						isLeft ? "border-r" : "border-l",
 						open
 							? "pointer-events-auto translate-x-0"

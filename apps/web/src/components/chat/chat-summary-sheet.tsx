@@ -73,6 +73,7 @@ import {
 	DesktopDockedSidePanel,
 	DockedPanelPinButton,
 	useDockedPanelInset,
+	useDockedPanelOverlayWidth,
 } from "@/components/layout/docked-side-panel";
 import {
 	ResizableSidePanelHandle,
@@ -306,6 +307,13 @@ export function ChatSummarySheet({
 		});
 	}, []);
 	useDockedPanelInset({
+		side: "right",
+		isMobile,
+		isPinned,
+		open,
+		panelWidth,
+	});
+	useDockedPanelOverlayWidth({
 		side: "right",
 		isMobile,
 		isPinned,
