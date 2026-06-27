@@ -1,5 +1,10 @@
 import { Button } from "@workspace/ui/components/button";
-import { ScrollArea } from "@workspace/ui/components/scroll-area";
+import {
+	MessageScroller,
+	MessageScrollerButton,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+} from "@workspace/ui/components/message-scroller";
 import {
 	Tooltip,
 	TooltipContent,
@@ -72,31 +77,41 @@ export default function NoteChatMessages({
 	);
 
 	return (
-		<ScrollArea
-			className="min-h-0 flex-1"
-			viewportClassName={cn(
-				"flex min-h-full flex-col gap-4 pr-4 pb-2",
-				disablePadding && "px-2",
-			)}
-			viewportRef={chatViewportRef}
-		>
-			<ChatMessageListContent
-				breathingSpaceClassName="min-h-16 w-full shrink-0"
-				error={chatError}
-				includeSources={false}
-				isLoading={isChatLoading}
-				messageStackClassName="gap-2"
-				messages={chatMessages}
-				streamdownClassName={
-					disablePadding ? "note-chat-sidebar-streamdown" : undefined
-				}
-				textContainerClassName=""
-				turnClassName={getTurnClassName}
-				renderAssistantActions={renderAssistantActions}
-				renderUserActions={renderUserActions}
-				streamingMessageIds={streamingMessageIds}
-			/>
-		</ScrollArea>
+		<MessageScrollerProvider autoScroll>
+			<MessageScroller className="min-h-0 flex-1">
+				<MessageScrollerViewport
+					ref={chatViewportRef}
+					className={cn(
+						"flex min-h-full flex-col gap-4 pr-4 pb-2",
+						disablePadding && "px-2",
+					)}
+				>
+					<ChatMessageListContent
+						breathingSpaceClassName="min-h-16 w-full shrink-0"
+						error={chatError}
+						includeSources={false}
+						isLoading={isChatLoading}
+						messageStackClassName="gap-2"
+						messages={chatMessages}
+						streamdownClassName={
+							disablePadding ? "note-chat-sidebar-streamdown" : undefined
+						}
+						textContainerClassName=""
+						turnClassName={getTurnClassName}
+						useMessageScrollerItems
+						renderAssistantActions={renderAssistantActions}
+						renderUserActions={renderUserActions}
+						streamingMessageIds={streamingMessageIds}
+					/>
+				</MessageScrollerViewport>
+				{chatMessages.length > 0 ? (
+					<MessageScrollerButton
+						aria-label="Scroll to latest messages"
+						className="rounded-full"
+					/>
+				) : null}
+			</MessageScroller>
+		</MessageScrollerProvider>
 	);
 }
 

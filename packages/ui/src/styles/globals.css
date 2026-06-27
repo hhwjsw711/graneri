@@ -237,6 +237,42 @@
 }
 
 @layer utilities {
+	.scroll-fade,
+	.scroll-fade-y {
+		--scroll-fade-size: min(12%, 40px);
+		mask-image: linear-gradient(
+			to bottom,
+			transparent,
+			black var(--scroll-fade-size),
+			black calc(100% - var(--scroll-fade-size)),
+			transparent
+		);
+	}
+
+	.scroll-fade-b {
+		--scroll-fade-size: min(12%, 40px);
+		mask-image: linear-gradient(
+			to bottom,
+			black,
+			black calc(100% - var(--scroll-fade-size)),
+			transparent
+		);
+	}
+
+	.scroll-fade-t {
+		--scroll-fade-size: min(12%, 40px);
+		mask-image: linear-gradient(
+			to bottom,
+			transparent,
+			black var(--scroll-fade-size),
+			black
+		);
+	}
+
+	.scroll-fade-none {
+		mask-image: none;
+	}
+
 	:root[data-panel-resizing="true"] [data-slot="sidebar-gap"],
 	:root[data-panel-resizing="true"] [data-slot="sidebar-container"],
 	:root[data-panel-resizing="true"] [data-slot="sidebar-inner"],

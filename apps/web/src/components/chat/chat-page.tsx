@@ -3,19 +3,17 @@ import { isDesktopRuntime } from "@workspace/platform/desktop";
 import type { DesktopLocalFolder } from "@workspace/platform/desktop-bridge";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
-import { ScrollArea } from "@workspace/ui/components/scroll-area";
+import {
+	MessageScroller,
+	MessageScrollerButton,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+} from "@workspace/ui/components/message-scroller";
 import { cn } from "@workspace/ui/lib/utils";
 import type { ChatAddToolOutputFunction, UIMessage } from "ai";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { useMutation, useQuery } from "convex/react";
-import {
-	ArrowDown,
-	ChevronDown,
-	ChevronUp,
-	FileText,
-	Search,
-	X,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, FileText, Search, X } from "lucide-react";
 import * as React from "react";
 // react-doctor-disable-next-line react-doctor/no-flush-sync
 import { flushSync } from "react-dom";
@@ -44,7 +42,6 @@ import { useComposerDraft } from "@/hooks/use-composer-draft";
 import { useQueuedChatDrain } from "@/hooks/use-queued-chat-drain";
 import { useQueuedFollowUpControls } from "@/hooks/use-queued-follow-up-controls";
 import { useResumeActiveChatRun } from "@/hooks/use-resume-active-chat-run";
-import { useStickyScrollToBottom } from "@/hooks/use-sticky-scroll-to-bottom";
 import { useWorkspaceChatTransport } from "@/hooks/use-workspace-chat-transport";
 import {
 	getStoredChatModel as getStoredLocalChatModel,
@@ -1462,11 +1459,6 @@ export function ChatPage({
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		activeStreamingChatIds,
 	});
-	const {
-		containerRef,
-		isAtBottom: isChatViewportAtBottom,
-		scrollToBottom: scrollChatToBottom,
-	} = useStickyScrollToBottom();
 	const historyViewportRef = React.useRef<HTMLDivElement | null>(null);
 	const searchInputRef = React.useRef<HTMLInputElement | null>(null);
 	const [messageSearch, dispatchMessageSearch] = React.useReducer(
@@ -1511,13 +1503,9 @@ export function ChatPage({
 		messageSearchMatches.length > 0
 			? messageSearchMatches[messageSearchIndex]
 			: null;
-	const viewportRef = React.useCallback(
-		(node: HTMLDivElement | null) => {
-			historyViewportRef.current = node;
-			containerRef(controller.hasMessages ? node : null);
-		},
-		[containerRef, controller.hasMessages],
-	);
+	const viewportRef = React.useCallback((node: HTMLDivElement | null) => {
+		historyViewportRef.current = node;
+	}, []);
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const canShowChatSummary = activeChatId === chatId;
 	const automationChatIds = React.useMemo(
@@ -1751,24 +1739,6 @@ export function ChatPage({
 	const chatSurfaceMinHeightClass = isDesktopMac
 		? "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-3.5rem)]"
 		: "min-h-[calc(100dvh-4rem)] md:min-h-[calc(100dvh-4rem)]";
-	const shouldShowScrollToLatest =
-		controller.hasMessages && !isChatViewportAtBottom;
-	const composerTopAccessory = React.useMemo(
-		() =>
-			shouldShowScrollToLatest ? (
-				<Button
-					type="button"
-					variant="secondary"
-					size="icon-lg"
-					className="rounded-full"
-					onClick={() => scrollChatToBottom()}
-					aria-label="Scroll to latest messages"
-				>
-					<ArrowDown className="size-4" />
-				</Button>
-			) : undefined,
-		[scrollChatToBottom, shouldShowScrollToLatest],
-	);
 	const composer = (
 		<ChatComposer
 			useCompactLayout={shouldShowActiveChatSurface}
@@ -1778,7 +1748,6 @@ export function ChatPage({
 					? "Ask for follow-up"
 					: "Ask anything. @ to use tools or mention notes"
 			}
-			topAccessory={composerTopAccessory}
 			automationConfirmation={controller.automationDeleteConfirmation}
 			isAutomationConfirmationSubmitting={
 				controller.isAutomationConfirmationSubmitting
@@ -1822,97 +1791,116 @@ export function ChatPage({
 
 	return (
 		<>
-			<ScrollArea
-				className="min-h-0 flex-1"
-				viewportClassName="overscroll-contain [overflow-anchor:none]"
-				viewportRef={viewportRef}
-			>
-				<div className="box-border flex w-full max-w-full min-w-0 flex-1 justify-center px-4 md:px-6">
-					<div
-						className={cn(
-							"flex min-h-0 w-full min-w-0 max-w-5xl flex-1 flex-col",
-							isDesktopMac ? "pt-2 md:pt-4" : "pt-0",
-						)}
+			<MessageScrollerProvider autoScroll>
+				<MessageScroller className="min-h-0 flex-1">
+					<MessageScrollerViewport
+						ref={viewportRef}
+						className="overscroll-contain [overflow-anchor:none]"
 					>
-						{shouldShowActiveChatSurface ? (
+						<div className="box-border flex w-full max-w-full min-w-0 flex-1 justify-center px-4 md:px-6">
 							<div
 								className={cn(
-									"relative mx-auto flex w-full min-w-0 max-w-full flex-1 flex-col md:max-w-xl",
-									chatSurfaceMinHeightClass,
+									"flex min-h-0 w-full min-w-0 max-w-5xl flex-1 flex-col",
+									isDesktopMac ? "pt-2 md:pt-4" : "pt-0",
 								)}
 							>
-								{messageSearch.open ? (
-									<ChatMessageSearchBar
-										inputRef={searchInputRef}
-										query={messageSearch.query}
-										onQueryChange={(value) => {
-											dispatchMessageSearch({ type: "setQuery", query: value });
-										}}
-										matchCount={messageSearchMatches.length}
-										matchIndex={
-											messageSearchMatches.length > 0 ? messageSearchIndex : -1
-										}
-										onPrevious={handleMessageSearchPrevious}
-										onNext={handleMessageSearchNext}
-										onClose={() => dispatchMessageSearch({ type: "close" })}
-										onKeyDown={handleMessageSearchKeyDown}
-									/>
-								) : null}
-								<div className="flex-1 pt-8 pb-28 md:pb-32">
-									<ChatMessagesEntry
-										messages={controller.messages}
-										error={controller.error}
-										isLoading={controller.isLoading}
-										onDeleteMessage={controller.onDeleteMessage}
-										onEditMessage={controller.onEditMessage}
-										onOpenMention={controller.onOpenMention}
-										onPlusAction={handleCreateNoteFromResponse}
-										onRegenerateMessage={controller.onRegenerateMessage}
-										streamingMessageIds={controller.streamingMessageIds}
-									/>
-								</div>
+								{shouldShowActiveChatSurface ? (
+									<div
+										className={cn(
+											"relative mx-auto flex w-full min-w-0 max-w-full flex-1 flex-col md:max-w-xl",
+											chatSurfaceMinHeightClass,
+										)}
+									>
+										{messageSearch.open ? (
+											<ChatMessageSearchBar
+												inputRef={searchInputRef}
+												query={messageSearch.query}
+												onQueryChange={(value) => {
+													dispatchMessageSearch({
+														type: "setQuery",
+														query: value,
+													});
+												}}
+												matchCount={messageSearchMatches.length}
+												matchIndex={
+													messageSearchMatches.length > 0
+														? messageSearchIndex
+														: -1
+												}
+												onPrevious={handleMessageSearchPrevious}
+												onNext={handleMessageSearchNext}
+												onClose={() => dispatchMessageSearch({ type: "close" })}
+												onKeyDown={handleMessageSearchKeyDown}
+											/>
+										) : null}
+										<div className="flex-1 pt-8 pb-28 md:pb-32">
+											<ChatMessagesEntry
+												messages={controller.messages}
+												error={controller.error}
+												isLoading={controller.isLoading}
+												onDeleteMessage={controller.onDeleteMessage}
+												onEditMessage={controller.onEditMessage}
+												onOpenMention={controller.onOpenMention}
+												onPlusAction={handleCreateNoteFromResponse}
+												onRegenerateMessage={controller.onRegenerateMessage}
+												streamingMessageIds={controller.streamingMessageIds}
+												useMessageScrollerItems
+											/>
+										</div>
 
-								<div className="sticky bottom-0 z-10 mt-auto h-0">
-									<div className={COMPOSER_DOCK_WRAPPER_CLASS}>
-										<div className="pointer-events-auto relative mx-auto w-[calc(100%-2rem)] min-w-0 max-w-full md:max-w-xl">
-											{composer}
+										<div className="sticky bottom-0 z-10 mt-auto h-0">
+											<div className={COMPOSER_DOCK_WRAPPER_CLASS}>
+												<div className="pointer-events-auto relative mx-auto w-[calc(100%-2rem)] min-w-0 max-w-full md:max-w-xl">
+													<div
+														aria-hidden="true"
+														className="pointer-events-none absolute inset-x-0 bottom-full h-16 bg-gradient-to-t from-background to-transparent"
+													/>
+													{controller.hasMessages ? (
+														<MessageScrollerButton
+															aria-label="Scroll to latest messages"
+															className="!bottom-[calc(100%+0.75rem)] rounded-full"
+														/>
+													) : null}
+													{composer}
+												</div>
+											</div>
 										</div>
 									</div>
-								</div>
-							</div>
-						) : (
-							<div
-								className={cn(
-									"mx-auto flex w-full min-w-0 max-w-full flex-1 flex-col md:max-w-xl",
-									chatSurfaceMinHeightClass,
-								)}
-							>
-								<div className="flex flex-1 flex-col gap-6 pb-8">
-									<PageTitle isDesktopMac={isDesktopMac} className="w-full">
-										Ask anything
-									</PageTitle>
+								) : (
+									<div
+										className={cn(
+											"mx-auto flex w-full min-w-0 max-w-full flex-1 flex-col md:max-w-xl",
+											chatSurfaceMinHeightClass,
+										)}
+									>
+										<div className="flex flex-1 flex-col gap-6 pb-8">
+											<PageTitle isDesktopMac={isDesktopMac} className="w-full">
+												Ask anything
+											</PageTitle>
 
-									{composer}
+											{composer}
 
-									<div className="min-h-0 flex-1">
-										<ChatHistoryList
-											chats={chats}
-											isChatsLoading={isChatsLoading}
-											activeChatId={activeChatId}
-											onOpenChat={onOpenChat}
-											onPrefetchChat={onPrefetchChat}
-											onMoveToTrash={onChatRemoved}
-											automationChatIds={automationChatIds}
-											activeStreamingChatIds={chatHistoryStreamingChatIds}
-											onAddAutomation={onAddAutomation}
-										/>
+											<div className="min-h-0 flex-1">
+												<ChatHistoryList
+													chats={chats}
+													isChatsLoading={isChatsLoading}
+													activeChatId={activeChatId}
+													onOpenChat={onOpenChat}
+													onPrefetchChat={onPrefetchChat}
+													onMoveToTrash={onChatRemoved}
+													automationChatIds={automationChatIds}
+													activeStreamingChatIds={chatHistoryStreamingChatIds}
+													onAddAutomation={onAddAutomation}
+												/>
+											</div>
+										</div>
 									</div>
-								</div>
+								)}
 							</div>
-						)}
-					</div>
-				</div>
-			</ScrollArea>
+						</div>
+					</MessageScrollerViewport>
+				</MessageScroller>
+			</MessageScrollerProvider>
 			{canShowChatSummary ? (
 				<ChatSummarySheetEntry
 					open={controller.summaryOpen}

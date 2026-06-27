@@ -1,5 +1,3 @@
-import type { UIMessage } from "ai";
-
 export const CHAT_MESSAGE_MAX_WIDTH_CLASS = "max-w-[85%]";
 
 export const CHAT_ACTIONS_VISIBILITY_CLASS =
@@ -9,6 +7,3 @@ export const USER_CHAT_BUBBLE_CLASS =
 	"rounded-lg bg-secondary px-3 py-2 text-sm leading-6 text-secondary-foreground";
 
 export const ASSISTANT_CHAT_CONTENT_CLASS = "text-sm leading-6 text-foreground";
-
-export const getChatMessageJustifyClass = (role: UIMessage["role"]) =>
-	role === "user" ? "justify-end" : "justify-start";

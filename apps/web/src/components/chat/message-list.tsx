@@ -1,3 +1,4 @@
+import { Bubble, BubbleContent } from "@workspace/ui/components/bubble";
 import {
 	Dialog,
 	DialogClose,
@@ -5,6 +6,12 @@ import {
 	DialogDescription,
 	DialogTitle,
 } from "@workspace/ui/components/dialog";
+import { Marker, MarkerContent } from "@workspace/ui/components/marker";
+import { Message, MessageContent } from "@workspace/ui/components/message";
+import {
+	MessageScrollerContent,
+	MessageScrollerItem,
+} from "@workspace/ui/components/message-scroller";
 import { cn } from "@workspace/ui/lib/utils";
 import type { UIMessage } from "ai";
 import { FileText, Paperclip, X } from "lucide-react";
@@ -26,7 +33,6 @@ import { CollapsibleMessageContent } from "@/components/chat/collapsible-message
 import {
 	ASSISTANT_CHAT_CONTENT_CLASS,
 	CHAT_MESSAGE_MAX_WIDTH_CLASS,
-	getChatMessageJustifyClass,
 	USER_CHAT_BUBBLE_CLASS,
 } from "@/components/chat/message-layout";
 import { ChatRecipeReceipt } from "@/components/chat/recipe-receipt";
@@ -78,6 +84,7 @@ export function ChatMessageListContent({
 	breathingSpaceClassName = "min-h-[max(140px,24vh)] w-full",
 	errorClassName,
 	includeSources = true,
+	useMessageScrollerItems = false,
 	renderAssistantActions,
 	renderUserActions,
 	onOpenMention,
@@ -96,6 +103,7 @@ export function ChatMessageListContent({
 	breathingSpaceClassName?: string;
 	errorClassName?: string;
 	includeSources?: boolean;
+	useMessageScrollerItems?: boolean;
 	renderAssistantActions?: (
 		context: ChatMessageActionContext,
 	) => React.ReactNode;
@@ -142,8 +150,10 @@ export function ChatMessageListContent({
 					(includeSources && collectMessageSources(message).length > 0),
 			));
 
+	const Content = useMessageScrollerItems ? MessageScrollerContent : "div";
+
 	return (
-		<div className={className}>
+		<Content className={className}>
 			{turns.map((turn, turnIndex) => {
 				const isLastTurn = turnIndex === turns.length - 1;
 				const turnKey = turn.userMessage?.id ?? `assistant-turn-${turnIndex}`;
@@ -155,20 +165,26 @@ export function ChatMessageListContent({
 				return (
 					<div key={turnKey} className={turnClassName?.(isLastTurn)}>
 						{turnMessages.map((message) => (
-							<ChatMessageListItem
+							<ChatMessageListRow
 								key={message.id}
-								message={message}
-								includeSources={includeSources}
-								isLoading={isLoading}
-								lastMessageId={lastMessage?.id}
-								messageStackClassName={messageStackClassName}
-								renderAssistantActions={renderAssistantActions}
-								renderUserActions={renderUserActions}
-								onOpenMention={onOpenMention}
-								streamingMessageIds={forcedStreamingMessageIds}
-								streamdownClassName={streamdownClassName}
-								textContainerClassName={textContainerClassName}
-							/>
+								messageId={message.id}
+								scrollAnchor={message.role === "user"}
+								useMessageScrollerItem={useMessageScrollerItems}
+							>
+								<ChatMessageListItem
+									message={message}
+									includeSources={includeSources}
+									isLoading={isLoading}
+									lastMessageId={lastMessage?.id}
+									messageStackClassName={messageStackClassName}
+									renderAssistantActions={renderAssistantActions}
+									renderUserActions={renderUserActions}
+									onOpenMention={onOpenMention}
+									streamingMessageIds={forcedStreamingMessageIds}
+									streamdownClassName={streamdownClassName}
+									textContainerClassName={textContainerClassName}
+								/>
+							</ChatMessageListRow>
 						))}
 					</div>
 				);
@@ -183,7 +199,29 @@ export function ChatMessageListContent({
 					{error.message}
 				</p>
 			) : null}
-		</div>
+		</Content>
+	);
+}
+
+function ChatMessageListRow({
+	children,
+	messageId,
+	scrollAnchor,
+	useMessageScrollerItem,
+}: {
+	children: React.ReactNode;
+	messageId: string;
+	scrollAnchor: boolean;
+	useMessageScrollerItem: boolean;
+}) {
+	if (!useMessageScrollerItem) {
+		return <>{children}</>;
+	}
+
+	return (
+		<MessageScrollerItem messageId={messageId} scrollAnchor={scrollAnchor}>
+			{children}
+		</MessageScrollerItem>
 	);
 }
 
@@ -270,16 +308,12 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 	};
 
 	return (
-		<div
+		<Message
+			align={message.role === "user" ? "end" : "start"}
 			data-chat-message-id={message.id}
-			className={cn(
-				"group/message flex w-full",
-				getChatMessageJustifyClass(message.role),
-			)}
 		>
-			<div
+			<MessageContent
 				className={cn(
-					"flex flex-col",
 					message.role === "user" ? "items-end" : "items-start",
 					CHAT_MESSAGE_MAX_WIDTH_CLASS,
 					messageStackClassName,
@@ -317,8 +351,8 @@ const ChatMessageListItem = React.memo(function ChatMessageListItem({
 				{messageSources.length > 0 ? (
 					<MessageSources messageId={message.id} sources={messageSources} />
 				) : null}
-			</div>
-		</div>
+			</MessageContent>
+		</Message>
 	);
 });
 
@@ -535,40 +569,46 @@ const ChatMessageText = React.memo(function ChatMessageText({
 
 	return (
 		<div className={textContainerClassName}>
-			<div
-				className={cn(
-					role === "user"
-						? USER_CHAT_BUBBLE_CLASS
-						: ASSISTANT_CHAT_CONTENT_CLASS,
-					isStreamingAssistantMessage && isEmpty && "text-muted-foreground",
-				)}
+			<Bubble
+				align={role === "user" ? "end" : "start"}
+				variant={role === "user" ? "secondary" : "ghost"}
+				className="max-w-full"
 			>
-				{isStreamingAssistantMessage && isEmpty ? (
-					<div className="text-sm text-muted-foreground">
-						<ShimmerText>Thinking</ShimmerText>
-					</div>
-				) : role === "user" && mentionPositions?.length ? (
-					<UserMessageWithMentions
-						text={displayText}
-						mentionPositions={mentionPositions}
-						onOpenMention={onOpenMention}
-					/>
-				) : (
-					<CollapsibleMessageContent
-						role={role}
-						text={displayText}
-						isAnimating={
-							isStreamingAssistantMessage && !isInterruptedAssistantMessage
-						}
-						streamdownClassName={resolvedStreamdownClassName}
-						mode={
-							isStreamingAssistantMessage || isInterruptedAssistantMessage
-								? "streaming"
-								: "static"
-						}
-					/>
-				)}
-			</div>
+				<BubbleContent
+					className={cn(
+						role === "user"
+							? USER_CHAT_BUBBLE_CLASS
+							: ASSISTANT_CHAT_CONTENT_CLASS,
+						isStreamingAssistantMessage && isEmpty && "text-muted-foreground",
+					)}
+				>
+					{isStreamingAssistantMessage && isEmpty ? (
+						<div className="text-sm text-muted-foreground">
+							<ShimmerText>Thinking</ShimmerText>
+						</div>
+					) : role === "user" && mentionPositions?.length ? (
+						<UserMessageWithMentions
+							text={displayText}
+							mentionPositions={mentionPositions}
+							onOpenMention={onOpenMention}
+						/>
+					) : (
+						<CollapsibleMessageContent
+							role={role}
+							text={displayText}
+							isAnimating={
+								isStreamingAssistantMessage && !isInterruptedAssistantMessage
+							}
+							streamdownClassName={resolvedStreamdownClassName}
+							mode={
+								isStreamingAssistantMessage || isInterruptedAssistantMessage
+									? "streaming"
+									: "static"
+							}
+						/>
+					)}
+				</BubbleContent>
+			</Bubble>
 		</div>
 	);
 });
@@ -576,9 +616,9 @@ const ChatMessageText = React.memo(function ChatMessageText({
 const InterruptedMessageStatus = React.memo(
 	function InterruptedMessageStatus() {
 		return (
-			<div className="mt-2 text-xs text-muted-foreground">
-				<span>Steered conversation</span>
-			</div>
+			<Marker className="mt-2">
+				<MarkerContent>Steered conversation</MarkerContent>
+			</Marker>
 		);
 	},
 );
