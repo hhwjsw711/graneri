@@ -28,7 +28,6 @@ import {
 	MessageScrollerItem,
 	MessageScrollerProvider,
 	MessageScrollerViewport,
-	useMessageScrollerScrollable,
 } from "@workspace/ui/components/message-scroller";
 import {
 	Select,
@@ -3642,41 +3641,36 @@ function NoteRecipeMentionPicker({
 function TranscriptInlinePopoverFooter({
 	containerRef,
 	controller,
-	hideConsentNotice,
 	isSpeechListening,
 	speechControls,
 	topAccessory,
 }: {
 	containerRef?: React.Ref<HTMLDivElement>;
 	controller: NoteComposerController;
-	hideConsentNotice: boolean;
 	isSpeechListening: boolean;
 	speechControls: React.ReactNode;
 	topAccessory?: React.ReactNode;
 }) {
-	const shouldShowConsentNotice =
-		isSpeechListening && !hideConsentNotice && !topAccessory;
-
 	return (
 		<InlinePopoverFooterContainer
 			ref={containerRef}
 			className={NOTE_COMPOSER_OVERLAY_FOOTER_CONTAINER_CLASS}
 		>
 			<div className="relative">
-				{shouldShowConsentNotice || topAccessory ? (
-					<div className="pointer-events-none absolute inset-x-4 bottom-full z-10 mb-3 flex flex-col items-center gap-2">
-						{shouldShowConsentNotice ? (
-							<div className="w-full rounded-lg bg-muted px-4 py-1 text-center text-[11px] leading-4 text-muted-foreground">
-								Always get consent when transcribing others.
-							</div>
-						) : null}
-						{topAccessory ? (
-							<div className="pointer-events-auto">{topAccessory}</div>
-						) : null}
+				{topAccessory ? (
+					<div className="pointer-events-none absolute inset-x-0 bottom-full z-10 mb-3 flex justify-center">
+						<div className="pointer-events-auto">{topAccessory}</div>
 					</div>
 				) : null}
 
-				<InputGroup className={NOTE_COMPOSER_FOOTER_SURFACE_CLASS}>
+				<InputGroup
+					className={cn(NOTE_COMPOSER_FOOTER_SURFACE_CLASS, "relative")}
+				>
+					{isSpeechListening ? (
+						<p className="pointer-events-none absolute left-1/2 top-1/2 z-10 max-w-[calc(100%-3rem)] -translate-x-1/2 -translate-y-1/2 truncate text-center text-xs leading-5 text-muted-foreground">
+							Always get consent when transcribing others.
+						</p>
+					) : null}
 					<InputGroupAddon
 						align="block-start"
 						className={NOTE_COMPOSER_FOOTER_TOP_ROW_CLASS}
@@ -3697,7 +3691,10 @@ function TranscriptInlinePopoverFooter({
 					/>
 					<InputGroupAddon
 						align="block-end"
-						className={cn(NOTE_COMPOSER_FOOTER_BOTTOM_ROW_CLASS, "!px-2")}
+						className={cn(
+							NOTE_COMPOSER_FOOTER_BOTTOM_ROW_CLASS,
+							"relative !px-2",
+						)}
 					>
 						{speechControls}
 						<TranscriptLanguageSelector
@@ -3978,40 +3975,6 @@ function TranscriptPanelHeader({
 	);
 }
 
-function TranscriptPanelNoticeStack({
-	controller,
-	isTranscriptScrollButtonVisible,
-	shouldRenderInlineComposer,
-}: {
-	controller: NoteComposerController;
-	isTranscriptScrollButtonVisible: boolean;
-	shouldRenderInlineComposer: boolean;
-}) {
-	if (
-		shouldRenderInlineComposer ||
-		!controller.isSpeechListening ||
-		isTranscriptScrollButtonVisible
-	) {
-		return null;
-	}
-
-	return (
-		<div
-			className={cn(
-				controller.isSidebarPresentation
-					? "px-2 pb-2"
-					: shouldRenderInlineComposer
-						? "pb-4"
-						: "px-4 pb-4",
-			)}
-		>
-			<div className="rounded-md bg-muted px-3 py-1.5 text-center text-xs text-muted-foreground">
-				Always get consent when transcribing others.
-			</div>
-		</div>
-	);
-}
-
 function NoteComposerChatPanelContent({
 	controller,
 	chatPanelBody,
@@ -4107,11 +4070,6 @@ function NoteComposerTranscriptPanelContentBody({
 	controller: NoteComposerController;
 }) {
 	const shouldRenderInlineComposer = controller.shouldShowInlinePanel;
-	const transcriptScrollable = useMessageScrollerScrollable();
-	const isTranscriptScrollButtonVisible =
-		Boolean(controller.fullTranscript) &&
-		controller.displayTranscriptEntries.length > 0 &&
-		transcriptScrollable.end;
 	const { footerHeight: overlayFooterHeight, footerRef: overlayFooterRef } =
 		useInlineFooterHeight();
 
@@ -4137,17 +4095,10 @@ function NoteComposerTranscriptPanelContentBody({
 				<NoteTranscriptPanel controller={controller} />
 			</CardContent>
 
-			<TranscriptPanelNoticeStack
-				controller={controller}
-				isTranscriptScrollButtonVisible={isTranscriptScrollButtonVisible}
-				shouldRenderInlineComposer={shouldRenderInlineComposer}
-			/>
-
 			{shouldRenderInlineComposer ? (
 				<TranscriptInlinePopoverFooter
 					containerRef={overlayFooterRef}
 					controller={controller}
-					hideConsentNotice={isTranscriptScrollButtonVisible}
 					isSpeechListening={controller.isSpeechListening}
 					speechControls={
 						<NoteComposerSpeechControls controller={controller} />
@@ -4454,13 +4405,13 @@ function NoteTranscriptPanel({
 										className={cn(
 											CHAT_MESSAGE_MAX_WIDTH_CLASS,
 											isUserTranscript
-												? utterance.isLive
+												? utterance.isLive && !utterance.liveText
 													? cn(
 															USER_CHAT_BUBBLE_CLASS,
 															"bg-secondary/70 text-muted-foreground",
 														)
 													: USER_CHAT_BUBBLE_CLASS
-												: utterance.isLive
+												: utterance.isLive && !utterance.liveText
 													? cn(
 															ASSISTANT_CHAT_CONTENT_CLASS,
 															"text-muted-foreground",
@@ -4472,7 +4423,16 @@ function NoteTranscriptPanel({
 											contentVisibility: "auto",
 										}}
 									>
-										<p className="whitespace-pre-wrap">{utterance.text}</p>
+										{utterance.liveText ? (
+											<p className="whitespace-pre-wrap">
+												{utterance.committedText}{" "}
+												<span className="relative top-[0.5px] text-muted-foreground">
+													{utterance.liveText}
+												</span>
+											</p>
+										) : (
+											<p className="whitespace-pre-wrap">{utterance.text}</p>
+										)}
 									</div>
 									{elapsed ? (
 										<p className="px-1 text-[11px] font-medium tabular-nums text-muted-foreground/65">

@@ -57,7 +57,7 @@ describe("transcript display entries", () => {
 		]);
 	});
 
-	it("appends provisional live entries after committed blocks", () => {
+	it("appends same-speaker provisional text inside the current committed block", () => {
 		expect(
 			createTranscriptDisplayEntries({
 				liveTranscript: {
@@ -66,6 +66,80 @@ describe("transcript display entries", () => {
 						speaker: "them",
 						startedAt: 10_000,
 						text: "Still speaking",
+					},
+				},
+				utterances: [
+					{
+						id: "1",
+						speaker: "them",
+						text: "Opening.",
+						startedAt: 1_000,
+						endedAt: 2_000,
+					},
+				],
+			}),
+		).toEqual([
+			{
+				committedText: "Opening.",
+				endedAt: 10_000,
+				id: "1",
+				isLive: true,
+				isProvisional: true,
+				liveText: "Still speaking",
+				speaker: "them",
+				startedAt: 1_000,
+				text: "Opening. Still speaking",
+				utteranceIds: ["1"],
+			},
+		]);
+	});
+
+	it("appends user provisional text inside the current committed block", () => {
+		expect(
+			createTranscriptDisplayEntries({
+				liveTranscript: {
+					...createEmptyLiveTranscriptState(),
+					you: {
+						speaker: "you",
+						startedAt: 10_000,
+						text: "one more thing",
+					},
+				},
+				utterances: [
+					{
+						id: "1",
+						speaker: "you",
+						text: "My answer.",
+						startedAt: 1_000,
+						endedAt: 2_000,
+					},
+				],
+			}),
+		).toEqual([
+			{
+				committedText: "My answer.",
+				endedAt: 10_000,
+				id: "1",
+				isLive: true,
+				isProvisional: true,
+				liveText: "one more thing",
+				speaker: "you",
+				startedAt: 1_000,
+				text: "My answer. one more thing",
+				utteranceIds: ["1"],
+			},
+		]);
+	});
+
+	it("keeps provisional live entries separate when speaker changes", () => {
+		expect(
+			createTranscriptDisplayEntries({
+				liveTranscript: {
+					...createEmptyLiveTranscriptState(),
+					you: {
+						speaker: "you",
+						startedAt: 10_000,
+						text: "My response",
 					},
 				},
 				utterances: [
@@ -91,13 +165,68 @@ describe("transcript display entries", () => {
 			},
 			{
 				endedAt: 10_000,
-				id: "live:them:10000",
+				id: "live:you:10000",
 				isLive: true,
 				isProvisional: true,
-				speaker: "them",
+				speaker: "you",
 				startedAt: 10_000,
-				text: "Still speaking",
+				text: "My response",
 				utteranceIds: [],
+			},
+		]);
+	});
+
+	it("does not append provisional text across an intervening speaker block", () => {
+		expect(
+			createTranscriptDisplayEntries({
+				liveTranscript: {
+					...createEmptyLiveTranscriptState(),
+					you: {
+						speaker: "you",
+						startedAt: 10_000,
+						text: "later answer",
+					},
+				},
+				utterances: [
+					{
+						id: "1",
+						speaker: "you",
+						text: "Earlier answer.",
+						startedAt: 1_000,
+						endedAt: 2_000,
+					},
+					{
+						id: "2",
+						speaker: "them",
+						text: "Follow-up question.",
+						startedAt: 4_000,
+						endedAt: 5_000,
+					},
+				],
+			}).map((entry) => ({
+				id: entry.id,
+				isLive: entry.isLive,
+				speaker: entry.speaker,
+				text: entry.text,
+			})),
+		).toEqual([
+			{
+				id: "1",
+				isLive: false,
+				speaker: "you",
+				text: "Earlier answer.",
+			},
+			{
+				id: "2",
+				isLive: false,
+				speaker: "them",
+				text: "Follow-up question.",
+			},
+			{
+				id: "live:you:10000",
+				isLive: true,
+				speaker: "you",
+				text: "later answer",
 			},
 		]);
 	});

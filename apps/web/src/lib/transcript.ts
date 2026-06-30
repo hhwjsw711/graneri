@@ -36,9 +36,11 @@ export type TranscriptUtterance = {
 };
 
 type TranscriptDisplayEntry = {
+	committedText?: string;
 	id: string;
 	isLive: boolean;
 	isProvisional: boolean;
+	liveText?: string;
 	speaker: TranscriptSpeaker;
 	startedAt: number;
 	endedAt: number;
@@ -118,6 +120,21 @@ const transcriptDateFormatter = new Intl.DateTimeFormat(undefined, {
 	day: "numeric",
 	month: "short",
 });
+
+const appendTranscriptText = (baseText: string, appendedText: string) => {
+	const normalizedBaseText = baseText.trim();
+	const normalizedAppendedText = appendedText.trim();
+
+	if (!normalizedBaseText) {
+		return normalizedAppendedText;
+	}
+
+	if (!normalizedAppendedText) {
+		return normalizedBaseText;
+	}
+
+	return `${normalizedBaseText} ${normalizedAppendedText}`;
+};
 
 const formatTranscriptDate = (timestamp: number) =>
 	transcriptDateFormatter.format(new Date(timestamp));
@@ -205,9 +222,32 @@ export const createTranscriptDisplayEntries = ({
 			text: section.text,
 			utteranceIds: section.utteranceIds,
 		}));
+	const displayEntries = committedEntries.sort(compareTranscriptDisplayEntries);
 
-	return [
-		...committedEntries,
-		...createLiveTranscriptEntries(liveTranscript),
-	].sort(compareTranscriptDisplayEntries);
+	for (const liveEntry of createLiveTranscriptEntries(liveTranscript)) {
+		const previousEntry = displayEntries.findLast(
+			(entry) => entry.startedAt <= liveEntry.startedAt,
+		);
+
+		if (
+			previousEntry &&
+			previousEntry.speaker === liveEntry.speaker &&
+			!previousEntry.isLive
+		) {
+			previousEntry.endedAt = liveEntry.startedAt;
+			previousEntry.isLive = true;
+			previousEntry.isProvisional = true;
+			previousEntry.committedText = previousEntry.text;
+			previousEntry.liveText = liveEntry.text;
+			previousEntry.text = appendTranscriptText(
+				previousEntry.text,
+				liveEntry.text,
+			);
+			continue;
+		}
+
+		displayEntries.push(liveEntry);
+	}
+
+	return displayEntries.sort(compareTranscriptDisplayEntries);
 };
