@@ -61,6 +61,7 @@ export const createDesktopRealtimeClientSecret = async ({
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					Origin: new URL(baseUrl).origin,
 				},
 				body: JSON.stringify({
 					lang,
