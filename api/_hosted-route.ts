@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { getHostedChatConvexRouteError } from "../packages/ai/src/hosted-chat-runtime.mjs";
 
 export type HostedApiHandler = (
 	request: IncomingMessage,
@@ -9,26 +10,6 @@ type HostedChatConvexRouteError = {
 	error: string;
 	errorCode: string;
 	statusCode: number;
-};
-
-type HostedChatRuntimeModule = {
-	getHostedChatConvexRouteError: (
-		error: unknown,
-	) => HostedChatConvexRouteError | null;
-};
-
-const importEsm = new Function("specifier", "return import(specifier)") as <T>(
-	specifier: string,
-) => Promise<T>;
-
-const getHostedChatConvexRouteError = async (
-	error: unknown,
-): Promise<HostedChatConvexRouteError | null> => {
-	const runtime = await importEsm<HostedChatRuntimeModule>(
-		"../packages/ai/src/hosted-chat-runtime.mjs",
-	);
-
-	return runtime.getHostedChatConvexRouteError(error);
 };
 
 export const handleHostedApiRoute = async ({
@@ -52,7 +33,7 @@ export const handleHostedApiRoute = async ({
 	try {
 		await handler(request, response);
 	} catch (error) {
-		const routeError = await getHostedChatConvexRouteError(error);
+		const routeError = getHostedChatConvexRouteError(error);
 		if (routeError) {
 			response.statusCode = routeError.statusCode;
 			response.setHeader("Content-Type", "application/json");

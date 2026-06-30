@@ -1,17 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { handleChatRequest } from "../../apps/web/server/chat-handler";
 import { handleHostedApiRoute } from "../_hosted-route";
-
-type ChatSteerModule = {
-	handleChatRequest: (
-		request: IncomingMessage,
-		response: ServerResponse,
-		options: { isSteerRoute: true },
-	) => Promise<void>;
-};
-
-const importEsm = new Function("specifier", "return import(specifier)") as <T>(
-	specifier: string,
-) => Promise<T>;
 
 export default async function handler(
 	request: IncomingMessage,
@@ -19,11 +8,7 @@ export default async function handler(
 ) {
 	await handleHostedApiRoute({
 		handler: async (routeRequest, routeResponse) => {
-			const route = await importEsm<ChatSteerModule>(
-				"../../apps/web/server/chat-handler.js",
-			);
-
-			await route.handleChatRequest(routeRequest, routeResponse, {
+			await handleChatRequest(routeRequest, routeResponse, {
 				isSteerRoute: true,
 			});
 		},
