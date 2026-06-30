@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+
+const testDir = dirname(fileURLToPath(import.meta.url));
 
 const verifyPackageSource = readFileSync(
-	resolve("scripts", "verify-package.mjs"),
+	resolve(testDir, "..", "scripts", "verify-package.mjs"),
 	"utf8",
 );
 
@@ -27,4 +30,16 @@ test("desktop package verification rejects legacy chat lifecycle fallbacks", () 
 			),
 		);
 	}
+});
+
+test("desktop package verification rejects unexpected Convex deployments generically", () => {
+	assert.match(
+		verifyPackageSource,
+		/convexDeploymentUrlPattern\s*=/u,
+	);
+	assert.match(
+		verifyPackageSource,
+		/Packaged app contains unexpected Convex deployment/u,
+	);
+	assert.doesNotMatch(verifyPackageSource, /clever-chinchilla-887/u);
 });

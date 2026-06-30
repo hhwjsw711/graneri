@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { builtinModules } from "node:module";
@@ -9,6 +10,7 @@ import {
 	loadSelectedEnvFile,
 } from "../../../scripts/release-contract.mjs";
 import { desktopPackageContract } from "./desktop-package-contract.mjs";
+import { nativeRuntimeToolNames } from "./native-runtime-tools.mjs";
 
 const packageRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = resolve(packageRoot, "../..");
@@ -20,7 +22,14 @@ const packagedAppAsarPath = resolve(
 	packageRoot,
 	desktopPackageContract.packagedResourcesAsarPath,
 );
-const knownDevDeployments = ["clever-chinchilla-887"];
+const stagedPackageAppPath = resolve(
+	packageRoot,
+	desktopPackageContract.appDirectory,
+);
+const convexDeploymentUrlPattern =
+	/\bhttps:\/\/([a-z0-9-]+)\.convex\.(?:cloud|site)\b/giu;
+const convexConfigurationContextPattern =
+	/(?:VITE_)?CONVEX(?:_SITE)?_URL|GRANERI_HOSTED_CONVEX|convex(?:Site)?Url|hostedRuntimeConfig|preconnect/iu;
 
 loadSelectedEnvFile({
 	envFileName:
@@ -88,7 +97,6 @@ if (new URL(expectedSiteUrl).hostname.endsWith(".convex.site")) {
 
 const forbiddenDeployments = getForbiddenConvexDeployments({
 	expectedDeployment,
-	knownDevDeployments,
 });
 
 const walkFiles = async (directory) => {
@@ -107,6 +115,25 @@ const walkFiles = async (directory) => {
 	}
 
 	return files;
+};
+
+const getConfigurationConvexDeployments = (source) => {
+	const deployments = new Set();
+
+	for (const match of source.matchAll(convexDeploymentUrlPattern)) {
+		const contextStart = Math.max(0, match.index - 120);
+		const contextEnd = Math.min(
+			source.length,
+			match.index + match[0].length + 120,
+		);
+		const context = source.slice(contextStart, contextEnd);
+
+		if (convexConfigurationContextPattern.test(context)) {
+			deployments.add(match[1]);
+		}
+	}
+
+	return deployments;
 };
 
 const readAsarHeader = (archivePath) => {
@@ -168,6 +195,19 @@ const readAsarEntryText = ({
 };
 
 const loadPackagedResources = async () => {
+	if (existsSync(stagedPackageAppPath)) {
+		const files = await walkFiles(stagedPackageAppPath);
+		return {
+			files: files.map((filePath) => ({
+				absolutePath: filePath,
+				readText: () => readFileSync(filePath, "utf8"),
+				relativePath: relative(stagedPackageAppPath, filePath),
+			})),
+			hasPackagePath: (relativePackagePath) =>
+				existsSync(join(stagedPackageAppPath, relativePackagePath)),
+		};
+	}
+
 	if (existsSync(packagedAppResourcePath)) {
 		const files = await walkFiles(packagedAppResourcePath);
 		return {
@@ -214,6 +254,107 @@ const loadPackagedResources = async () => {
 			);
 		},
 	};
+};
+
+const resolvePackagedNativeToolPath = (toolName) => {
+	const stagedToolPath = join(
+		packageRoot,
+		desktopPackageContract.appDirectory,
+		desktopPackageContract.runtimeDirectory,
+		"bin",
+		toolName,
+	);
+	if (existsSync(stagedToolPath)) {
+		return stagedToolPath;
+	}
+
+	const unpackedToolPath = join(
+		`${packagedAppAsarPath}.unpacked`,
+		desktopPackageContract.runtimeDirectory,
+		"bin",
+		toolName,
+	);
+	if (existsSync(unpackedToolPath)) {
+		return unpackedToolPath;
+	}
+
+	const directoryToolPath = join(
+		packagedAppResourcePath,
+		desktopPackageContract.runtimeDirectory,
+		"bin",
+		toolName,
+	);
+	if (existsSync(directoryToolPath)) {
+		return directoryToolPath;
+	}
+
+	return null;
+};
+
+const runNativeRuntimeTool = (toolPath, args) =>
+	new Promise((resolvePromise, rejectPromise) => {
+		const child = spawn(toolPath, args, {
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let stdout = "";
+		let stderr = "";
+		child.stdout.setEncoding("utf8");
+		child.stderr.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk;
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += chunk;
+		});
+		child.on("error", rejectPromise);
+		child.on("exit", (code) => {
+			if (code !== 0) {
+				rejectPromise(
+					new Error(
+						`${toolPath} ${args.join(" ")} exited with code ${code ?? -1}.\n${stderr}`,
+					),
+				);
+				return;
+			}
+
+			resolvePromise(stdout);
+		});
+	});
+
+const verifyNativeRuntimeTools = async () => {
+	for (const toolName of nativeRuntimeToolNames) {
+		if (!resolvePackagedNativeToolPath(toolName)) {
+			throw new Error(`Packaged native runtime tool is missing: ${toolName}`);
+		}
+	}
+
+	const combinedAudioHelperPath = resolvePackagedNativeToolPath(
+		"graneri-combined-audio-helper",
+	);
+	const selfTestOutput = await runNativeRuntimeTool(combinedAudioHelperPath, [
+		"--self-test",
+	]);
+	const selfTestResult = JSON.parse(selfTestOutput.trim());
+
+	if (
+		selfTestResult?.ok !== true ||
+		typeof selfTestResult.activeRenderPassthroughErrorRms !== "number" ||
+		selfTestResult.activeRenderPassthroughErrorRms > 0.16 ||
+		typeof selfTestResult.echoReductionRatio !== "number" ||
+		selfTestResult.echoReductionRatio < 0.35 ||
+		typeof selfTestResult.noRenderPassthroughErrorRms !== "number" ||
+		selfTestResult.noRenderPassthroughErrorRms > 0.000001 ||
+		typeof selfTestResult.suppressedChunks !== "number" ||
+		selfTestResult.suppressedChunks <= 0 ||
+		typeof selfTestResult.systemOutputErrorRms !== "number" ||
+		selfTestResult.systemOutputErrorRms > 0.000001
+	) {
+		throw new Error(
+			`Combined audio helper self-test failed: ${selfTestOutput.trim()}`,
+		);
+	}
+
+	return selfTestResult;
 };
 
 const packageNameFromSpecifier = (specifier) =>
@@ -276,15 +417,25 @@ const scanRuntimeImports = (packagedResources) => {
 
 {
 	const packagedResources = await loadPackagedResources();
+	const nativeAudioSelfTestResult = await verifyNativeRuntimeTools();
 	const allText = packagedResources.files
 		.filter((file) => /\.(html|js|mjs|cjs|json)$/u.test(file.relativePath))
 		.map((file) => file.readText())
 		.join("\n");
+	const packagedConvexDeployments = getConfigurationConvexDeployments(allText);
 
 	for (const deployment of forbiddenDeployments) {
 		if (allText.includes(deployment)) {
 			throw new Error(
 				`Packaged app contains forbidden Convex deployment "${deployment}".`,
+			);
+		}
+	}
+
+	for (const deployment of packagedConvexDeployments) {
+		if (deployment !== expectedDeployment) {
+			throw new Error(
+				`Packaged app contains unexpected Convex deployment "${deployment}" while expecting "${expectedDeployment}".`,
 			);
 		}
 	}
@@ -342,6 +493,7 @@ const scanRuntimeImports = (packagedResources) => {
 				? `Expected Convex deployment: ${expectedDeployment}`
 				: "Expected Convex deployment: not configured",
 			`Expected hosted site URL: ${expectedSiteUrl}`,
+			`Combined audio echo reduction self-test: ${nativeAudioSelfTestResult.echoReductionRatio}`,
 		].join("\n"),
 	);
 }

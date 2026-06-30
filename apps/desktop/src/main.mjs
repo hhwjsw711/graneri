@@ -375,6 +375,7 @@ const desktopRealtimeTransport = createDesktopRealtimeTransport({
 });
 const resolveSystemAudioHelperPath =
 	nativeAudioCapture.resolveSystemAudioHelperPath;
+const startCombinedAudioCapture = nativeAudioCapture.startCombinedAudioCapture;
 const startMicrophoneCapture = nativeAudioCapture.startMicrophoneCapture;
 const startSystemAudioCapture = nativeAudioCapture.startSystemAudioCapture;
 const stopMicrophoneCapture = nativeAudioCapture.stopMicrophoneCapture;
@@ -1361,10 +1362,12 @@ const connectDesktopTranscriptionSpeaker = async ({
 	sourceMode,
 	speaker,
 }) => {
-	if (speaker === "you") {
-		await startMicrophoneCapture();
-	} else {
-		await startSystemAudioCapture();
+	if (!nativeAudioCapture.getCaptureSampleRate(source)) {
+		if (speaker === "you") {
+			await startMicrophoneCapture();
+		} else {
+			await startSystemAudioCapture();
+		}
 	}
 
 	if (!isCurrentTranscriptionOperation(operationId)) {
@@ -1484,10 +1487,25 @@ const attachDesktopSystemAudio = async ({
 			policy.systemAudioCapability.sourceMode !== "desktop-native" ||
 			transcriptionSpeakers.them.transportActive
 		) {
+			logDesktopTurnDebug("system_audio.attach_skipped", {
+				automatic,
+				attempt,
+				isCurrentOperation: isCurrentTranscriptionOperation(operationId),
+				isSupported: policy.systemAudioCapability.isSupported,
+				operationId,
+				sourceMode: policy.systemAudioCapability.sourceMode,
+				themTransportActive: transcriptionSpeakers.them.transportActive,
+			});
 			return false;
 		}
 
 		try {
+			logDesktopTurnDebug("system_audio.attach_started", {
+				automatic,
+				attempt,
+				operationId,
+				sourceMode: policy.systemAudioCapability.sourceMode,
+			});
 			const didConnect = await connectDesktopTranscriptionSpeaker({
 				lang: transcriptionConfig.lang,
 				operationId,
@@ -1506,6 +1524,12 @@ const attachDesktopSystemAudio = async ({
 
 			clearSystemAudioAttachRetryTimeout({
 				resetAttempt: true,
+			});
+			logDesktopTurnDebug("system_audio.attach_succeeded", {
+				automatic,
+				attempt,
+				operationId,
+				sourceMode: policy.systemAudioCapability.sourceMode,
 			});
 			return true;
 		} catch (error) {
@@ -1605,6 +1629,12 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 
 	try {
 		await ensureDesktopMicrophonePermissionGranted();
+		if (
+			policy.systemAudioCapability.isSupported &&
+			policy.systemAudioCapability.sourceMode === "desktop-native"
+		) {
+			await startCombinedAudioCapture();
+		}
 		await connectDesktopTranscriptionSpeaker({
 			lang: transcriptionConfig.lang,
 			operationId,
@@ -1612,6 +1642,22 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 			sourceMode: "unsupported",
 			speaker: "you",
 		});
+
+		if (transcriptionLifecycleOperationId !== operationId) {
+			return false;
+		}
+
+		let didAutoAttachSystemAudio = false;
+		if (policy.systemAudioCapability.shouldAutoBootstrap) {
+			logDesktopTurnDebug("system_audio.auto_attach_before_listening", {
+				operationId,
+				sourceMode: policy.systemAudioCapability.sourceMode,
+			});
+			didAutoAttachSystemAudio = await attachDesktopSystemAudio({
+				automatic: true,
+				operationId,
+			});
+		}
 
 		if (transcriptionLifecycleOperationId !== operationId) {
 			return false;
@@ -1627,9 +1673,13 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 		});
 		scheduleTranscriptionRollover();
 
-		if (policy.systemAudioCapability.shouldAutoBootstrap) {
-			void attachDesktopSystemAudio({
-				automatic: true,
+		if (
+			policy.systemAudioCapability.shouldAutoBootstrap &&
+			!didAutoAttachSystemAudio
+		) {
+			scheduleAutomaticSystemAudioAttachRetry({
+				attempt: 0,
+				message: "Automatic system audio did not attach before listening.",
 				operationId,
 			});
 		}

@@ -1,4 +1,5 @@
 @preconcurrency import AVFoundation
+import AppKit
 import AudioToolbox
 import CoreAudio
 import Dispatch
@@ -45,127 +46,24 @@ enum CaptureError: Error, LocalizedError {
 	}
 }
 
-final class StdoutEmitter: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.graneri.system-audio.stdout")
-	private let fileHandle = FileHandle.standardOutput
-
-	func send(event: [String: Any]) {
-		queue.async {
-			guard JSONSerialization.isValidJSONObject(event),
-				let data = try? JSONSerialization.data(withJSONObject: event)
-			else {
-				return
-			}
-
-			self.fileHandle.write(data)
-			self.fileHandle.write(Data([0x0A]))
-		}
-	}
-}
-
-final class StderrLogger: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.graneri.system-audio.stderr")
-	private let fileHandle = FileHandle.standardError
-
-	func log(_ message: String) {
-		queue.async {
-			guard let data = "\(message)\n".data(using: .utf8) else {
-				return
-			}
-
-			self.fileHandle.write(data)
-		}
-	}
-}
-
-final class PcmChunkEncoder: @unchecked Sendable {
-	private let emitter: StdoutEmitter
-	private let flushIntervalNanoseconds: UInt64
-	private let queue = DispatchQueue(label: "com.graneri.system-audio.encoder")
-	private var pendingBytes = Data()
-	private var timer: DispatchSourceTimer?
-
-	init(emitter: StdoutEmitter, flushIntervalMilliseconds: UInt64 = 100) {
-		self.emitter = emitter
-		self.flushIntervalNanoseconds = flushIntervalMilliseconds * 1_000_000
-	}
-
-	func start() {
-		queue.sync {
-			guard timer == nil else {
-				return
-			}
-
-			let nextTimer = DispatchSource.makeTimerSource(queue: queue)
-			nextTimer.schedule(deadline: .now() + .nanoseconds(Int(flushIntervalNanoseconds)), repeating: .nanoseconds(Int(flushIntervalNanoseconds)))
-			nextTimer.setEventHandler { [weak self] in
-				self?.flushLocked()
-			}
-			nextTimer.resume()
-			timer = nextTimer
-		}
-	}
-
-	func stop() {
-		queue.sync {
-			timer?.cancel()
-			timer = nil
-			flushLocked()
-		}
-	}
-
-	func append(buffer: AVAudioPCMBuffer) {
-		guard let floatChannel = buffer.floatChannelData?[0] else {
-			return
-		}
-
-		let frameCount = Int(buffer.frameLength)
-		guard frameCount > 0 else {
-			return
-		}
-
-		queue.async {
-			var encoded = Data(capacity: frameCount * MemoryLayout<Int16>.size)
-
-			for frameIndex in 0..<frameCount {
-				let sample = max(-1.0, min(1.0, floatChannel[frameIndex]))
-				let scaled = sample >= 0
-					? sample * Float(Int16.max)
-					: sample * 32768
-				var int16Sample = Int16(scaled.rounded())
-
-				withUnsafeBytes(of: &int16Sample) { bytes in
-					encoded.append(contentsOf: bytes)
-				}
-			}
-
-			self.pendingBytes.append(encoded)
-		}
-	}
-
-	private func flushLocked() {
-		guard !pendingBytes.isEmpty else {
-			return
-		}
-
-		let base64 = pendingBytes.base64EncodedString()
-		pendingBytes.removeAll(keepingCapacity: true)
-		emitter.send(event: [
-			"type": "chunk",
-			"pcm16": base64,
-		])
-	}
-}
-
 final class SystemAudioCapture: @unchecked Sendable {
-	private static let targetSampleRate = 24_000.0
+	private struct OutputProcessSnapshot {
+		let bundleID: String?
+		let deviceIDs: [AudioDeviceID]
+		let isCurrentProcess: Bool
+		let name: String?
+		let objectID: AudioObjectID
+		let pid: pid_t
+	}
+
 	private let callbackQueue = DispatchQueue(
 		label: "com.graneri.system-audio.callback",
 		qos: .userInteractive
 	)
-	private let encoder: PcmChunkEncoder
-	private let logger: StderrLogger
+	private let encoder: NativeAudioPcmSink
+	private let logger: NativeAudioStderrLogger
 	private let routeChangeHandler: @Sendable () -> Void
+	private let targetSampleRate: Double
 	private var aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
 	private var convertedFormat: AVAudioFormat?
 	private var converter: AVAudioConverter?
@@ -173,15 +71,18 @@ final class SystemAudioCapture: @unchecked Sendable {
 	private var hasHandledRouteChange = false
 	private var ioProcID: AudioDeviceIOProcID?
 	private var tapID = AudioObjectID(kAudioObjectUnknown)
+	private(set) var debugInfo: [String: Any] = [:]
 
 	init(
-		encoder: PcmChunkEncoder,
-		logger: StderrLogger,
-		routeChangeHandler: @escaping @Sendable () -> Void
+		encoder: NativeAudioPcmSink,
+		logger: NativeAudioStderrLogger,
+		routeChangeHandler: @escaping @Sendable () -> Void,
+		targetSampleRate: Double = 24_000.0
 	) {
 		self.encoder = encoder
 		self.logger = logger
 		self.routeChangeHandler = routeChangeHandler
+		self.targetSampleRate = targetSampleRate
 	}
 
 	func start() throws -> AVAudioFormat {
@@ -193,19 +94,44 @@ final class SystemAudioCapture: @unchecked Sendable {
 		logger.log("[helper] resolved default output device id: \(outputDeviceID)")
 		let outputUID = try Self.deviceUID(for: outputDeviceID)
 		logger.log("[helper] resolved default output uid: \(outputUID)")
+		debugInfo = Self.outputProcessSnapshotEvent(defaultOutputDeviceID: outputDeviceID)
+		logOutputProcessSnapshot(debugInfo)
 		let tapUUID = UUID()
-		let tapDescription = CATapDescription()
+		let currentProcessObjectID = Self.currentProcessObjectID()
+		let includedProcesses = Self.runningOutputProcesses()
+			.filter { snapshot in
+				!snapshot.isCurrentProcess &&
+					(snapshot.deviceIDs.isEmpty || snapshot.deviceIDs.contains(outputDeviceID))
+			}
+			.map(\.objectID)
+		let excludedProcesses = currentProcessObjectID.map { [$0] } ?? []
+		let tapDescription: CATapDescription
+		let tapMode: String
+
+		if includedProcesses.isEmpty {
+			tapDescription = CATapDescription(
+				monoGlobalTapButExcludeProcesses: excludedProcesses
+			)
+			tapMode = "mono-global-mixdown-excluding-self"
+		} else {
+			tapDescription = CATapDescription(
+				__processes: includedProcesses.map(NSNumber.init(value:)),
+				andDeviceUID: outputUID,
+				withStream: 0
+			)
+			tapMode = "device-stream-process-mixdown-explicit-output"
+		}
 
 		tapDescription.name = "Graneri System Audio"
 		tapDescription.uuid = tapUUID
-		tapDescription.processes = Self.currentProcessObjectID().map { [$0] } ?? []
 		tapDescription.isPrivate = true
 		tapDescription.muteBehavior = .unmuted
-		tapDescription.isMixdown = false
-		tapDescription.isMono = false
-		tapDescription.isExclusive = true
-		tapDescription.deviceUID = outputUID
-		tapDescription.stream = 0
+		debugInfo["includedProcessObjectIds"] = includedProcesses.map(Int.init)
+		debugInfo["excludedProcessObjectIds"] = excludedProcesses.map(Int.init)
+		debugInfo["tapMode"] = tapMode
+		logger.log(
+			"[helper] configured system-audio tap mode=\(tapMode) includedProcesses=\(includedProcesses) excludedProcesses=\(excludedProcesses)"
+		)
 
 		var nextTapID = AudioObjectID(kAudioObjectUnknown)
 		var status = AudioHardwareCreateProcessTap(tapDescription, &nextTapID)
@@ -255,7 +181,7 @@ final class SystemAudioCapture: @unchecked Sendable {
 			throw CaptureError.invalidTapFormat
 		}
 		guard let targetFormat = AVAudioFormat(
-			standardFormatWithSampleRate: Self.targetSampleRate,
+			standardFormatWithSampleRate: targetSampleRate,
 			channels: 1
 		) else {
 			_ = AudioHardwareDestroyAggregateDevice(nextAggregateDeviceID)
@@ -309,7 +235,6 @@ final class SystemAudioCapture: @unchecked Sendable {
 		converter = nextConverter
 		ioProcID = nextIoProcID
 		try registerDefaultOutputChangeListener()
-		encoder.start()
 		logger.log("[helper] encoder started, returning ready format")
 
 		return targetFormat
@@ -317,7 +242,6 @@ final class SystemAudioCapture: @unchecked Sendable {
 
 	func stop() throws {
 		logger.log("[helper] stop() entered")
-		encoder.stop()
 
 		let currentAggregateDeviceID = aggregateDeviceID
 		let currentIoProcID = ioProcID
@@ -326,6 +250,7 @@ final class SystemAudioCapture: @unchecked Sendable {
 		aggregateDeviceID = AudioObjectID(kAudioObjectUnknown)
 		convertedFormat = nil
 		converter = nil
+		debugInfo = [:]
 		ioProcID = nil
 		tapID = AudioObjectID(kAudioObjectUnknown)
 		try removeDefaultOutputChangeListener()
@@ -529,6 +454,47 @@ final class SystemAudioCapture: @unchecked Sendable {
 		routeChangeHandler()
 	}
 
+	private func logOutputProcessSnapshot(_ event: [String: Any]) {
+		let defaultOutputDeviceID = event["defaultOutputDeviceId"] ?? "unknown"
+		let processCount = event["processCount"] ?? "unknown"
+		guard JSONSerialization.isValidJSONObject(event),
+			let data = try? JSONSerialization.data(withJSONObject: event, options: [.sortedKeys]),
+			let line = String(data: data, encoding: .utf8)
+		else {
+			logger.log(
+				"[helper] coreaudio output process snapshot unavailable processCount=\(processCount) defaultOutputDeviceId=\(defaultOutputDeviceID)"
+			)
+			return
+		}
+
+		logger.log("[helper] \(line)")
+	}
+
+	private static func outputProcessSnapshotEvent(
+		defaultOutputDeviceID: AudioDeviceID
+	) -> [String: Any] {
+		let snapshots = Self.runningOutputProcesses()
+		let payload = snapshots.map { snapshot in
+			[
+				"bundleId": snapshot.bundleID ?? NSNull(),
+				"deviceIds": snapshot.deviceIDs.map(Int.init),
+				"isCurrentProcess": snapshot.isCurrentProcess,
+				"matchesDefaultOutput": snapshot.deviceIDs.isEmpty
+					? NSNull()
+					: NSNumber(value: snapshot.deviceIDs.contains(defaultOutputDeviceID)),
+				"name": snapshot.name ?? NSNull(),
+				"objectId": Int(snapshot.objectID),
+				"pid": Int(snapshot.pid),
+			] as [String: Any]
+		}
+		return [
+			"defaultOutputDeviceId": Int(defaultOutputDeviceID),
+			"processCount": snapshots.count,
+			"processes": payload,
+			"type": "coreaudio_output_process_snapshot",
+		]
+	}
+
 	private static func propertyAddress(
 		selector: AudioObjectPropertySelector,
 		scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal,
@@ -567,6 +533,136 @@ final class SystemAudioCapture: @unchecked Sendable {
 		return processObjectID == AudioObjectID(kAudioObjectUnknown)
 			? nil
 			: processObjectID
+	}
+
+	private static func runningOutputProcesses() -> [OutputProcessSnapshot] {
+		var address = propertyAddress(
+			selector: kAudioHardwarePropertyProcessObjectList
+		)
+		var dataSize: UInt32 = 0
+		guard AudioObjectGetPropertyDataSize(
+			AudioObjectID(kAudioObjectSystemObject),
+			&address,
+			0,
+			nil,
+			&dataSize
+		) == noErr else {
+			return []
+		}
+
+		let count = Int(dataSize) / MemoryLayout<AudioObjectID>.size
+		var processObjectIDs = [AudioObjectID](repeating: 0, count: count)
+		guard AudioObjectGetPropertyData(
+			AudioObjectID(kAudioObjectSystemObject),
+			&address,
+			0,
+			nil,
+			&dataSize,
+			&processObjectIDs
+		) == noErr else {
+			return []
+		}
+
+		return processObjectIDs.compactMap { processObjectID in
+			guard Self.isProcessRunningOutput(processObjectID),
+				let pid = Self.processPID(processObjectID)
+			else {
+				return nil
+			}
+
+			let application = NSRunningApplication(processIdentifier: pid)
+			return OutputProcessSnapshot(
+				bundleID: Self.processBundleID(processObjectID) ?? application?.bundleIdentifier,
+				deviceIDs: Self.processOutputDeviceIDs(processObjectID),
+				isCurrentProcess: pid == getpid(),
+				name: application?.localizedName,
+				objectID: processObjectID,
+				pid: pid
+			)
+		}
+	}
+
+	private static func isProcessRunningOutput(_ processObjectID: AudioObjectID) -> Bool {
+		var address = propertyAddress(
+			selector: kAudioProcessPropertyIsRunningOutput
+		)
+		var isRunning: UInt32 = 0
+		var size = UInt32(MemoryLayout<UInt32>.size)
+		let status = AudioObjectGetPropertyData(
+			processObjectID,
+			&address,
+			0,
+			nil,
+			&size,
+			&isRunning
+		)
+		return status == noErr && isRunning != 0
+	}
+
+	private static func processPID(_ processObjectID: AudioObjectID) -> pid_t? {
+		var address = propertyAddress(selector: kAudioProcessPropertyPID)
+		var pid = pid_t(0)
+		var size = UInt32(MemoryLayout<pid_t>.size)
+		let status = AudioObjectGetPropertyData(
+			processObjectID,
+			&address,
+			0,
+			nil,
+			&size,
+			&pid
+		)
+		return status == noErr && pid > 0 ? pid : nil
+	}
+
+	private static func processBundleID(_ processObjectID: AudioObjectID) -> String? {
+		var address = propertyAddress(selector: kAudioProcessPropertyBundleID)
+		var bundleID: Unmanaged<CFString>?
+		var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+		let status = AudioObjectGetPropertyData(
+			processObjectID,
+			&address,
+			0,
+			nil,
+			&size,
+			&bundleID
+		)
+		guard status == noErr else {
+			return nil
+		}
+
+		return bundleID?.takeRetainedValue() as String?
+	}
+
+	private static func processOutputDeviceIDs(_ processObjectID: AudioObjectID) -> [AudioDeviceID] {
+		var address = propertyAddress(
+			selector: kAudioProcessPropertyDevices,
+			scope: kAudioObjectPropertyScopeOutput
+		)
+		var dataSize: UInt32 = 0
+		guard AudioObjectGetPropertyDataSize(
+			processObjectID,
+			&address,
+			0,
+			nil,
+			&dataSize
+		) == noErr else {
+			return []
+		}
+
+		let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+		var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
+		guard AudioObjectGetPropertyData(
+			processObjectID,
+			&address,
+			0,
+			nil,
+			&dataSize,
+			&deviceIDs
+		) == noErr else {
+			return []
+		}
+
+		return deviceIDs
 	}
 
 	private static func defaultOutputDeviceID() throws -> AudioDeviceID {
@@ -639,14 +735,22 @@ final class SystemAudioCapture: @unchecked Sendable {
 	}
 }
 
+#if !GRANERI_COMBINED_AUDIO_HELPER
 @main
 enum SystemAudioCaptureCLI {
 	static func main() {
 		setbuf(stdout, nil)
 
-		let emitter = StdoutEmitter()
-		let logger = StderrLogger()
-		let encoder = PcmChunkEncoder(emitter: emitter)
+		let emitter = NativeAudioStdoutEmitter(
+			label: "com.graneri.system-audio.stdout"
+		)
+		let logger = NativeAudioStderrLogger(
+			label: "com.graneri.system-audio.stderr"
+		)
+		let encoder = NativeAudioPcmChunkEncoder(
+			emitter: emitter,
+			label: "com.graneri.system-audio.encoder"
+		)
 		let capture = SystemAudioCapture(
 			encoder: encoder,
 			logger: logger,
@@ -684,10 +788,12 @@ enum SystemAudioCaptureCLI {
 
 		do {
 			let format = try capture.start()
+			encoder.start()
 			logger.log("[helper] emitting ready event")
 			emitter.send(event: [
 				"type": "ready",
 				"channels": Int(format.channelCount),
+				"debug": capture.debugInfo,
 				"sampleRate": format.sampleRate,
 			])
 			RunLoop.main.run()
@@ -701,3 +807,4 @@ enum SystemAudioCaptureCLI {
 		}
 	}
 }
+#endif

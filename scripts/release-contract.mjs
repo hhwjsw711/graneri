@@ -155,7 +155,7 @@ export const getExpectedConvexDeployment = (env = process.env) =>
 export const getForbiddenConvexDeployments = ({
 	env = process.env,
 	expectedDeployment,
-	knownDevDeployments,
+	knownDevDeployments = [],
 }) =>
 	[
 		...knownDevDeployments,

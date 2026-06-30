@@ -26,125 +26,16 @@ enum MicrophoneCaptureError: Error, LocalizedError {
 	}
 }
 
-final class StdoutEmitter: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.graneri.microphone.stdout")
-	private let fileHandle = FileHandle.standardOutput
-
-	func send(event: [String: Any]) {
-		queue.async {
-			guard JSONSerialization.isValidJSONObject(event),
-				let data = try? JSONSerialization.data(withJSONObject: event)
-			else {
-				return
-			}
-
-			self.fileHandle.write(data)
-			self.fileHandle.write(Data([0x0A]))
-		}
-	}
-}
-
-final class StderrLogger: @unchecked Sendable {
-	private let queue = DispatchQueue(label: "com.graneri.microphone.stderr")
-	private let fileHandle = FileHandle.standardError
-
-	func log(_ message: String) {
-		queue.async {
-			guard let data = "\(message)\n".data(using: .utf8) else {
-				return
-			}
-
-			self.fileHandle.write(data)
-		}
-	}
-}
-
-final class PcmChunkEncoder: @unchecked Sendable {
-	private let emitter: StdoutEmitter
-	private let flushIntervalNanoseconds: UInt64
-	private let queue = DispatchQueue(label: "com.graneri.microphone.encoder")
-	private var pendingBytes = Data()
-	private var timer: DispatchSourceTimer?
-
-	init(emitter: StdoutEmitter, flushIntervalMilliseconds: UInt64 = 100) {
-		self.emitter = emitter
-		self.flushIntervalNanoseconds = flushIntervalMilliseconds * 1_000_000
-	}
-
-	func start() {
-		queue.sync {
-			guard timer == nil else {
-				return
-			}
-
-			let nextTimer = DispatchSource.makeTimerSource(queue: queue)
-			nextTimer.schedule(
-				deadline: .now() + .nanoseconds(Int(flushIntervalNanoseconds)),
-				repeating: .nanoseconds(Int(flushIntervalNanoseconds))
-			)
-			nextTimer.setEventHandler { [weak self] in
-				self?.flushLocked()
-			}
-			nextTimer.resume()
-			timer = nextTimer
-		}
-	}
-
-	func stop() {
-		queue.sync {
-			timer?.cancel()
-			timer = nil
-			flushLocked()
-		}
-	}
-
-	func append(buffer: AVAudioPCMBuffer) {
-		guard let floatChannel = buffer.floatChannelData?[0] else {
-			return
-		}
-
-		let frameCount = Int(buffer.frameLength)
-		guard frameCount > 0 else {
-			return
-		}
-
-		queue.async {
-			var encoded = Data(capacity: frameCount * MemoryLayout<Int16>.size)
-
-			for frameIndex in 0..<frameCount {
-				let sample = max(-1.0, min(1.0, floatChannel[frameIndex]))
-				let scaled = sample >= 0
-					? sample * Float(Int16.max)
-					: sample * 32768
-				var int16Sample = Int16(scaled.rounded())
-
-				withUnsafeBytes(of: &int16Sample) { bytes in
-					encoded.append(contentsOf: bytes)
-				}
-			}
-
-			self.pendingBytes.append(encoded)
-		}
-	}
-
-	private func flushLocked() {
-		guard !pendingBytes.isEmpty else {
-			return
-		}
-
-		let base64 = pendingBytes.base64EncodedString()
-		pendingBytes.removeAll(keepingCapacity: true)
-		emitter.send(event: [
-			"type": "chunk",
-			"pcm16": base64,
-		])
-	}
+enum MicrophoneVoiceProcessingMode: String {
+	case disabled
+	case routeScoped
 }
 
 final class MicrophoneCapture: @unchecked Sendable {
-	private let encoder: PcmChunkEncoder
-	private let logger: StderrLogger
+	private let encoder: NativeAudioPcmSink
+	private let logger: NativeAudioStderrLogger
 	private let routeChangeHandler: @Sendable () -> Void
+	private let voiceProcessingMode: MicrophoneVoiceProcessingMode
 	private var engine: AVAudioEngine?
 	private var hasInstalledTap = false
 	private var engineConfigurationObserver: NSObjectProtocol?
@@ -152,18 +43,22 @@ final class MicrophoneCapture: @unchecked Sendable {
 	private var routeSignature: String?
 	private(set) var voiceProcessingEnabled = false
 	private(set) var voiceProcessingOutputEnabled = false
+	private(set) var voiceProcessingDuckingEnabled = false
+	private(set) var voiceProcessingDuckingLevel: String?
 	private(set) var routeDebugInfo: [String: Any] = [:]
 	private(set) var outputVolumeBeforeCapture: Float?
 	private(set) var outputVolumeForCapture: Float?
 
 	init(
-		encoder: PcmChunkEncoder,
-		logger: StderrLogger,
-		routeChangeHandler: @escaping @Sendable () -> Void
+		encoder: NativeAudioPcmSink,
+		logger: NativeAudioStderrLogger,
+		routeChangeHandler: @escaping @Sendable () -> Void,
+		voiceProcessingMode: MicrophoneVoiceProcessingMode = .routeScoped
 	) {
 		self.encoder = encoder
 		self.logger = logger
 		self.routeChangeHandler = routeChangeHandler
+		self.voiceProcessingMode = voiceProcessingMode
 	}
 
 	func start() throws -> AVAudioFormat {
@@ -173,6 +68,8 @@ final class MicrophoneCapture: @unchecked Sendable {
 		routeSignature = nil
 		voiceProcessingEnabled = false
 		voiceProcessingOutputEnabled = false
+		voiceProcessingDuckingEnabled = false
+		voiceProcessingDuckingLevel = nil
 		routeDebugInfo = [:]
 		outputVolumeBeforeCapture = nil
 		outputVolumeForCapture = nil
@@ -195,10 +92,13 @@ final class MicrophoneCapture: @unchecked Sendable {
 			outputDevice: outputDevice
 		)
 
-		let shouldEnableVoiceProcessing = Self.shouldEnableVoiceProcessing(
+		let routeAllowsVoiceProcessing = Self.shouldEnableVoiceProcessing(
 			inputDevice: inputDevice,
 			outputDevice: outputDevice
 		)
+		let shouldEnableVoiceProcessing =
+			voiceProcessingMode == .routeScoped && routeAllowsVoiceProcessing
+		let outputDeviceIsHeadphones = Self.isHeadphoneOutputDevice(outputDevice)
 		if shouldEnableVoiceProcessing, #available(macOS 10.15, *) {
 			do {
 				try inputNode.setVoiceProcessingEnabled(true)
@@ -207,9 +107,11 @@ final class MicrophoneCapture: @unchecked Sendable {
 				if #available(macOS 14.0, *) {
 					inputNode.voiceProcessingOtherAudioDuckingConfiguration =
 						AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
-							enableAdvancedDucking: true,
+							enableAdvancedDucking: false,
 							duckingLevel: .min
 						)
+					voiceProcessingDuckingEnabled = false
+					voiceProcessingDuckingLevel = "min"
 				}
 
 				logger.log(
@@ -235,11 +137,16 @@ final class MicrophoneCapture: @unchecked Sendable {
 			"inputFormatBeforeCapture": Self.describeFormat(initialInputFormat),
 			"inputFormatForCapture": Self.describeFormat(inputFormat),
 			"outputDevice": outputDevice,
+			"outputDeviceIsHeadphones": outputDeviceIsHeadphones,
 			"outputFormatBeforeCapture": Self.describeFormat(initialOutputFormat),
 			"outputFormatForCapture": Self.describeFormat(outputFormat),
 			"outputVolumeBeforeCapture": outputVolumeBeforeCapture ?? NSNull(),
 			"outputVolumeForCapture": outputVolumeForCapture ?? NSNull(),
+			"voiceProcessingDuckingEnabled": voiceProcessingDuckingEnabled,
+			"voiceProcessingDuckingLevel": voiceProcessingDuckingLevel ?? NSNull(),
+			"voiceProcessingMode": voiceProcessingMode.rawValue,
 			"voiceProcessingRequested": shouldEnableVoiceProcessing,
+			"voiceProcessingRouteAllowed": routeAllowsVoiceProcessing,
 		]
 		logger.log("[helper] microphone route \(routeDebugInfo)")
 
@@ -383,7 +290,9 @@ final class MicrophoneCapture: @unchecked Sendable {
 		inputDevice: [String: Any],
 		outputDevice: [String: Any]
 	) -> Bool {
-		isBuiltInDevice(inputDevice) && isBuiltInDevice(outputDevice)
+		isBuiltInDevice(inputDevice) &&
+			isBuiltInDevice(outputDevice) &&
+			!isHeadphoneOutputDevice(outputDevice)
 	}
 
 	private static func isBuiltInDevice(_ device: [String: Any]) -> Bool {
@@ -392,6 +301,22 @@ final class MicrophoneCapture: @unchecked Sendable {
 		}
 
 		return transportType == Int(kAudioDeviceTransportTypeBuiltIn)
+	}
+
+	private static func isHeadphoneOutputDevice(_ device: [String: Any]) -> Bool {
+		let candidateValues = [
+			device["name"] as? String,
+			device["uid"] as? String,
+		]
+		let normalizedValues = candidateValues
+			.compactMap { $0?.lowercased() }
+			.joined(separator: " ")
+
+		return normalizedValues.contains("headphone") ||
+			normalizedValues.contains("headset") ||
+			normalizedValues.contains("earphone") ||
+			normalizedValues.contains("earbud") ||
+			normalizedValues.contains("airpods")
 	}
 
 	private static func describeDefaultDevice(
@@ -497,14 +422,22 @@ final class MicrophoneCapture: @unchecked Sendable {
 	}
 }
 
+#if !GRANERI_COMBINED_AUDIO_HELPER
 @main
 enum MicrophoneCaptureCLI {
 	static func main() {
 		setbuf(stdout, nil)
 
-		let emitter = StdoutEmitter()
-		let logger = StderrLogger()
-		let encoder = PcmChunkEncoder(emitter: emitter)
+		let emitter = NativeAudioStdoutEmitter(
+			label: "com.graneri.microphone.stdout"
+		)
+		let logger = NativeAudioStderrLogger(
+			label: "com.graneri.microphone.stderr"
+		)
+		let encoder = NativeAudioPcmChunkEncoder(
+			emitter: emitter,
+			label: "com.graneri.microphone.encoder"
+		)
 		let capture = MicrophoneCapture(
 			encoder: encoder,
 			logger: logger,
@@ -548,6 +481,8 @@ enum MicrophoneCaptureCLI {
 				"channels": Int(format.channelCount),
 				"route": capture.routeDebugInfo,
 				"sampleRate": Int(format.sampleRate.rounded()),
+				"voiceProcessingDuckingEnabled": capture.voiceProcessingDuckingEnabled,
+				"voiceProcessingDuckingLevel": capture.voiceProcessingDuckingLevel ?? NSNull(),
 				"voiceProcessingEnabled": capture.voiceProcessingEnabled,
 				"voiceProcessingOutputEnabled": capture.voiceProcessingOutputEnabled,
 			])
@@ -564,3 +499,4 @@ enum MicrophoneCaptureCLI {
 		}
 	}
 }
+#endif

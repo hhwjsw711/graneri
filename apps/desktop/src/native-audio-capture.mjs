@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { spawn as nodeSpawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createCombinedAudioCaptureController } from "./combined-audio-capture-session.mjs";
 import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
 import { isHelperStderrError } from "./line-event-helper-session.mjs";
 import { logError, logInfo } from "./logger.mjs";
@@ -57,6 +58,14 @@ export const resolveMicrophoneHelperPath = ({ runtimeDir }) => {
 	});
 };
 
+export const resolveCombinedAudioHelperPath = ({ runtimeDir }) => {
+	return resolveDesktopRuntimeExecutablePath({
+		envPath: process.env.GRANERI_COMBINED_AUDIO_HELPER_PATH,
+		executableName: "graneri-combined-audio-helper",
+		runtimeDir,
+	});
+};
+
 export const createNativeAudioCapture = ({
 	runtimeDir,
 	emitMicrophoneCaptureEvent,
@@ -66,13 +75,18 @@ export const createNativeAudioCapture = ({
 	markSystemAudioPermissionBlocked,
 	markSystemAudioPermissionGranted,
 	markSystemAudioPermissionPrompt,
+	spawnImpl = nodeSpawn,
 }) => {
+	let combinedAudioCaptureController;
 	let microphoneCaptureSession = null;
 	let microphoneCaptureStartRequestId = 0;
 	let systemAudioCaptureSession = null;
 	let systemAudioCaptureStartRequestId = 0;
 
-	const stopMicrophoneCapture = async () => {
+	const stopCombinedAudioCapture = async () =>
+		await combinedAudioCaptureController.stop();
+
+	const stopStandaloneMicrophoneCapture = async () => {
 		if (!microphoneCaptureSession) {
 			return { ok: true };
 		}
@@ -80,6 +94,11 @@ export const createNativeAudioCapture = ({
 		const session = microphoneCaptureSession;
 		microphoneCaptureSession = null;
 		session.isStopping = true;
+		if (!session.hasStarted) {
+			session.rejectStart?.(
+				new Error("macOS microphone capture stopped before it became ready."),
+			);
+		}
 		clearTimeout(session.cleanupTimeout);
 		session.cleanupTimeout = null;
 		clearCaptureHealthTimeout(session);
@@ -102,7 +121,7 @@ export const createNativeAudioCapture = ({
 		return { ok: true };
 	};
 
-	const stopSystemAudioCapture = async () => {
+	const stopStandaloneSystemAudioCapture = async () => {
 		if (!systemAudioCaptureSession) {
 			return { ok: true };
 		}
@@ -110,6 +129,11 @@ export const createNativeAudioCapture = ({
 		const session = systemAudioCaptureSession;
 		systemAudioCaptureSession = null;
 		session.isStopping = true;
+		if (!session.hasStarted) {
+			session.rejectStart?.(
+				new Error("macOS system audio capture stopped before it became ready."),
+			);
+		}
 		clearTimeout(session.cleanupTimeout);
 		session.cleanupTimeout = null;
 		clearCaptureHealthTimeout(session);
@@ -132,6 +156,45 @@ export const createNativeAudioCapture = ({
 		return { ok: true };
 	};
 
+	const stopMicrophoneCapture = async () => {
+		if (combinedAudioCaptureController.isActive()) {
+			return await stopCombinedAudioCapture();
+		}
+
+		return await stopStandaloneMicrophoneCapture();
+	};
+
+	const stopSystemAudioCapture = async () => {
+		if (combinedAudioCaptureController.isActive()) {
+			return await stopCombinedAudioCapture();
+		}
+
+		return await stopStandaloneSystemAudioCapture();
+	};
+
+	combinedAudioCaptureController = createCombinedAudioCaptureController({
+		emitMicrophoneCaptureEvent,
+		emitSystemAudioCaptureEvent,
+		getSystemAudioPermissionState,
+		isLikelySystemAudioPermissionError,
+		logDesktopTurnDebug,
+		logNativeAudioHelperStderr,
+		markSystemAudioPermissionBlocked,
+		markSystemAudioPermissionGranted,
+		markSystemAudioPermissionPrompt,
+		resolveHelperPath: () => resolveCombinedAudioHelperPath({ runtimeDir }),
+		spawnImpl,
+		stopExistingCapture: async () => {
+			await Promise.all([
+				stopStandaloneMicrophoneCapture(),
+				stopStandaloneSystemAudioCapture(),
+			]);
+		},
+	});
+
+	const startCombinedAudioCapture = async () =>
+		await combinedAudioCaptureController.start();
+
 	const startMicrophoneCapture = async () => {
 		if (process.platform !== "darwin") {
 			throw new Error("Native microphone capture is only available on macOS.");
@@ -148,10 +211,11 @@ export const createNativeAudioCapture = ({
 		});
 
 		const requestId = ++microphoneCaptureStartRequestId;
-		await stopMicrophoneCapture();
+		await stopCombinedAudioCapture();
+		await stopStandaloneMicrophoneCapture();
 
 		return await new Promise((resolvePromise, rejectPromise) => {
-			const child = spawn(helperPath, [], {
+			const child = spawnImpl(helperPath, [], {
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 			const lineReader = createInterface({
@@ -210,6 +274,7 @@ export const createNativeAudioCapture = ({
 					message: "[microphone] helper reported ready",
 					details: payload,
 				});
+				session.hasStarted = true;
 				logDesktopTurnDebug("microphone.helper_ready", {
 					channels: payload?.channels ?? null,
 					route:
@@ -217,6 +282,12 @@ export const createNativeAudioCapture = ({
 							? payload.route
 							: null,
 					sampleRate: payload?.sampleRate ?? null,
+					voiceProcessingDuckingEnabled:
+						payload?.voiceProcessingDuckingEnabled === true,
+					voiceProcessingDuckingLevel:
+						typeof payload?.voiceProcessingDuckingLevel === "string"
+							? payload.voiceProcessingDuckingLevel
+							: null,
 					voiceProcessingEnabled: payload?.voiceProcessingEnabled === true,
 					voiceProcessingOutputEnabled:
 						payload?.voiceProcessingOutputEnabled === true,
@@ -284,8 +355,10 @@ export const createNativeAudioCapture = ({
 				isStopping: false,
 				cleanupTimeout,
 				healthTimeout: null,
+				hasStarted: false,
 				lineReader,
 				process: child,
+				rejectStart,
 				requestId,
 				sampleRate: null,
 			};
@@ -335,9 +408,21 @@ export const createNativeAudioCapture = ({
 								? event.route
 								: null,
 						sampleRate: session.sampleRate,
+						voiceProcessingDuckingEnabled:
+							event?.voiceProcessingDuckingEnabled === true,
+						voiceProcessingDuckingLevel:
+							typeof event?.voiceProcessingDuckingLevel === "string"
+								? event.voiceProcessingDuckingLevel
+								: null,
 						voiceProcessingEnabled: event?.voiceProcessingEnabled === true,
+						voiceProcessingMode:
+							typeof event?.route?.voiceProcessingMode === "string"
+								? event.route.voiceProcessingMode
+								: null,
 						voiceProcessingOutputEnabled:
 							event?.voiceProcessingOutputEnabled === true,
+						voiceProcessingRouteAllowed:
+							event?.route?.voiceProcessingRouteAllowed === true,
 					});
 					return;
 				}
@@ -428,10 +513,11 @@ export const createNativeAudioCapture = ({
 		});
 
 		const requestId = ++systemAudioCaptureStartRequestId;
-		await stopSystemAudioCapture();
+		await stopCombinedAudioCapture();
+		await stopStandaloneSystemAudioCapture();
 
 		return await new Promise((resolvePromise, rejectPromise) => {
-			const child = spawn(helperPath, [], {
+			const child = spawnImpl(helperPath, [], {
 				stdio: ["ignore", "pipe", "pipe"],
 			});
 			const lineReader = createInterface({
@@ -497,6 +583,7 @@ export const createNativeAudioCapture = ({
 					details: payload,
 				});
 				markSystemAudioPermissionGranted();
+				session.hasStarted = true;
 				didResolve = true;
 				resolvePromise(payload);
 			};
@@ -560,8 +647,10 @@ export const createNativeAudioCapture = ({
 				isStopping: false,
 				cleanupTimeout,
 				healthTimeout: null,
+				hasStarted: false,
 				lineReader,
 				process: child,
+				rejectStart,
 				requestId,
 				sampleRate: null,
 			};
@@ -681,18 +770,28 @@ export const createNativeAudioCapture = ({
 
 	return {
 		getCaptureSampleRate: (source) => {
+			const combinedSampleRate =
+				combinedAudioCaptureController.getSampleRate(source);
+			if (combinedSampleRate) {
+				return combinedSampleRate;
+			}
+
 			const session =
 				source === "microphone"
 					? microphoneCaptureSession
 					: systemAudioCaptureSession;
 			return session?.sampleRate ?? null;
 		},
+		resolveCombinedAudioHelperPath: () =>
+			resolveCombinedAudioHelperPath({ runtimeDir }),
 		resolveMicrophoneHelperPath: () =>
 			resolveMicrophoneHelperPath({ runtimeDir }),
 		resolveSystemAudioHelperPath: () =>
 			resolveSystemAudioHelperPath({ runtimeDir }),
+		startCombinedAudioCapture,
 		startMicrophoneCapture,
 		startSystemAudioCapture,
+		stopCombinedAudioCapture,
 		stopMicrophoneCapture,
 		stopSystemAudioCapture,
 	};

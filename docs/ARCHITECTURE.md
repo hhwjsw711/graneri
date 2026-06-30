@@ -317,6 +317,43 @@ buffers during live capture. Empty-buffer commits are not a valid path; they
 create recoverable-looking OpenAI errors that can collapse into start/stop
 loops.
 
+Desktop meeting audio must preserve two distinct sources: microphone audio is
+the `you` source, and native system audio is the `them` source. Built-in speaker
+routes may need echo/leakage suppression so remote speech does not bleed into
+the microphone stream and get labeled as `you`, but that suppression must not
+duck or lower the user's meeting audio. Headphone routes should not enable
+microphone voice-processing or echo-cancellation paths because there is no
+speaker playback to suppress. The target architecture is a combined native
+capture pipeline: capture microphone and system audio with synchronized timing,
+use system audio as the echo-cancellation render/reference for the microphone
+stream, emit cleaned microphone audio as `you`, and emit raw system audio as
+`them`. Apple voice processing is a route-scoped stopgap, not the long-term
+source-separation mechanism.
+The combined helper must disable Apple microphone voice processing and own echo
+reduction itself, because Apple processing can alter the user's local meeting
+volume and obscure which source caused attenuation.
+
+Native audio helpers communicate with Electron over newline-delimited JSON.
+`ready`, `chunk`, `error`, and `stopped` are the only helper event families.
+Separate microphone and system-audio helpers infer source from the process that
+emitted the event. A combined helper must emit the same `chunk` shape plus a
+`source` field set to `microphone` or `systemAudio`, allowing Electron to keep
+the speaker contract stable while the native process owns synchronized capture
+and echo-cancellation reference timing. The combined helper binary is the
+native integration point for echo reduction. Its microphone path must flow
+through the combined audio processing pipeline, and that pipeline must use
+system audio as the render/reference signal before microphone audio is emitted.
+Echo reduction must be correlation-gated: active system audio alone is not a
+reason to subtract from the microphone stream, because local-only speech during
+remote playback must pass through unchanged.
+Its ready event must report the audio processing stage so diagnostics can tell
+whether microphone output is waiting for render reference or actively reducing
+echo.
+`bun --filter=desktop run diagnose:meeting-audio -- --play-system-sound` is the
+local smoke test for this boundary. It starts the combined helper, plays a short
+system sound, and reports only route metadata, source chunk counts, and bounded
+processing diagnostics. It must not print or persist raw PCM.
+
 Meeting-controlled and idle-controlled automatic stops must be modeled as
 explicit transcription auto-stop state in the renderer, not scattered hook
 refs. A newly auto-started note must not inherit stale meeting-detection state

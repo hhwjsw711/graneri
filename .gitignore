@@ -22,6 +22,7 @@
 /apps/*/dist
 /apps/*/.package-app
 /apps/*/.generated
+/apps/desktop/native-aec/target
 /apps/*/release
 /apps/desktop/build/icon.iconset
 /apps/*/.turbo

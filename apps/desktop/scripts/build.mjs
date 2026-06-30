@@ -15,6 +15,7 @@ import {
 	createDesktopPackageManifest,
 	desktopPackageContract,
 } from "./desktop-package-contract.mjs";
+import { nativeRuntimeToolNames } from "./native-runtime-tools.mjs";
 
 const require = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
@@ -135,13 +136,7 @@ const copyNativeRuntimeTools = async () => {
 	}
 
 	await mkdir(resolve(distDir, "bin"), { recursive: true });
-	for (const helperName of [
-		"graneri-system-audio-helper",
-		"graneri-microphone-helper",
-		"graneri-microphone-activity-helper",
-		"graneri-meeting-window-helper",
-		"graneri-global-dictation-hotkey-helper",
-	]) {
+	for (const helperName of nativeRuntimeToolNames) {
 		await cp(
 			resolve(packageRoot, ".generated", "system-audio", helperName),
 			resolve(distDir, "bin", helperName),

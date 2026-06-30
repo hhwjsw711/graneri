@@ -11,7 +11,7 @@ import { logError, logInfo } from "./logger.mjs";
 const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
 const desktopRealtimeManualCommitIntervalMs = 2_500;
-const desktopRealtimeMicrophoneSpeechRmsThreshold = 0.01;
+const desktopRealtimeMicrophoneSpeechRmsThreshold = 0.035;
 const desktopRealtimeSystemAudioSpeechRmsThreshold = 0.003;
 const desktopRealtimeStopFlushTimeoutMs = 1_500;
 const desktopRealtimeStopFlushSettleTimeoutMs = 750;
@@ -50,9 +50,17 @@ const resolveSpeechRmsThreshold = (source) => {
 	throw new Error(`Unsupported realtime transcription source: ${source}`);
 };
 
-const hasSpeechEnergy = ({ audio, source }) => {
-	return getPcm16Rms(audio) >= resolveSpeechRmsThreshold(source);
-};
+const createAudioDiagnostics = () => ({
+	firstAcceptedLogged: false,
+	firstLowEnergyLogged: false,
+	lastRms: 0,
+	lowEnergyChunks: 0,
+	maxRms: 0,
+	nonSilentChunks: 0,
+	queuedChunks: 0,
+	receivedChunks: 0,
+	sentChunks: 0,
+});
 
 export const createDesktopRealtimeTransport = ({
 	canUseHostedDesktopAi,
@@ -304,6 +312,7 @@ export const createDesktopRealtimeTransport = ({
 				},
 			);
 			const session = {
+				audioDiagnostics: createAudioDiagnostics(),
 				hasPendingAudioCommit: false,
 				isClosing: false,
 				manualCommitTimeoutId: null,
@@ -395,12 +404,46 @@ export const createDesktopRealtimeTransport = ({
 						return;
 					}
 
-					if (!hasSpeechEnergy({ audio, source })) {
+					const rms = getPcm16Rms(audio);
+					const speechThreshold = resolveSpeechRmsThreshold(source);
+					session.audioDiagnostics.receivedChunks += 1;
+					session.audioDiagnostics.lastRms = rms;
+					session.audioDiagnostics.maxRms = Math.max(
+						session.audioDiagnostics.maxRms,
+						rms,
+					);
+					if (rms >= 0.0001) {
+						session.audioDiagnostics.nonSilentChunks += 1;
+					}
+
+					if (rms < speechThreshold) {
+						session.audioDiagnostics.lowEnergyChunks += 1;
+						if (!session.audioDiagnostics.firstLowEnergyLogged) {
+							session.audioDiagnostics.firstLowEnergyLogged = true;
+							logDesktopTurnDebug("transport.audio_low_energy", {
+								profile,
+								rms,
+								source,
+								speaker,
+								threshold: speechThreshold,
+							});
+							logInfo({
+								message: "[desktop-realtime] dropped low-energy audio chunk",
+								details: {
+									profile,
+									rms,
+									source,
+									speaker,
+									threshold: speechThreshold,
+								},
+							});
+						}
 						return;
 					}
 
 					if (socket.readyState !== WebSocketImpl.OPEN) {
 						session.pendingAudio.push(audio);
+						session.audioDiagnostics.queuedChunks += 1;
 						if (
 							session.pendingAudio.length >
 							desktopRealtimePendingAudioChunkLimit
@@ -414,6 +457,17 @@ export const createDesktopRealtimeTransport = ({
 						audio,
 						socket,
 					});
+					session.audioDiagnostics.sentChunks += 1;
+					if (!session.audioDiagnostics.firstAcceptedLogged) {
+						session.audioDiagnostics.firstAcceptedLogged = true;
+						logDesktopTurnDebug("transport.audio_accepted", {
+							profile,
+							rms,
+							source,
+							speaker,
+							threshold: speechThreshold,
+						});
+					}
 					session.hasPendingAudioCommit = true;
 					scheduleManualCommit(session);
 					return;
@@ -517,6 +571,7 @@ export const createDesktopRealtimeTransport = ({
 					: String(reasonBuffer ?? "");
 
 				const closeDetails = {
+					audioDiagnostics: session.audioDiagnostics,
 					code,
 					didResolve,
 					isClosing: session.isClosing,
