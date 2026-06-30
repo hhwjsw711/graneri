@@ -48,9 +48,11 @@ export class DesktopTranscriptionControllerProxy {
 		return await getRequiredDesktopBridge().startTranscriptionSession();
 	};
 
-	stop = async () => {
+	stop = async (options?: { reason?: string }) => {
 		await this.initializationPromise;
-		await getRequiredDesktopBridge().stopTranscriptionSession();
+		await getRequiredDesktopBridge().stopTranscriptionSession({
+			reason: options?.reason,
+		});
 	};
 
 	requestSystemAudio = async () => {

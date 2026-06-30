@@ -47,10 +47,14 @@ const loadSelectedEnvFile = () => {
 	}
 
 	const rawEnv = fs.readFileSync(envFilePath, "utf8");
+	const shouldOverrideExistingEnv = envFileName !== ".env";
 
 	for (const line of rawEnv.split(/\r?\n/)) {
 		const entry = parseEnvLine(line);
-		if (!entry || process.env[entry.key]) {
+		if (
+			!entry ||
+			(!shouldOverrideExistingEnv && process.env[entry.key] !== undefined)
+		) {
 			continue;
 		}
 

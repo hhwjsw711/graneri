@@ -50,6 +50,8 @@ const parseEnvLine = (line) => {
 export const loadRootEnv = (options = {}) => {
 	const loadedKeys = new Set();
 	const envPaths = getEnvPaths(options);
+	const shouldOverrideExistingEnv =
+		options.overrideExisting ?? getEnvFileName() !== ".env";
 
 	for (const envPath of new Set(envPaths)) {
 		if (!existsSync(envPath)) {
@@ -64,9 +66,13 @@ export const loadRootEnv = (options = {}) => {
 				continue;
 			}
 
-			// Keep explicit shell env vars authoritative, but let `.env.local`
-			// override values loaded earlier from `.env`.
-			if (process.env[entry.key] && !loadedKeys.has(entry.key)) {
+			// Local dev uses `.env.local` as the source of truth, while production
+			// keeps explicit shell/build env vars authoritative.
+			if (
+				!shouldOverrideExistingEnv &&
+				process.env[entry.key] &&
+				!loadedKeys.has(entry.key)
+			) {
 				continue;
 			}
 

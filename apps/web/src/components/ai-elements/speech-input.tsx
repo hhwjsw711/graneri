@@ -153,12 +153,16 @@ export const SpeechInput = ({
 
 							void (async () => {
 								if (isScopedListening || isScopedConnecting) {
-									await transcriptionSessionManager.controller.stop();
+									await transcriptionSessionManager.controller.stop({
+										reason: "speech-input-active-toggle",
+									});
 									return;
 								}
 
 								if (session.isListening || session.isConnecting) {
-									await transcriptionSessionManager.controller.stop();
+									await transcriptionSessionManager.controller.stop({
+										reason: "speech-input-cross-scope-stop",
+									});
 								}
 
 								transcriptionSessionManager.controller.configure({

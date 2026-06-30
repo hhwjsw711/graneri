@@ -117,8 +117,8 @@ const createGraneriDesktopApi = ({ ipcRenderer, platform, env }) => ({
 		ipcRenderer.invoke(invokeChannels.configureTranscriptionSession, options),
 	startTranscriptionSession: () =>
 		ipcRenderer.invoke(invokeChannels.startTranscriptionSession),
-	stopTranscriptionSession: () =>
-		ipcRenderer.invoke(invokeChannels.stopTranscriptionSession),
+	stopTranscriptionSession: (options) =>
+		ipcRenderer.invoke(invokeChannels.stopTranscriptionSession, options),
 	requestTranscriptionSystemAudio: () =>
 		ipcRenderer.invoke(invokeChannels.requestTranscriptionSystemAudio),
 	detachTranscriptionSystemAudio: () =>

@@ -319,6 +319,7 @@ export const useNoteTranscriptSession = ({
 					.stopCaptureAfterRequest({
 						activeSessionId: activeTranscriptSessionIdRef.current,
 						hasPendingStart: transcriptSessionStartPromiseRef.current !== null,
+						reason: "note-transcript-meeting-ended-auto-stop",
 					})
 					.catch((error) => {
 						logError({
@@ -759,6 +760,7 @@ export const useNoteTranscriptSession = ({
 				.stopCaptureAfterRequest({
 					activeSessionId: activeTranscriptSessionIdRef.current,
 					hasPendingStart: transcriptSessionStartPromiseRef.current !== null,
+					reason: "note-transcript-idle-auto-stop",
 				})
 				.catch((error) => {
 					logError({

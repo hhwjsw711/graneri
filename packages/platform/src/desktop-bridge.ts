@@ -276,7 +276,9 @@ export interface GraneriDesktopBridge {
 		scopeKey?: string | null;
 	}) => Promise<{ ok: boolean }>;
 	startTranscriptionSession: () => Promise<boolean>;
-	stopTranscriptionSession: () => Promise<{ ok: boolean }>;
+	stopTranscriptionSession: (options?: {
+		reason?: string;
+	}) => Promise<{ ok: boolean }>;
 	requestTranscriptionSystemAudio: () => Promise<boolean>;
 	detachTranscriptionSystemAudio: () => Promise<{ ok: boolean }>;
 	startDetectedMeetingNote: () => Promise<{ ok: boolean }>;

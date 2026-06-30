@@ -58,7 +58,7 @@ import {
 import { loadRootEnv } from "./env.mjs";
 import { createGlobalDictation } from "./global-dictation.mjs";
 import { startLocalServer } from "./local-server.mjs";
-import { logError, logInfo } from "./logger.mjs";
+import { emitWideEvent, logError, logInfo, serializeError } from "./logger.mjs";
 import { createMeetingDetection } from "./meeting-detection.mjs";
 import { createNativeAudioCapture } from "./native-audio-capture.mjs";
 import { toErrorLogDetails } from "./network.mjs";
@@ -587,6 +587,37 @@ const logDesktopTurnDebug = (event, details = {}) => {
 	).catch(() => {});
 };
 
+const appendTranscriptionDebugEvent = (event, details = {}) => {
+	if (!shouldLogDesktopTurnDebug) {
+		return;
+	}
+
+	const payload = {
+		event,
+		timestamp: new Date().toISOString(),
+		...details,
+	};
+
+	if (!hasLoggedDesktopTurnDebugSessionHeader) {
+		hasLoggedDesktopTurnDebugSessionHeader = true;
+		void appendFile(
+			transcriptionDebugLogPath,
+			`${JSON.stringify({
+				event: "debug_session_started",
+				pid: process.pid,
+				timestamp: new Date().toISOString(),
+			})}\n`,
+			"utf8",
+		).catch(() => {});
+	}
+
+	void appendFile(
+		transcriptionDebugLogPath,
+		`${JSON.stringify(payload)}\n`,
+		"utf8",
+	).catch(() => {});
+};
+
 const updateTranscriptionLiveTranscript = (speaker, value) => {
 	patchTranscriptionSessionState({
 		liveTranscript: {
@@ -1079,6 +1110,7 @@ const configureDesktopTranscriptionSession = ({
 		transcriptionLastHandledAutoStartKey = null;
 		void stopDesktopTranscriptionSession({
 			preserveUtterances: false,
+			reason: "configure-scope-changed",
 			resetError: true,
 			resetRecovery: true,
 		});
@@ -1807,68 +1839,115 @@ const resetIdleDesktopTranscriptionSession = ({
 
 const stopDesktopTranscriptionSession = async ({
 	preserveUtterances = true,
+	reason = "unspecified",
 	resetError = false,
 	resetRecovery = true,
 } = {}) => {
-	if (isDesktopTranscriptionSessionIdle()) {
-		resetIdleDesktopTranscriptionSession({
-			resetError,
-			resetRecovery,
-		});
-		return;
-	}
+	const startedAt = Date.now();
+	const stopEvent = {
+		event: "transcription.stop",
+		action: "stop",
+		correlation_id: currentTranscriptionSessionCorrelationId,
+		is_connecting_before_stop: latestTranscriptionSessionState.isConnecting,
+		is_listening_before_stop: latestTranscriptionSessionState.isListening,
+		phase_before_stop: latestTranscriptionSessionState.phase,
+		preserve_utterances: preserveUtterances,
+		reason,
+		reset_error: resetError,
+		reset_recovery: resetRecovery,
+		scope_key: latestTranscriptionSessionState.scopeKey,
+		speaker_them_active_before_stop: transcriptionSpeakers.them.transportActive,
+		speaker_you_active_before_stop: transcriptionSpeakers.you.transportActive,
+		timestamp: new Date().toISOString(),
+		workspace_id: activeWorkspaceId,
+	};
 
-	if (transcriptionPendingStopPromise) {
-		return await transcriptionPendingStopPromise;
-	}
-
-	const operationId = ++transcriptionLifecycleOperationId;
-	clearTranscriptionReconnectTimeout();
-	clearTranscriptionRolloverTimeout();
-	clearSystemAudioAttachRetryTimeout({
-		resetAttempt: true,
-	});
-	patchTranscriptionSessionState({
-		isConnecting: false,
-		isListening: false,
-		phase: "stopping",
-	});
-
-	const stopPromise = cleanupDesktopTranscriptionSession({
-		operationId,
-		preserveUtterances,
-	})
-		.finally(() => {
-			if (transcriptionPendingStopPromise === stopPromise) {
-				transcriptionPendingStopPromise = null;
-			}
-		})
-		.then(() => {
-			transcriptionRecoveryAttempt = 0;
-			currentTranscriptionSessionCorrelationId = null;
-			patchTranscriptionSessionState({
-				error: resetError ? null : latestTranscriptionSessionState.error,
-				isConnecting: false,
-				isListening: false,
-				liveTranscript: createEmptyLiveTranscriptState(),
-				phase:
-					latestTranscriptionSessionState.phase === "failed"
-						? "failed"
-						: "idle",
-				recoveryStatus: resetRecovery
-					? createTranscriptRecoveryStatus()
-					: latestTranscriptionSessionState.recoveryStatus,
-				systemAudioStatus: transcriptionPolicy
-					? resolveCurrentSystemAudioStatus(transcriptionPolicy)
-					: latestTranscriptionSessionState.systemAudioStatus,
-				utterances: preserveUtterances
-					? latestTranscriptionSessionState.utterances
-					: [],
+	try {
+		if (isDesktopTranscriptionSessionIdle()) {
+			resetIdleDesktopTranscriptionSession({
+				resetError,
+				resetRecovery,
 			});
+			stopEvent.outcome = "idle_reset";
+			return;
+		}
+
+		if (transcriptionPendingStopPromise) {
+			stopEvent.outcome = "deduplicated";
+			return await transcriptionPendingStopPromise;
+		}
+
+		const operationId = ++transcriptionLifecycleOperationId;
+		stopEvent.operation_id = operationId;
+		clearTranscriptionReconnectTimeout();
+		clearTranscriptionRolloverTimeout();
+		clearSystemAudioAttachRetryTimeout({
+			resetAttempt: true,
+		});
+		patchTranscriptionSessionState({
+			isConnecting: false,
+			isListening: false,
+			phase: "stopping",
 		});
 
-	transcriptionPendingStopPromise = stopPromise;
-	return await stopPromise;
+		const stopPromise = cleanupDesktopTranscriptionSession({
+			operationId,
+			preserveUtterances,
+		})
+			.finally(() => {
+				if (transcriptionPendingStopPromise === stopPromise) {
+					transcriptionPendingStopPromise = null;
+				}
+			})
+			.then(() => {
+				transcriptionRecoveryAttempt = 0;
+				currentTranscriptionSessionCorrelationId = null;
+				patchTranscriptionSessionState({
+					error: resetError ? null : latestTranscriptionSessionState.error,
+					isConnecting: false,
+					isListening: false,
+					liveTranscript: createEmptyLiveTranscriptState(),
+					phase:
+						latestTranscriptionSessionState.phase === "failed"
+							? "failed"
+							: "idle",
+					recoveryStatus: resetRecovery
+						? createTranscriptRecoveryStatus()
+						: latestTranscriptionSessionState.recoveryStatus,
+					systemAudioStatus: transcriptionPolicy
+						? resolveCurrentSystemAudioStatus(transcriptionPolicy)
+						: latestTranscriptionSessionState.systemAudioStatus,
+					utterances: preserveUtterances
+						? latestTranscriptionSessionState.utterances
+						: [],
+				});
+			});
+
+		transcriptionPendingStopPromise = stopPromise;
+		await stopPromise;
+		stopEvent.outcome = "stopped";
+	} catch (error) {
+		stopEvent.outcome = "error";
+		stopEvent.error = serializeError(error);
+		throw error;
+	} finally {
+		stopEvent.phase_after_stop = latestTranscriptionSessionState.phase;
+		stopEvent.is_connecting_after_stop =
+			latestTranscriptionSessionState.isConnecting;
+		stopEvent.is_listening_after_stop =
+			latestTranscriptionSessionState.isListening;
+		stopEvent.speaker_them_active_after_stop =
+			transcriptionSpeakers.them.transportActive;
+		stopEvent.speaker_you_active_after_stop =
+			transcriptionSpeakers.you.transportActive;
+
+		appendTranscriptionDebugEvent("transcription.stop", stopEvent);
+		emitWideEvent({
+			event: stopEvent,
+			level: stopEvent.outcome === "error" ? "error" : "info",
+			startedAt,
+		});
+	}
 };
 
 const requestDesktopTranscriptionSystemAudio = async () => {
@@ -2395,10 +2474,20 @@ ipcMain.handle("app:start-transcription-session", async () => {
 	return await startDesktopTranscriptionSession();
 });
 
-ipcMain.handle("app:stop-transcription-session", async () => {
-	await stopDesktopTranscriptionSession();
-	return { ok: true };
-});
+ipcMain.handle(
+	"app:stop-transcription-session",
+	async (_event, options = {}) => {
+		await stopDesktopTranscriptionSession({
+			reason:
+				options &&
+				typeof options === "object" &&
+				typeof options.reason === "string"
+					? options.reason
+					: "desktop-ipc",
+		});
+		return { ok: true };
+	},
+);
 
 ipcMain.handle("app:request-transcription-system-audio", async () => {
 	return await requestDesktopTranscriptionSystemAudio();

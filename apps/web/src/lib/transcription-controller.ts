@@ -329,6 +329,7 @@ export class TranscriptionController {
 			this.lastHandledAutoStartKey = null;
 			void this.stop({
 				preserveUtterances: false,
+				reason: "configure-scope-changed",
 				resetError: true,
 				resetRecovery: true,
 			});
@@ -364,10 +365,12 @@ export class TranscriptionController {
 
 	stop = async ({
 		preserveUtterances = true,
+		reason: _reason,
 		resetError = false,
 		resetRecovery = true,
 	}: {
 		preserveUtterances?: boolean;
+		reason?: string;
 		resetError?: boolean;
 		resetRecovery?: boolean;
 	} = {}) => {

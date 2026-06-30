@@ -10,7 +10,7 @@ type TranscriptSessionStopRepository = Pick<
 type UseTranscriptSessionStopControllerArgs = {
 	isSpeechListening: boolean;
 	repository: TranscriptSessionStopRepository;
-	stopCapture: () => Promise<void>;
+	stopCapture: (options?: { reason?: string }) => Promise<void>;
 };
 
 export const useTranscriptSessionStopController = ({
@@ -55,9 +55,11 @@ export const useTranscriptSessionStopController = ({
 		async ({
 			activeSessionId,
 			hasPendingStart,
+			reason,
 		}: {
 			activeSessionId: Id<"transcriptSessions"> | null;
 			hasPendingStart: boolean;
+			reason?: string;
 		}) => {
 			try {
 				await requestStop({
@@ -65,7 +67,7 @@ export const useTranscriptSessionStopController = ({
 					hasPendingStart,
 				});
 			} finally {
-				await stopCapture();
+				await stopCapture({ reason });
 			}
 		},
 		[requestStop, stopCapture],

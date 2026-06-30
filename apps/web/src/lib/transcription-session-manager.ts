@@ -16,6 +16,7 @@ type TranscriptionControllerLike = {
 	start: () => Promise<boolean>;
 	stop: (options?: {
 		preserveUtterances?: boolean;
+		reason?: string;
 		resetError?: boolean;
 		resetRecovery?: boolean;
 	}) => Promise<void>;
