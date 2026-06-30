@@ -40,7 +40,7 @@ const createSessionConfig = ({ lang, source, speaker }) => {
 
 export const createDesktopRealtimeClientSecret = async ({
 	fetchImpl,
-	getHostedConvexSiteUrl,
+	getHostedSiteUrl,
 	getOpenAIApiKey,
 	lang,
 	logContext = "desktop.realtime.client_secret",
@@ -49,10 +49,10 @@ export const createDesktopRealtimeClientSecret = async ({
 }) => {
 	const openAIApiKey = getOpenAIApiKey();
 	if (!openAIApiKey) {
-		const baseUrl = getHostedConvexSiteUrl();
+		const baseUrl = getHostedSiteUrl();
 
 		if (!baseUrl) {
-			throw new Error("CONVEX_SITE_URL is not configured.");
+			throw new Error("SITE_URL is not configured.");
 		}
 
 		const response = await fetchImpl(

@@ -271,6 +271,9 @@ AI routes to `GRANERI_HOSTED_SITE_URL`/`SITE_URL`. Convex HTTP is not an AI SDK
 streaming fallback; it remains the durable backend, auth/OAuth callback surface,
 and state coordination layer. Release behavior must not depend on
 terminal-inherited shell environment.
+Hosted production deployments must expose the same AI HTTP routes as real
+serverless functions under `/api/*`; Vite dev/preview middleware is only the
+local development surface and is not a Vercel production route by itself.
 
 Local-folder chat uses a hosted-model, desktop-tool bridge:
 

@@ -31,7 +31,7 @@ export const handleRealtimeTranscriptionSessionRequest = async (
 	try {
 		const clientSecret = await createDesktopRealtimeClientSecret({
 			fetchImpl: fetch,
-			getHostedConvexSiteUrl: () => process.env.CONVEX_SITE_URL?.trim(),
+			getHostedSiteUrl: () => process.env.SITE_URL?.trim(),
 			getOpenAIApiKey: () => process.env.OPENAI_API_KEY,
 			lang,
 			logContext: "desktop.local_server.realtime.client_secret",

@@ -18,7 +18,7 @@ test("desktop realtime client secret request uses the production transcription s
 				status: 200,
 			});
 		},
-		getHostedConvexSiteUrl: () => null,
+		getHostedSiteUrl: () => null,
 		getOpenAIApiKey: () => "test-openai-key",
 		lang: "en-US",
 		source: "systemAudio",
@@ -39,4 +39,49 @@ test("desktop realtime client secret request uses the production transcription s
 		language: "en",
 		model: "gpt-realtime-whisper",
 	});
+});
+
+test("desktop realtime client secret proxies through the hosted app origin", async () => {
+	let requestUrl = null;
+
+	const clientSecret = await createDesktopRealtimeClientSecret({
+		fetchImpl: async (url) => {
+			requestUrl = url.toString();
+
+			return new Response(JSON.stringify({ clientSecret: "client-secret" }), {
+				headers: {
+					"Content-Type": "application/json",
+				},
+				status: 200,
+			});
+		},
+		getHostedSiteUrl: () => "https://example.com",
+		getOpenAIApiKey: () => "",
+		lang: "en-US",
+		source: "systemAudio",
+		speaker: "them",
+	});
+
+	assert.equal(clientSecret, "client-secret");
+	assert.equal(
+		requestUrl,
+		"https://example.com/api/realtime-transcription-session",
+	);
+});
+
+test("desktop realtime client secret fails closed without a hosted app origin", async () => {
+	await assert.rejects(
+		async () =>
+			await createDesktopRealtimeClientSecret({
+				fetchImpl: async () => {
+					throw new Error("fetch must not be called.");
+				},
+				getHostedSiteUrl: () => "",
+				getOpenAIApiKey: () => "",
+				lang: "en-US",
+				source: "systemAudio",
+				speaker: "them",
+			}),
+		/SITE_URL is not configured\./u,
+	);
 });

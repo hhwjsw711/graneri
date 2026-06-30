@@ -80,6 +80,12 @@ if (!expectedSiteUrl) {
 	);
 }
 
+if (new URL(expectedSiteUrl).hostname.endsWith(".convex.site")) {
+	throw new Error(
+		"Expected hosted site URL must be the hosted web app origin, not a Convex site URL.",
+	);
+}
+
 const forbiddenDeployments = getForbiddenConvexDeployments({
 	expectedDeployment,
 	knownDevDeployments,

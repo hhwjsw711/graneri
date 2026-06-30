@@ -367,7 +367,7 @@ const desktopRealtimeTransport = createDesktopRealtimeTransport({
 	canUseHostedDesktopAi: () => canUseHostedDesktopAi(),
 	getCaptureSampleRate: (source) =>
 		nativeAudioCapture.getCaptureSampleRate(source),
-	getHostedConvexSiteUrl: () => process.env.CONVEX_SITE_URL?.trim(),
+	getHostedSiteUrl: () => process.env.SITE_URL?.trim(),
 	getOpenAIApiKey: () => process.env.OPENAI_API_KEY,
 	handleTransportEvent: (event) => handleDesktopRealtimeTransportEvent(event),
 	logDesktopTurnDebug: (...args) => logDesktopTurnDebug(...args),
@@ -673,8 +673,7 @@ const resolveCurrentSystemAudioStatus = (policy) => {
 	return createSystemAudioStatusFromPolicy(policy);
 };
 
-const canUseHostedDesktopAi = () =>
-	Boolean(process.env.CONVEX_SITE_URL?.trim() || process.env.SITE_URL?.trim());
+const canUseHostedDesktopAi = () => Boolean(process.env.SITE_URL?.trim());
 
 const getDesktopRealtimeAvailability = () =>
 	process.platform === "darwin" &&

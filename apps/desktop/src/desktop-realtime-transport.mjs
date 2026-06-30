@@ -59,7 +59,7 @@ export const createDesktopRealtimeTransport = ({
 	fetchImpl = fetch,
 	getCaptureSampleRate,
 	getOpenAIApiKey,
-	getHostedConvexSiteUrl,
+	getHostedSiteUrl,
 	handleTransportEvent,
 	logDesktopTurnDebug,
 	subscribeToCaptureEvents,
@@ -281,7 +281,7 @@ export const createDesktopRealtimeTransport = ({
 		await stop(speaker);
 		const clientSecret = await createDesktopRealtimeClientSecret({
 			fetchImpl,
-			getHostedConvexSiteUrl,
+			getHostedSiteUrl,
 			getOpenAIApiKey,
 			lang,
 			source,

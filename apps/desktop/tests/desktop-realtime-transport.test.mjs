@@ -33,7 +33,7 @@ const createTransport = ({
 		canUseHostedDesktopAi: () => true,
 		fetchImpl: createFetch(),
 		getCaptureSampleRate: () => 48_000,
-		getHostedConvexSiteUrl: () => "https://example.convex.site",
+		getHostedSiteUrl: () => "https://example.com",
 		getOpenAIApiKey: () => "",
 		handleTransportEvent,
 		logDesktopTurnDebug: () => {},
