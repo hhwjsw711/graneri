@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { handleChatReconnectRequest } from "../../../apps/web/server/chat-handler";
-import { handleHostedApiRoute } from "../../_hosted-route";
+import { handleChatReconnectRequest } from "../../../apps/web/server/chat-handler.js";
+import { handleHostedApiRoute } from "../../_hosted-route.js";
 
 export default async function handler(
 	request: IncomingMessage,

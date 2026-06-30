@@ -5,7 +5,7 @@ import {
 	createRealtimeTranscriptionSessionOptions,
 	normalizeTranscriptionLanguage,
 } from "../../../packages/ai/src/transcription.mjs";
-import { createServerWideEvent, emitServerWideEvent } from "./server-logger";
+import { createServerWideEvent, emitServerWideEvent } from "./server-logger.js";
 
 const sendJson = (
 	response: ServerResponse,

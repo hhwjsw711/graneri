@@ -6,12 +6,6 @@ export type HostedApiHandler = (
 	response: ServerResponse,
 ) => Promise<void>;
 
-type HostedChatConvexRouteError = {
-	error: string;
-	errorCode: string;
-	statusCode: number;
-};
-
 export const handleHostedApiRoute = async ({
 	handler,
 	method,

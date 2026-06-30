@@ -7,8 +7,8 @@ import {
 	type UIMessageChunk,
 } from "ai";
 import type { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "../../../convex/_generated/api.js";
+import type { Id } from "../../../convex/_generated/dataModel.js";
 import {
 	type ChatLatencyLogger,
 	createChatStreamLatencyTracker,
@@ -29,7 +29,7 @@ import {
 	persistHostedChatUserMessage,
 } from "../../../packages/ai/src/hosted-chat-user-message-persistence.mjs";
 import type { ReasoningEffort } from "../../../packages/ai/src/models.mjs";
-import { recordServerError, type ServerWideEvent } from "./server-logger";
+import { recordServerError, type ServerWideEvent } from "./server-logger.js";
 
 type AttachableAssistantRun = {
 	_id: Id<"assistantRuns">;

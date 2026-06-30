@@ -11,7 +11,7 @@ import {
 	createServerWideEvent,
 	emitServerWideEvent,
 	recordServerError,
-} from "./server-logger";
+} from "./server-logger.js";
 
 type EnhanceNoteRequestBody = {
 	title?: string;
@@ -132,7 +132,7 @@ export const handleEnhanceNoteRequest = async (
 
 	let output: z.infer<typeof structuredNoteSchema>;
 	try {
-		({ output } = await generateText({
+		const result = await generateText({
 			model: openai(NOTE_GENERATION_MODEL_ID),
 			system: ENHANCED_NOTE_SYSTEM_PROMPT,
 			output: Output.object({
@@ -144,7 +144,8 @@ export const handleEnhanceNoteRequest = async (
 				transcript: trimmedTranscript,
 				noteText: trimmedNoteText,
 			}),
-		}));
+		});
+		output = structuredNoteSchema.parse(result.output);
 	} catch (error) {
 		recordServerError({
 			error,

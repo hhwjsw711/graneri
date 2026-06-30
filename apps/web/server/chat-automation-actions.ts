@@ -1,6 +1,6 @@
 import type { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "../../../convex/_generated/api.js";
+import type { Id } from "../../../convex/_generated/dataModel.js";
 import type {
 	AutomationActions,
 	AutomationToolInput,

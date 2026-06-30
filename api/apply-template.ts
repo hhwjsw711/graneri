@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { handleApplyTemplateRequest } from "../apps/web/server/apply-template-handler";
-import { handleHostedApiRoute } from "./_hosted-route";
+import { handleApplyTemplateRequest } from "../apps/web/server/apply-template-handler.js";
+import { handleHostedApiRoute } from "./_hosted-route.js";
 
 export default async function handler(
 	request: IncomingMessage,

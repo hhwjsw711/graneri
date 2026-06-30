@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { type InferUITools, type UIMessage, validateUIMessages } from "ai";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
+import { api } from "../../../convex/_generated/api.js";
+import type { Id } from "../../../convex/_generated/dataModel.js";
 import {
 	getSelectedNoteSourceIds,
 	loadSelectedAppSourceConnections,
@@ -36,17 +36,17 @@ import {
 	findChatModel,
 	getChatModelProviderOptions,
 	normalizeReasoningEffort,
-} from "../src/lib/ai/models";
-import { createHostedChatAutomationActions } from "./chat-automation-actions";
+} from "../src/lib/ai/models.js";
+import { createHostedChatAutomationActions } from "./chat-automation-actions.js";
 import {
 	pipeHostedActiveStreamSessionToResponse,
 	runHostedChatTurnStreamRuntime,
-} from "./chat-turn-stream-runtime";
+} from "./chat-turn-stream-runtime.js";
 import {
 	createServerWideEvent,
 	emitServerWideEvent,
 	recordServerError,
-} from "./server-logger";
+} from "./server-logger.js";
 
 type ChatRequestBody = {
 	id?: string;
@@ -199,9 +199,12 @@ const getSelectedRecipe = async ({
 	}
 
 	const client = new ConvexHttpClient(getConvexUrl(), { auth: convexToken });
-	const recipes = await client.query(api.recipes.list, {
-		workspaceId: workspaceId as Id<"workspaces">,
-	});
+	const recipes: Array<{ slug: string }> = await client.query(
+		api.recipes.list,
+		{
+			workspaceId: workspaceId as Id<"workspaces">,
+		},
+	);
 
 	return recipes.find((recipe) => recipe.slug === recipeSlug) ?? null;
 };

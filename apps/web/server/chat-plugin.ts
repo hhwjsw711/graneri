@@ -1,14 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect, Plugin } from "vite";
 import { getHostedChatConvexRouteError } from "../../../packages/ai/src/hosted-chat-runtime.mjs";
-import { handleApplyTemplateRequest } from "./apply-template-handler";
+import { handleApplyTemplateRequest } from "./apply-template-handler.js";
 import {
 	handleChatReconnectRequest,
 	handleChatRequest,
 	handleChatStopRequest,
-} from "./chat-handler";
-import { handleEnhanceNoteRequest } from "./enhance-note-handler";
-import { handleRealtimeTranscriptionSessionRequest } from "./realtime-transcription-session-handler";
+} from "./chat-handler.js";
+import { handleEnhanceNoteRequest } from "./enhance-note-handler.js";
+import { handleRealtimeTranscriptionSessionRequest } from "./realtime-transcription-session-handler.js";
 
 type ChatApiHandler = (
 	request: IncomingMessage,

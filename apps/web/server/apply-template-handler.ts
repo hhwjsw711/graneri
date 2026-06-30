@@ -9,12 +9,12 @@ import {
 import {
 	parseTemplateStreamToStructuredNote,
 	validateTemplateStream,
-} from "../src/lib/note-template-stream";
+} from "../src/lib/note-template-stream.js";
 import {
 	createServerWideEvent,
 	emitServerWideEvent,
 	recordServerError,
-} from "./server-logger";
+} from "./server-logger.js";
 
 type ApplyTemplateRequestBody = {
 	title?: string;
