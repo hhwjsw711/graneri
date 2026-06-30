@@ -255,7 +255,8 @@ identity.
 
 ## Desktop AI
 
-The desktop local server owns renderer-facing AI HTTP routes:
+The desktop local server owns desktop AI HTTP routes. Renderer fetches and
+native desktop capture both cross this boundary before any OpenAI request:
 
 - `/api/chat`
 - `/api/chat/steer`
@@ -265,11 +266,13 @@ The desktop local server owns renderer-facing AI HTTP routes:
 - `/api/enhance-note`
 - `/api/realtime-transcription-session`
 
-Packaged desktop apps must not embed `OPENAI_API_KEY`. If hosted site config is
-present and no process-local OpenAI key exists, the desktop local server proxies
-AI routes to `GRANERI_HOSTED_SITE_URL`/`SITE_URL`. Convex HTTP is not an AI SDK
-streaming fallback; it remains the durable backend, auth/OAuth callback surface,
-and state coordination layer. Release behavior must not depend on
+Packaged desktop apps must not embed `OPENAI_API_KEY`. Local development uses
+the same desktop local server route boundary, with `.env.local` supplying
+server-side secrets. If hosted site config is present and no process-local
+OpenAI key exists, the desktop local server proxies AI routes to
+`GRANERI_HOSTED_SITE_URL`/`SITE_URL`. Convex HTTP is not an AI SDK streaming
+fallback; it remains the durable backend, auth/OAuth callback surface, and
+state coordination layer. Release behavior must not depend on
 terminal-inherited shell environment.
 Hosted production deployments must expose the same AI HTTP routes as real
 serverless functions under `/api/*`; Vite dev/preview middleware is only the

@@ -49,7 +49,7 @@ export const createDesktopRealtimeClientSecret = async ({
 }) => {
 	const openAIApiKey = getOpenAIApiKey();
 	if (!openAIApiKey) {
-		const baseUrl = getHostedSiteUrl();
+		const baseUrl = await getHostedSiteUrl();
 
 		if (!baseUrl) {
 			throw new Error("SITE_URL is not configured.");

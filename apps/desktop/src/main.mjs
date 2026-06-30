@@ -367,8 +367,8 @@ const desktopRealtimeTransport = createDesktopRealtimeTransport({
 	canUseHostedDesktopAi: () => canUseHostedDesktopAi(),
 	getCaptureSampleRate: (source) =>
 		nativeAudioCapture.getCaptureSampleRate(source),
-	getHostedSiteUrl: () => process.env.SITE_URL?.trim(),
-	getOpenAIApiKey: () => process.env.OPENAI_API_KEY,
+	getHostedSiteUrl: async () => (await ensureLocalServer()).origin,
+	getOpenAIApiKey: () => null,
 	handleTransportEvent: (event) => handleDesktopRealtimeTransportEvent(event),
 	logDesktopTurnDebug: (...args) => logDesktopTurnDebug(...args),
 	subscribeToCaptureEvents,
