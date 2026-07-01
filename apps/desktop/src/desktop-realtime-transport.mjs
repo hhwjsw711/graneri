@@ -11,7 +11,7 @@ import { logError, logInfo } from "./logger.mjs";
 const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
 const desktopRealtimeManualCommitIntervalMs = 2_500;
-const desktopRealtimeMicrophoneSpeechRmsThreshold = 0.035;
+const desktopRealtimeMicrophoneSpeechRmsThreshold = 0.001;
 const desktopRealtimeSystemAudioSpeechRmsThreshold = 0.003;
 const desktopRealtimeStopFlushTimeoutMs = 1_500;
 const desktopRealtimeStopFlushSettleTimeoutMs = 750;

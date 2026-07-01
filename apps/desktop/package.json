@@ -24,7 +24,9 @@
     "check": "biome check src scripts electron-builder.config.mjs package.json",
     "check:fix": "biome check --write src scripts electron-builder.config.mjs package.json",
     "format": "biome format --write src scripts electron-builder.config.mjs package.json",
-    "test": "node --test tests/*.test.cjs tests/*.test.mjs && node scripts/check-syntax.mjs",
+    "native:rust:test": "cargo test --manifest-path native-aec/Cargo.toml",
+    "native:test": "bun run native:rust:test && node scripts/build-system-audio-helper.mjs && node --test tests/native-audio-capture.test.mjs",
+    "test": "bun run native:test && node scripts/run-tests.mjs && node scripts/check-syntax.mjs",
     "typecheck": "node scripts/check-syntax.mjs"
   },
   "dependencies": {

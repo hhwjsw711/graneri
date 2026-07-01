@@ -2,9 +2,6 @@ import AVFoundation
 import Dispatch
 import Foundation
 
-private let residualEchoSuppressionLikelihoodThreshold = 0.55
-private let residualEchoSuppressionSystemRmsThreshold = 0.003
-
 final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 	struct SelfTestResult {
 		let activeRenderPassthroughErrorRms: Double
@@ -12,6 +9,7 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		let noRenderPassthroughErrorRms: Double
 		let processedErrorRms: Double
 		let rawErrorRms: Double
+		let residualLeakGateSuppressedChunks: Int
 		let suppressedChunks: Int
 		let systemOutputErrorRms: Double
 
@@ -19,6 +17,7 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			activeRenderPassthroughErrorRms <= 0.16 &&
 				echoReductionRatio >= 0.35 &&
 				noRenderPassthroughErrorRms <= 0.000001 &&
+				residualLeakGateSuppressedChunks > 0 &&
 				suppressedChunks > 0 &&
 				systemOutputErrorRms <= 0.000001
 		}
@@ -31,6 +30,7 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 				"ok": isPassing,
 				"processedErrorRms": processedErrorRms,
 				"rawErrorRms": rawErrorRms,
+				"residualLeakGateSuppressedChunks": residualLeakGateSuppressedChunks,
 				"suppressedChunks": suppressedChunks,
 				"systemOutputErrorRms": systemOutputErrorRms,
 				"type": "self_test",
@@ -111,6 +111,8 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		self?.handleSystemAudioBuffer(buffer)
 	}
 	private let logger: NativeAudioStderrLogger
+	private static let residualLeakGateSystemAudioRmsThreshold = 0.003
+	private static let residualLeakGatePostAecRmsThreshold = 0.002
 	private let microphoneOutput: NativeAudioPcmSink
 	private let onDiagnostics: (@Sendable ([String: Any]) -> Void)?
 	private let systemAudioOutput: NativeAudioPcmSink
@@ -208,6 +210,10 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			format: format,
 			logger: logger
 		)
+		let residualLeakGateSuppressedChunks = runResidualLeakGateSelfTest(
+			format: format,
+			logger: logger
+		)
 		let echoReductionRatio =
 			rawErrorRms > 0 ? max(0, 1.0 - processedErrorRms / rawErrorRms) : 0
 
@@ -217,6 +223,7 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			noRenderPassthroughErrorRms: noRenderPassthroughErrorRms,
 			processedErrorRms: processedErrorRms,
 			rawErrorRms: rawErrorRms,
+			residualLeakGateSuppressedChunks: residualLeakGateSuppressedChunks,
 			suppressedChunks: pipeline.queue.sync {
 				pipeline.echoReductionStats.suppressedChunks
 			},
@@ -256,6 +263,35 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			Array(processedSamples[0..<comparableCount]),
 			Array(microphoneSamples[0..<comparableCount])
 		)
+	}
+
+	private static func runResidualLeakGateSelfTest(
+		format: AVAudioFormat,
+		logger: NativeAudioStderrLogger
+	) -> Int {
+		let microphoneOutput = CollectingSink()
+		let systemAudioOutput = CollectingSink()
+		let pipeline = CombinedAudioProcessingPipeline(
+			logger: logger,
+			microphoneOutput: microphoneOutput,
+			systemAudioOutput: systemAudioOutput
+		)
+		let frameCount = 960
+		let renderSamples = (0..<frameCount).map { frameIndex in
+			Float(sin(Double(frameIndex) * 2.0 * .pi * 440.0 / format.sampleRate) * 0.35)
+		}
+		let microphoneSamples = Array(repeating: Float(0), count: frameCount)
+
+		pipeline.systemAudioSink.append(
+			buffer: makeBuffer(format: format, samples: renderSamples)
+		)
+		pipeline.microphoneSink.append(
+			buffer: makeBuffer(format: format, samples: microphoneSamples)
+		)
+
+		return pipeline.queue.sync {
+			pipeline.echoReductionStats.residualEchoSuppressedChunks
+		}
 	}
 
 	private static func runNoRenderPassthroughSelfTest(
@@ -332,6 +368,11 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		}
 
 		return sqrt(sumOfSquares / Double(frameCount))
+	}
+
+	private static func shouldGateResidualLeak(postAecRms: Double, systemAudioRms: Double) -> Bool {
+		systemAudioRms >= residualLeakGateSystemAudioRmsThreshold &&
+			postAecRms < residualLeakGatePostAecRmsThreshold
 	}
 
 	func describe() -> [String: Any] {
@@ -472,6 +513,17 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 
 		let preRms = Self.rms(buffer)
 		var postRms = Self.rms(processedBuffer)
+		let shouldGateResidualLeak = Self.shouldGateResidualLeak(
+			postAecRms: postRms,
+			systemAudioRms: systemAudioStats.lastRms
+		)
+		if shouldGateResidualLeak {
+			for frameIndex in 0..<frameCount {
+				processedChannel[frameIndex] = 0
+			}
+			postRms = 0
+			echoReductionStats.residualEchoSuppressedChunks += 1
+		}
 		let processorStats = processor.stats()
 		let residualEchoLikelihood = processorStats.residualEchoLikelihood.isFinite
 			? processorStats.residualEchoLikelihood
@@ -481,23 +533,10 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			.isFinite
 			? processorStats.residualEchoLikelihoodRecentMax
 			: nil
-		let shouldSuppressResidualEcho =
-			(residualEchoLikelihoodRecentMax ?? residualEchoLikelihood ?? 0) >=
-			residualEchoSuppressionLikelihoodThreshold &&
-			systemAudioStats.lastRms >= residualEchoSuppressionSystemRmsThreshold
-		if shouldSuppressResidualEcho {
-			for frameIndex in 0..<frameCount {
-				processedChannel[frameIndex] = 0
-			}
-			postRms = 0
-		}
 		echoReductionStats.processedChunks += 1
 		echoReductionStats.processedCaptureFrames += processed.processedFrames
-		if processed.processedFrames > 0 && (postRms < preRms * 0.95 || shouldSuppressResidualEcho) {
+		if processed.processedFrames > 0 && postRms < preRms * 0.95 {
 			echoReductionStats.suppressedChunks += 1
-		}
-		if shouldSuppressResidualEcho {
-			echoReductionStats.residualEchoSuppressedChunks += 1
 		}
 		echoReductionStats.delayMs = processorStats.delayMs >= 0
 			? Int(processorStats.delayMs)
@@ -507,11 +546,13 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		echoReductionStats.lastPreRms = preRms
 		echoReductionStats.residualEchoLikelihood = residualEchoLikelihood
 		echoReductionStats.residualEchoLikelihoodRecentMax = residualEchoLikelihoodRecentMax
-		echoReductionStats.lastReason = shouldSuppressResidualEcho
-			? "residual_echo_suppressed"
-			: processed.processedFrames > 0
-			? "aec3_active"
-			: "aec3_waiting_for_full_capture_frame"
+		if shouldGateResidualLeak {
+			echoReductionStats.lastReason = "residual_leak_gated"
+		} else {
+			echoReductionStats.lastReason = processed.processedFrames > 0
+				? "aec3_active"
+				: "aec3_waiting_for_full_capture_frame"
+		}
 		return processedBuffer
 	}
 

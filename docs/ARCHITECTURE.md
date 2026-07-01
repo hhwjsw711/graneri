@@ -345,10 +345,14 @@ through the combined audio processing pipeline, and that pipeline must use
 system audio as the render/reference signal before microphone audio is emitted.
 Echo reduction must be correlation-gated: active system audio alone is not a
 reason to subtract from the microphone stream, because local-only speech during
-remote playback must pass through unchanged.
-Its ready event must report the audio processing stage so diagnostics can tell
-whether microphone output is waiting for render reference or actively reducing
-echo.
+remote playback must pass through unchanged. After AEC3 runs, the microphone
+path applies one source-attribution gate: if system audio is active and the
+post-AEC microphone energy is below the local-speech floor, that residual is
+silenced before it can be emitted as `you`. Double-talk above that floor must
+remain in the microphone stream.
+The combined helper's ready event must report the audio processing stage so
+diagnostics can tell whether microphone output is waiting for render reference
+or actively reducing echo.
 `bun --filter=desktop run diagnose:meeting-audio -- --play-system-sound` is the
 local smoke test for this boundary. It starts the combined helper, plays a short
 system sound, and reports only route metadata, source chunk counts, and bounded
@@ -455,13 +459,17 @@ The verifier must fail if:
 - Packaged runtime code imports Convex server TypeScript.
 - Bare package imports in `dist-electron` cannot resolve from packaged
   `node_modules`.
+- Required native runtime helpers are missing, or the combined audio helper
+  fails its AEC3 self-test, including residual-leak gating for active system
+  audio.
 
 ## Enforcement
 
 `bun run check`, `bun run typecheck`, targeted tests, and
 `bun --filter=desktop run verify:package` enforce this document's invariants.
 Desktop realtime transcription changes must include the desktop transport tests
-for stop-flush behavior and renderer auto-stop tests for meeting/idle state.
+for stop-flush behavior, native audio tests for combined-helper AEC3 behavior,
+and renderer auto-stop tests for meeting/idle state.
 
 Repeated architecture failures should become scripts, lint rules,
 package-boundary checks, or tests instead of more prose.

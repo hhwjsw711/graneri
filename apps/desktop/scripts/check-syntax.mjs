@@ -34,6 +34,7 @@ const files = [
 	"scripts/forward-electron-output.mjs",
 	"scripts/generate-app-icon.mjs",
 	"scripts/generate-tray-icons.mjs",
+	"scripts/run-tests.mjs",
 ];
 
 const cwd = fileURLToPath(new URL("..", import.meta.url));

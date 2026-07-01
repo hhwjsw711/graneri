@@ -344,6 +344,8 @@ const verifyNativeRuntimeTools = async () => {
 		selfTestResult.echoReductionRatio < 0.35 ||
 		typeof selfTestResult.noRenderPassthroughErrorRms !== "number" ||
 		selfTestResult.noRenderPassthroughErrorRms > 0.000001 ||
+		typeof selfTestResult.residualLeakGateSuppressedChunks !== "number" ||
+		selfTestResult.residualLeakGateSuppressedChunks <= 0 ||
 		typeof selfTestResult.suppressedChunks !== "number" ||
 		selfTestResult.suppressedChunks <= 0 ||
 		typeof selfTestResult.systemOutputErrorRms !== "number" ||

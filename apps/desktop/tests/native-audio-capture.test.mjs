@@ -139,7 +139,7 @@ test("combined audio helper routes source-tagged chunks to source event buses", 
 				echoCancellationDelayMs: 5,
 				echoCancellationLastPostRms: 0,
 				echoCancellationLastPreRms: 0.04,
-				echoCancellationLastReason: "residual_echo_suppressed",
+				echoCancellationLastReason: "residual_leak_gated",
 				echoCancellationProcessedCaptureFrames: 10,
 				echoCancellationProcessedRenderFrames: 10,
 				echoCancellationResidualEchoLikelihood: 0.62,
@@ -243,6 +243,7 @@ test("combined audio helper self-test reduces delayed render echo when built", a
 	assert.ok(result.echoReductionRatio >= 0.35);
 	assert.ok(result.noRenderPassthroughErrorRms <= 0.000001);
 	assert.ok(result.processedErrorRms < result.rawErrorRms);
+	assert.ok(result.residualLeakGateSuppressedChunks > 0);
 	assert.ok(result.suppressedChunks > 0);
 	assert.ok(result.systemOutputErrorRms <= 0.000001);
 });

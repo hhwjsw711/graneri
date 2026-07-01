@@ -228,6 +228,40 @@ test("desktop realtime transport drops silent audio chunks", async () => {
 	});
 });
 
+test("desktop realtime transport accepts low-level post-processed microphone speech", async () => {
+	await withDarwinPlatform(async () => {
+		let captureListener = null;
+		const transport = createTransport({
+			subscribeToCaptureEvents: (_source, listener) => {
+				captureListener = listener;
+				return () => {};
+			},
+			WebSocketImpl: MockWebSocket,
+		});
+
+		await transport.start({
+			lang: "en",
+			source: "microphone",
+			speaker: "you",
+		});
+
+		captureListener({
+			type: "chunk",
+			pcm16: createPcm16Base64([40, 40, 40, 40]),
+		});
+		await sleep(2_600);
+		await transport.stop("you", {
+			getLiveItemId: () => null,
+		});
+
+		assert.equal(MockWebSocket.instances.length, 1);
+		assert.deepEqual(
+			MockWebSocket.instances[0].sent.map((value) => JSON.parse(value).type),
+			["input_audio_buffer.append", "input_audio_buffer.commit"],
+		);
+	});
+});
+
 test("desktop realtime transport applies a separate system audio energy threshold", async () => {
 	await withDarwinPlatform(async () => {
 		let captureListener = null;
