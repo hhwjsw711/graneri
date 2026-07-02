@@ -396,12 +396,20 @@ test("desktop realtime transport forwards low-level system audio", async () => {
 test("desktop realtime transport commits pending audio on stop", async () => {
 	await withDarwinPlatform(async () => {
 		let captureListener = null;
+		const stopOrder = [];
 		const transport = createTransport({
 			subscribeToCaptureEvents: (_source, listener) => {
 				captureListener = listener;
-				return () => {};
+				return () => {
+					stopOrder.push("unsubscribe");
+				};
 			},
-			WebSocketImpl: MockWebSocket,
+			WebSocketImpl: class extends MockWebSocket {
+				send(value) {
+					stopOrder.push(JSON.parse(String(value)).type);
+					super.send(value);
+				}
+			},
 		});
 
 		await transport.start({
@@ -422,6 +430,11 @@ test("desktop realtime transport commits pending audio on stop", async () => {
 			MockWebSocket.instances[0].sent.map((value) => JSON.parse(value).type),
 			["input_audio_buffer.append", "input_audio_buffer.commit"],
 		);
+		assert.deepEqual(stopOrder, [
+			"input_audio_buffer.append",
+			"input_audio_buffer.commit",
+			"unsubscribe",
+		]);
 	});
 });
 

@@ -256,11 +256,11 @@ export const createDesktopRealtimeTransport = ({
 		}
 
 		sessions.delete(speaker);
-		session.unsubscribeCapture?.();
-		session.unsubscribeCapture = null;
 		clearManualCommitTimer(session);
 		clearTimeout(session.openTimeout);
 		await flushOnStop(session, getLiveItemId);
+		session.unsubscribeCapture?.();
+		session.unsubscribeCapture = null;
 		session.isClosing = true;
 
 		await new Promise((resolvePromise) => {

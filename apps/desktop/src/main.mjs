@@ -1184,22 +1184,28 @@ const appendTranscriptionTailUtterance = (speaker) => {
 	});
 };
 
-const stopTranscriptionSpeaker = async (speaker) => {
-	const state = transcriptionSpeakers[speaker];
-
+const stopTranscriptionSpeakerTransport = async (speaker) => {
 	if (speaker === "you") {
 		await desktopRealtimeTransport.stop("you", {
 			getLiveItemId: (currentSpeaker) =>
 				transcriptionSpeakers[currentSpeaker]?.liveItemId ?? null,
 		});
-		appendTranscriptionTailUtterance(speaker);
-		await stopMicrophoneCapture();
 	} else {
 		await desktopRealtimeTransport.stop("them", {
 			getLiveItemId: (currentSpeaker) =>
 				transcriptionSpeakers[currentSpeaker]?.liveItemId ?? null,
 		});
-		appendTranscriptionTailUtterance(speaker);
+	}
+
+	appendTranscriptionTailUtterance(speaker);
+};
+
+const stopTranscriptionSpeakerCapture = async (speaker) => {
+	const state = transcriptionSpeakers[speaker];
+
+	if (speaker === "you") {
+		await stopMicrophoneCapture();
+	} else {
 		await stopSystemAudioCapture();
 	}
 
@@ -1208,14 +1214,21 @@ const stopTranscriptionSpeaker = async (speaker) => {
 	clearTranscriptionLiveTranscript(speaker);
 };
 
+const stopTranscriptionSpeaker = async (speaker) => {
+	await stopTranscriptionSpeakerTransport(speaker);
+	await stopTranscriptionSpeakerCapture(speaker);
+};
+
 const cleanupDesktopTranscriptionSession = async ({
 	operationId,
 	preserveUtterances,
 }) => {
 	await Promise.all([
-		stopTranscriptionSpeaker("you"),
-		stopTranscriptionSpeaker("them"),
+		stopTranscriptionSpeakerTransport("you"),
+		stopTranscriptionSpeakerTransport("them"),
 	]);
+	await stopTranscriptionSpeakerCapture("you");
+	await stopTranscriptionSpeakerCapture("them");
 	clearTranscriptionRolloverTimeout();
 
 	if (transcriptionLifecycleOperationId !== operationId) {
