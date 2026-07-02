@@ -173,13 +173,13 @@ transport crash. Durable queued request state must not persist desktop-local
 folder scope or absolute paths; follow-ups that need local-folder tools must
 wait for the current run to finish.
 
-### Queue Parity
+### Queue Behavior
 
 The upstream app-server is the reference for active-turn user input semantics. Graneri keeps the
 same separation of responsibilities with its stack: AI SDK routes own the
 stream/tool loop and acceptance headers, while Convex owns durable coordination,
-atomic queue claims, lifecycle invariants, and replayable state. The parity
-target is behavior, not identical storage.
+atomic queue claims, lifecycle invariants, and replayable state. The target is
+matching behavior, not identical storage.
 
 | Reference behavior | Graneri implementation | Status |
 | --- | --- | --- |

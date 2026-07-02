@@ -106,7 +106,7 @@ test("completeSession terminalizes a stopping transcript session", async () => {
 	expect(session?.finalTranscript).toBe("Final transcript");
 });
 
-test("completeSession stores Granola-style utterance transcript sections when no final text is provided", async () => {
+test("completeSession stores utterance transcript sections when no final text is provided", async () => {
 	const { asOwner, noteId, t } = await createNoteFixture();
 	const sessionId = await asOwner.mutation(
 		api.transcriptSessions.startSession,

@@ -25,8 +25,8 @@ import { TranscriptionAutoStopController } from "@/lib/transcription-auto-stop";
 import { transcriptionSessionManager } from "@/lib/transcription-session-manager";
 import type { Id } from "../../../../convex/_generated/dataModel";
 
-const granolaIdleStopMs = 15 * 60 * 1000;
-const granolaIdleCheckIntervalMs = 15 * 1000;
+const transcriptIdleStopMs = 15 * 60 * 1000;
+const transcriptIdleCheckIntervalMs = 15 * 1000;
 const emptyTranscriptUtterances: TranscriptUtterance[] = [];
 
 type UseNoteTranscriptSessionArgs = {
@@ -750,7 +750,7 @@ export const useNoteTranscriptSession = ({
 			if (
 				transcriptionAutoStopState.hasRequestedStop() ||
 				Date.now() - (lastAudioActivityAtRef.current ?? Date.now()) <
-					granolaIdleStopMs
+					transcriptIdleStopMs
 			) {
 				return;
 			}
@@ -769,7 +769,7 @@ export const useNoteTranscriptSession = ({
 						message: "Failed to stop idle transcript session",
 					});
 				});
-		}, granolaIdleCheckIntervalMs);
+		}, transcriptIdleCheckIntervalMs);
 
 		return () => window.clearInterval(intervalId);
 	}, [
