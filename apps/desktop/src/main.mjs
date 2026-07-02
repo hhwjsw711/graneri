@@ -396,6 +396,7 @@ const subscribeToCaptureEvents = (source, listener) => {
 };
 
 const nativeAudioCapture = createNativeAudioCapture({
+	audioDebugBaseDir: app.getPath("userData"),
 	emitMicrophoneCaptureEvent,
 	emitSystemAudioCaptureEvent,
 	getSystemAudioPermissionState: () => systemAudioPermissionState,

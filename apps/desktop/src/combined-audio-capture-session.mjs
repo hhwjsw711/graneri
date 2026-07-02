@@ -47,6 +47,7 @@ const normalizeReadyEvent = ({ event, session }) => ({
 });
 
 export const createCombinedAudioCaptureController = ({
+	audioDebugRecorder,
 	emitMicrophoneCaptureEvent,
 	emitSystemAudioCaptureEvent,
 	getSystemAudioPermissionState,
@@ -81,6 +82,7 @@ export const createCombinedAudioCaptureController = ({
 		clearTimeout(session.cleanupTimeout);
 		session.cleanupTimeout = null;
 		clearCaptureHealthTimeout(session);
+		audioDebugRecorder.stop();
 
 		await new Promise((resolvePromise) => {
 			const finish = () => resolvePromise();
@@ -156,6 +158,7 @@ export const createCombinedAudioCaptureController = ({
 					error: error instanceof Error ? error.message : error,
 					message: "[combined-audio] helper failed to start",
 				});
+				audioDebugRecorder.stop();
 				if (didResolve) {
 					const message =
 						error instanceof Error ? error.message : String(error);
@@ -203,6 +206,18 @@ export const createCombinedAudioCaptureController = ({
 					systemAudio: payload?.systemAudio ?? null,
 				});
 				markSystemAudioPermissionGranted();
+				void audioDebugRecorder.cleanupExpiredFiles();
+				session.audioDebugStartPromise = audioDebugRecorder
+					.start({
+						microphoneSampleRate: session.sampleRates.microphone,
+						systemAudioSampleRate: session.sampleRates.systemAudio,
+					})
+					.catch((error) => {
+						logError({
+							error,
+							message: "[combined-audio] failed to start audio debug recorder",
+						});
+					});
 				didResolve = true;
 				resolvePromise(payload);
 			};
@@ -285,6 +300,7 @@ export const createCombinedAudioCaptureController = ({
 					microphone: 0,
 					systemAudio: 0,
 				},
+				audioDebugStartPromise: null,
 			};
 			activeSession = session;
 
@@ -366,6 +382,22 @@ export const createCombinedAudioCaptureController = ({
 					const capturedAt =
 						typeof event.capturedAt === "number" ? event.capturedAt : undefined;
 
+					const appendAudioDebugChunk = () => {
+						if (activeSession !== session || session.isStopping) {
+							return;
+						}
+
+						audioDebugRecorder.append({
+							microphonePcm16,
+							systemAudioPcm16,
+						});
+					};
+					if (session.audioDebugStartPromise) {
+						void session.audioDebugStartPromise.then(appendAudioDebugChunk);
+					} else {
+						appendAudioDebugChunk();
+					}
+
 					if (microphonePcm16) {
 						session.sourceChunkCounts.microphone += 1;
 						if (session.sourceChunkCounts.microphone === 1) {
@@ -418,6 +450,7 @@ export const createCombinedAudioCaptureController = ({
 				clearTimeout(cleanupTimeout);
 				session.cleanupTimeout = null;
 				clearCaptureHealthTimeout(session);
+				audioDebugRecorder.stop();
 				if (activeSession === session) {
 					activeSession = null;
 				}
@@ -432,6 +465,7 @@ export const createCombinedAudioCaptureController = ({
 				clearTimeout(cleanupTimeout);
 				session.cleanupTimeout = null;
 				clearCaptureHealthTimeout(session);
+				audioDebugRecorder.stop();
 				if (activeSession === session) {
 					activeSession = null;
 				}

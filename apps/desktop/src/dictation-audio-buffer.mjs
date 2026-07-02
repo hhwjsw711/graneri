@@ -1,12 +1,12 @@
 export const maxDictationPcmBytes = 25_000_000;
 
-export const createWavBuffer = ({ pcm16, sampleRate }) => {
+export const createPcm16MonoWavHeader = ({ byteLength, sampleRate }) => {
 	const header = Buffer.alloc(44);
 	const byteRate = sampleRate * 2;
 	const blockAlign = 2;
 
 	header.write("RIFF", 0);
-	header.writeUInt32LE(36 + pcm16.byteLength, 4);
+	header.writeUInt32LE(36 + byteLength, 4);
 	header.write("WAVE", 8);
 	header.write("fmt ", 12);
 	header.writeUInt32LE(16, 16);
@@ -17,7 +17,16 @@ export const createWavBuffer = ({ pcm16, sampleRate }) => {
 	header.writeUInt16LE(blockAlign, 32);
 	header.writeUInt16LE(16, 34);
 	header.write("data", 36);
-	header.writeUInt32LE(pcm16.byteLength, 40);
+	header.writeUInt32LE(byteLength, 40);
+
+	return header;
+};
+
+export const createWavBuffer = ({ pcm16, sampleRate }) => {
+	const header = createPcm16MonoWavHeader({
+		byteLength: pcm16.byteLength,
+		sampleRate,
+	});
 
 	return Buffer.concat([header, pcm16]);
 };

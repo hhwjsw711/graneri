@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createAudioDebugRecorder } from "./audio-debug-recorder.mjs";
 import { createCombinedAudioCaptureController } from "./combined-audio-capture-session.mjs";
 import { resolveDesktopRuntimeExecutablePath } from "./desktop-runtime-paths.mjs";
 import { isHelperStderrError } from "./line-event-helper-session.mjs";
@@ -67,6 +68,7 @@ export const resolveCombinedAudioHelperPath = ({ runtimeDir }) => {
 };
 
 export const createNativeAudioCapture = ({
+	audioDebugBaseDir,
 	runtimeDir,
 	emitMicrophoneCaptureEvent,
 	emitSystemAudioCaptureEvent,
@@ -82,6 +84,9 @@ export const createNativeAudioCapture = ({
 	let microphoneCaptureStartRequestId = 0;
 	let systemAudioCaptureSession = null;
 	let systemAudioCaptureStartRequestId = 0;
+	const audioDebugRecorder = createAudioDebugRecorder({
+		baseDir: audioDebugBaseDir,
+	});
 
 	const stopCombinedAudioCapture = async () =>
 		await combinedAudioCaptureController.stop();
@@ -182,6 +187,7 @@ export const createNativeAudioCapture = ({
 		markSystemAudioPermissionBlocked,
 		markSystemAudioPermissionGranted,
 		markSystemAudioPermissionPrompt,
+		audioDebugRecorder,
 		resolveHelperPath: () => resolveCombinedAudioHelperPath({ runtimeDir }),
 		spawnImpl,
 		stopExistingCapture: async () => {
