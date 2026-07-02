@@ -355,53 +355,58 @@ export const createCombinedAudioCaptureController = ({
 
 				if (event?.type === "chunk") {
 					resetHealthTimeout();
-					if (event.source === "microphone") {
+					const microphonePcm16 =
+						typeof event.microphonePcm16 === "string"
+							? event.microphonePcm16
+							: null;
+					const systemAudioPcm16 =
+						typeof event.systemAudioPcm16 === "string"
+							? event.systemAudioPcm16
+							: null;
+					const capturedAt =
+						typeof event.capturedAt === "number" ? event.capturedAt : undefined;
+
+					if (microphonePcm16) {
 						session.sourceChunkCounts.microphone += 1;
 						if (session.sourceChunkCounts.microphone === 1) {
 							logDesktopTurnDebug("combined_audio.source_chunk_started", {
-								pcm16Length:
-									typeof event.pcm16 === "string" ? event.pcm16.length : 0,
+								pcm16Length: microphonePcm16.length,
 								requestId,
 								sampleRate: session.sampleRates.microphone,
 								source: "microphone",
 							});
 						}
 						emitMicrophoneCaptureEvent({
-							...(typeof event.capturedAt === "number"
-								? { capturedAt: event.capturedAt }
-								: {}),
-							pcm16: event.pcm16,
+							...(capturedAt !== undefined ? { capturedAt } : {}),
+							pcm16: microphonePcm16,
 							type: "chunk",
 						});
-						return;
 					}
 
-					if (event.source === "systemAudio") {
+					if (systemAudioPcm16) {
 						session.sourceChunkCounts.systemAudio += 1;
 						if (session.sourceChunkCounts.systemAudio === 1) {
 							logDesktopTurnDebug("combined_audio.source_chunk_started", {
-								pcm16Length:
-									typeof event.pcm16 === "string" ? event.pcm16.length : 0,
+								pcm16Length: systemAudioPcm16.length,
 								requestId,
 								sampleRate: session.sampleRates.systemAudio,
 								source: "systemAudio",
 							});
 						}
 						emitSystemAudioCaptureEvent({
-							...(typeof event.capturedAt === "number"
-								? { capturedAt: event.capturedAt }
-								: {}),
-							pcm16: event.pcm16,
+							...(capturedAt !== undefined ? { capturedAt } : {}),
+							pcm16: systemAudioPcm16,
 							type: "chunk",
 						});
-						return;
 					}
 
-					logError({
-						error: event,
-						message:
-							"[combined-audio] helper emitted chunk without a supported source",
-					});
+					if (!microphonePcm16 && !systemAudioPcm16) {
+						logError({
+							error: event,
+							message:
+								"[combined-audio] helper emitted paired chunk without audio",
+						});
+					}
 					return;
 				}
 

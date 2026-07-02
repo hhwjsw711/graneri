@@ -45,20 +45,14 @@ enum CombinedAudioCaptureCLI {
 			exit(result.isPassing ? EXIT_SUCCESS : EXIT_FAILURE)
 		}
 
-		let microphoneEncoder = NativeAudioPcmChunkEncoder(
+		let pairedEncoder = NativeAudioPairedPcmChunkEncoder(
 			emitter: emitter,
-			label: "com.graneri.combined-audio.microphone.encoder",
-			source: "microphone"
-		)
-		let systemAudioEncoder = NativeAudioPcmChunkEncoder(
-			emitter: emitter,
-			label: "com.graneri.combined-audio.system-audio.encoder",
-			source: "systemAudio"
+			label: "com.graneri.combined-audio.paired.encoder"
 		)
 		let audioProcessingPipeline = CombinedAudioProcessingPipeline(
 			logger: logger,
-			microphoneOutput: microphoneEncoder,
-			systemAudioOutput: systemAudioEncoder,
+			microphoneOutput: pairedEncoder.microphoneSink,
+			systemAudioOutput: pairedEncoder.systemAudioSink,
 			onDiagnostics: { event in
 				emitter.send(event: event)
 			}
@@ -87,8 +81,7 @@ enum CombinedAudioCaptureCLI {
 
 		func stopCaptureAndExit(_ signal: Int32) -> Never {
 			logger.log("[helper] combined audio received signal \(signal)")
-			microphoneEncoder.stop()
-			systemAudioEncoder.stop()
+			pairedEncoder.stop()
 			try? microphoneCapture.stop()
 			try? systemAudioCapture?.stop()
 			emitter.send(event: [
@@ -118,8 +111,7 @@ enum CombinedAudioCaptureCLI {
 			)
 			systemAudioCapture = nextSystemAudioCapture
 			let systemAudioFormat = try nextSystemAudioCapture.start()
-			microphoneEncoder.start()
-			systemAudioEncoder.start()
+			pairedEncoder.start()
 			logger.log("[helper] combined audio emitting ready event")
 			emitter.send(event: [
 				"type": "ready",
@@ -144,8 +136,7 @@ enum CombinedAudioCaptureCLI {
 			}
 		} catch {
 			logger.log("[helper] combined audio startup failed: \(error.localizedDescription)")
-			microphoneEncoder.stop()
-			systemAudioEncoder.stop()
+			pairedEncoder.stop()
 			try? microphoneCapture.stop()
 			try? systemAudioCapture?.stop()
 			emitter.send(event: [

@@ -53,7 +53,7 @@ test("combined audio helper resolves through the native runtime contract", async
 	);
 });
 
-test("combined audio helper routes source-tagged chunks to source event buses", async () => {
+test("combined audio helper routes paired chunks to source event buses", async () => {
 	const originalPlatform = process.platform;
 	Object.defineProperty(process, "platform", {
 		value: "darwin",
@@ -122,16 +122,8 @@ test("combined audio helper routes source-tagged chunks to source event buses", 
 		child.stdout.write(
 			`${JSON.stringify({
 				capturedAt: 1_000,
-				pcm16: "bWlj",
-				source: "microphone",
-				type: "chunk",
-			})}\n`,
-		);
-		child.stdout.write(
-			`${JSON.stringify({
-				capturedAt: 1_100,
-				pcm16: "c3lz",
-				source: "systemAudio",
+				microphonePcm16: "bWlj",
+				systemAudioPcm16: "c3lz",
 				type: "chunk",
 			})}\n`,
 		);
@@ -165,7 +157,7 @@ test("combined audio helper routes source-tagged chunks to source event buses", 
 			{ capturedAt: 1_000, pcm16: "bWlj", type: "chunk" },
 		]);
 		assert.deepEqual(systemAudioEvents, [
-			{ capturedAt: 1_100, pcm16: "c3lz", type: "chunk" },
+			{ capturedAt: 1_000, pcm16: "c3lz", type: "chunk" },
 		]);
 		assert.deepEqual(
 			turnDebugEvents
