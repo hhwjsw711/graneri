@@ -37,7 +37,10 @@ export const createAudioDebugRecorder = ({
 	let sessionVersion = 0;
 
 	const enabled = shouldEnableAudioDebugRecorder(env);
-	const debugDir = baseDir ? join(baseDir, "audio_files") : null;
+	if (enabled && !baseDir) {
+		throw new Error("Audio debug recording requires a base directory.");
+	}
+	const debugDir = enabled ? join(baseDir, "audio_files") : null;
 
 	const stop = () => {
 		sessionVersion += 1;

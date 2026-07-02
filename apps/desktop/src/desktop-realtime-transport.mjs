@@ -4,6 +4,7 @@ import {
 	normalizeTranscriptionLanguage,
 	resolveDesktopRealtimeProfile,
 } from "../../../packages/ai/src/transcription.mjs";
+import { createDesktopRealtimeAudioBatcher } from "./desktop-realtime-audio-batcher.mjs";
 import { createDesktopRealtimeClientSecret } from "./desktop-realtime-client-secret.mjs";
 import { parseDesktopRealtimeTransportEvent } from "./desktop-realtime-events.mjs";
 import { logError, logInfo } from "./logger.mjs";
@@ -11,17 +12,6 @@ import { logError, logInfo } from "./logger.mjs";
 const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
 const desktopRealtimeManualCommitIntervalMs = 2_500;
-const desktopRealtimeAudioBatchDurationMs = 100;
-const desktopRealtimeAudioBatchStatsIntervalMs = 30_000;
-const desktopRealtimeOutputSampleRate = 24_000;
-const desktopRealtimePcm16BytesPerSample = 2;
-const desktopRealtimePcm16BytesPerMillisecond =
-	(desktopRealtimeOutputSampleRate * desktopRealtimePcm16BytesPerSample) / 1000;
-const desktopRealtimeAudioBatchBytes =
-	(desktopRealtimeOutputSampleRate *
-		desktopRealtimePcm16BytesPerSample *
-		desktopRealtimeAudioBatchDurationMs) /
-	1000;
 const desktopRealtimeStopFlushTimeoutMs = 1_500;
 const desktopRealtimeStopFlushSettleTimeoutMs = 750;
 
@@ -56,30 +46,6 @@ const createAudioDiagnostics = () => ({
 	receivedChunks: 0,
 	sentChunks: 0,
 });
-
-const createAudioBatchStats = () => ({
-	count: 0,
-	lastLogTime: Date.now(),
-	totalBytes: 0,
-});
-
-const getAudioDurationMs = (byteLength) =>
-	byteLength / desktopRealtimePcm16BytesPerMillisecond;
-
-const mergeAudioInterval = (currentInterval, nextInterval) => {
-	if (!nextInterval) {
-		return currentInterval;
-	}
-
-	if (!currentInterval) {
-		return nextInterval;
-	}
-
-	return {
-		endedAt: Math.max(currentInterval.endedAt, nextInterval.endedAt),
-		startedAt: Math.min(currentInterval.startedAt, nextInterval.startedAt),
-	};
-};
 
 export const createDesktopRealtimeTransport = ({
 	canUseHostedDesktopAi,
@@ -133,7 +99,7 @@ export const createDesktopRealtimeTransport = ({
 		if (
 			!session.isClosing &&
 			session.socket.readyState === WebSocketImpl.OPEN &&
-			session.audioBatch.byteLength > 0
+			session.audioBatcher.hasBufferedAudio()
 		) {
 			flushAudioBatch(session, { force: true });
 		}
@@ -151,8 +117,9 @@ export const createDesktopRealtimeTransport = ({
 				type: "input_audio_buffer.commit",
 			}),
 		);
-		session.inFlightCommitIntervals.push(session.pendingCommitInterval);
-		session.pendingCommitInterval = null;
+		session.inFlightCommitIntervals.push(
+			session.audioBatcher.takePendingCommitInterval(),
+		);
 		session.hasPendingAudioCommit = false;
 		clearManualCommitTimer(session);
 
@@ -164,7 +131,8 @@ export const createDesktopRealtimeTransport = ({
 			session.isClosing ||
 			session.manualCommitTimeoutId ||
 			session.socket.readyState !== WebSocketImpl.OPEN ||
-			(!session.hasPendingAudioCommit && session.audioBatch.byteLength === 0)
+			(!session.hasPendingAudioCommit &&
+				!session.audioBatcher.hasBufferedAudio())
 		) {
 			return;
 		}
@@ -204,7 +172,10 @@ export const createDesktopRealtimeTransport = ({
 		}
 
 		const targetItemId = getLiveItemId(session.speaker);
-		if (!session.hasPendingAudioCommit && session.audioBatch.byteLength === 0) {
+		if (
+			!session.hasPendingAudioCommit &&
+			!session.audioBatcher.hasBufferedAudio()
+		) {
 			return;
 		}
 
@@ -235,8 +206,9 @@ export const createDesktopRealtimeTransport = ({
 						type: "input_audio_buffer.commit",
 					}),
 				);
-				session.inFlightCommitIntervals.push(session.pendingCommitInterval);
-				session.pendingCommitInterval = null;
+				session.inFlightCommitIntervals.push(
+					session.audioBatcher.takePendingCommitInterval(),
+				);
 				session.hasPendingAudioCommit = false;
 				clearManualCommitTimer(session);
 				settleStopFlush(session);
@@ -289,137 +261,28 @@ export const createDesktopRealtimeTransport = ({
 		return { ok: true };
 	};
 
-	const sendAudioChunk = ({ audio, socket }) => {
-		socket.send(
-			JSON.stringify({
-				type: "input_audio_buffer.append",
-				audio,
-			}),
-		);
-	};
-
-	const logAudioBatchStatsIfReady = (session) => {
-		const now = Date.now();
-		const elapsedMs = now - session.audioBatchStats.lastLogTime;
-		if (elapsedMs < desktopRealtimeAudioBatchStatsIntervalMs) {
-			return;
-		}
-
-		if (session.audioBatchStats.count > 0) {
-			const avgBytesPerBatch = Math.round(
-				session.audioBatchStats.totalBytes / session.audioBatchStats.count,
-			);
-			logInfo({
-				message: "[desktop-realtime] audio batch stats",
-				details: {
-					avgAudioDurationMsPerBatch: Math.round(
-						getAudioDurationMs(avgBytesPerBatch),
-					),
-					avgBytesPerBatch,
-					batchCount: session.audioBatchStats.count,
-					intervalMs: elapsedMs,
-					profile: session.profile,
-					sampleRate: desktopRealtimeOutputSampleRate,
-					source: session.source,
-					speaker: session.speaker,
-					targetAudioDurationMs: desktopRealtimeAudioBatchDurationMs,
-					targetBytesPerBatch: desktopRealtimeAudioBatchBytes,
-					totalBytes: session.audioBatchStats.totalBytes,
-				},
-			});
-		}
-
-		session.audioBatchStats = createAudioBatchStats();
-	};
-
 	const flushAudioBatch = (session, { force = false } = {}) => {
-		if (
-			session.isClosing ||
-			session.socket.readyState !== WebSocketImpl.OPEN ||
-			session.audioBatch.byteLength === 0
-		) {
+		if (session.isClosing || session.socket.readyState !== WebSocketImpl.OPEN) {
 			return 0;
 		}
 
-		const bytesToSend = force
-			? session.audioBatch.byteLength
-			: Math.floor(
-					session.audioBatch.byteLength / desktopRealtimeAudioBatchBytes,
-				) * desktopRealtimeAudioBatchBytes;
-
-		if (bytesToSend === 0) {
+		const sentChunks = session.audioBatcher.flush({ force });
+		if (sentChunks === 0) {
 			return 0;
 		}
 
-		const sentStartedAt = session.audioBatchStartedAt;
-		const sentEndedAt =
-			force || bytesToSend === session.audioBatch.byteLength
-				? session.audioBatchEndedAt
-				: sentStartedAt == null
-					? null
-					: sentStartedAt + getAudioDurationMs(bytesToSend);
-
-		let sentChunks = 0;
-		for (
-			let offset = 0;
-			offset < bytesToSend;
-			offset += desktopRealtimeAudioBatchBytes
-		) {
-			const endOffset = Math.min(
-				offset + desktopRealtimeAudioBatchBytes,
-				bytesToSend,
-			);
-			const chunkBytes = endOffset - offset;
-			sendAudioChunk({
-				audio: session.audioBatch
-					.subarray(offset, endOffset)
-					.toString("base64"),
-				socket: session.socket,
-			});
-			session.audioBatchStats.count += 1;
-			session.audioBatchStats.totalBytes += chunkBytes;
-			sentChunks += 1;
-		}
-		logAudioBatchStatsIfReady(session);
-
-		session.audioBatch = session.audioBatch.subarray(bytesToSend);
-		if (sentStartedAt != null && sentEndedAt != null) {
-			session.pendingCommitInterval = mergeAudioInterval(
-				session.pendingCommitInterval,
-				{
-					endedAt: sentEndedAt,
-					startedAt: sentStartedAt,
-				},
-			);
-		}
-		if (session.audioBatch.byteLength === 0) {
-			session.audioBatchStartedAt = null;
-			session.audioBatchEndedAt = null;
-		} else {
-			session.audioBatchStartedAt = sentEndedAt;
-		}
 		session.audioDiagnostics.sentChunks += sentChunks;
 		session.hasPendingAudioCommit = true;
 		return sentChunks;
 	};
 
 	const appendAudioToBatch = (session, { audio, capturedAt }) => {
-		const chunk = Buffer.from(audio, "base64");
-
-		if (chunk.byteLength === 0) {
-			return 0;
+		const sentChunks = session.audioBatcher.append({ audio, capturedAt });
+		session.audioDiagnostics.sentChunks += sentChunks;
+		if (sentChunks > 0) {
+			session.hasPendingAudioCommit = true;
 		}
-
-		session.audioBatch =
-			session.audioBatch.byteLength === 0
-				? chunk
-				: Buffer.concat([session.audioBatch, chunk]);
-		const chunkEndedAt = capturedAt;
-		const chunkStartedAt = chunkEndedAt - getAudioDurationMs(chunk.byteLength);
-		session.audioBatchStartedAt ??= chunkStartedAt;
-		session.audioBatchEndedAt = chunkEndedAt;
-
-		return flushAudioBatch(session);
+		return sentChunks;
 	};
 
 	const start = async ({ lang, source, speaker }) => {
@@ -468,10 +331,27 @@ export const createDesktopRealtimeTransport = ({
 				},
 			);
 			const session = {
-				audioBatch: Buffer.alloc(0),
-				audioBatchEndedAt: null,
-				audioBatchStartedAt: null,
-				audioBatchStats: createAudioBatchStats(),
+				audioBatcher: createDesktopRealtimeAudioBatcher({
+					logStats: (details) => {
+						logInfo({
+							message: "[desktop-realtime] audio batch stats",
+							details: {
+								...details,
+								profile,
+								source,
+								speaker,
+							},
+						});
+					},
+					sendAudio: (audio) => {
+						socket.send(
+							JSON.stringify({
+								type: "input_audio_buffer.append",
+								audio,
+							}),
+						);
+					},
+				}),
 				audioDiagnostics: createAudioDiagnostics(),
 				hasPendingAudioCommit: false,
 				inFlightCommitIntervals: [],
@@ -490,7 +370,6 @@ export const createDesktopRealtimeTransport = ({
 					socket.terminate();
 				}, desktopRealtimeConnectTimeoutMs),
 				pendingAudio: [],
-				pendingCommitInterval: null,
 				profile,
 				socket,
 				source,

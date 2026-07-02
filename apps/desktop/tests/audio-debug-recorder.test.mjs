@@ -41,6 +41,18 @@ test("audio debug recorder is disabled unless explicitly enabled", () => {
 	);
 });
 
+test("audio debug recorder requires a base directory when enabled", () => {
+	assert.throws(
+		() =>
+			createAudioDebugRecorder({
+				env: {
+					GRANERI_AUDIO_DEBUG_RECORDINGS: "1",
+				},
+			}),
+		/Audio debug recording requires a base directory/,
+	);
+});
+
 test("audio debug recorder writes paired microphone and system WAV streams", async () => {
 	const streams = [];
 	const recorder = createAudioDebugRecorder({
