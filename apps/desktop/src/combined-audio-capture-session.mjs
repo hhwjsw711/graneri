@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createAudioVolumeStats } from "./audio-volume-stats.mjs";
 import { logError, logInfo } from "./logger.mjs";
 
 const captureHealthTimeoutMs = 3_000;
@@ -125,6 +126,7 @@ export const createCombinedAudioCaptureController = ({
 		await stop();
 
 		return await new Promise((resolvePromise, rejectPromise) => {
+			const audioVolumeStats = createAudioVolumeStats();
 			const child = spawnImpl(helperPath, [], {
 				stdio: ["ignore", "pipe", "pipe"],
 			});
@@ -381,6 +383,16 @@ export const createCombinedAudioCaptureController = ({
 							: null;
 					const capturedAt =
 						typeof event.capturedAt === "number" ? event.capturedAt : undefined;
+					audioVolumeStats.update({
+						microphonePcm16,
+						systemAudioPcm16,
+					});
+					audioVolumeStats.logIfReady((details) => {
+						logInfo({
+							message: "[combined-audio] volume stats",
+							details,
+						});
+					});
 
 					const appendAudioDebugChunk = () => {
 						if (activeSession !== session || session.isStopping) {
