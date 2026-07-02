@@ -24,12 +24,17 @@ import {
 } from "@/components/ai-elements/file-attachment-controls";
 import { hasUploadingAttachments } from "@/components/ai-elements/file-attachment-utils";
 import type { AutomationListItem } from "@/components/automations/automation-types";
+import {
+	escapeChatMessageSelectorValue,
+	getChatMessageElement,
+} from "@/components/chat/chat-message-dom";
 import { ChatMessagesEntry } from "@/components/chat/chat-messages-entry";
 import {
 	type ChatSummaryOpenSourceRequest,
 	OPEN_CHAT_SUMMARY_EVENT,
 } from "@/components/chat/chat-summary-events";
 import { ChatSummarySheetEntry } from "@/components/chat/chat-summary-sheet-entry";
+import { ChatUserMessageNavigationRail } from "@/components/chat/chat-user-message-navigation-rail";
 import type {
 	ChatModel,
 	ReasoningEffort,
@@ -1583,12 +1588,8 @@ export function ChatPage({
 			return;
 		}
 
-		const escapedMessageId =
-			typeof CSS !== "undefined" && typeof CSS.escape === "function"
-				? CSS.escape(activeMessageSearchMatch.messageId)
-				: activeMessageSearchMatch.messageId.replace(/"/g, '\\"');
-		const messageElement = document.querySelector<HTMLElement>(
-			`[data-chat-message-id="${escapedMessageId}"]`,
+		const messageElement = getChatMessageElement(
+			activeMessageSearchMatch.messageId,
 		);
 
 		messageElement?.scrollIntoView?.({
@@ -1619,12 +1620,8 @@ export function ChatPage({
 		const activeMatchRanges: Range[] = [];
 
 		for (const match of messageSearchMatches) {
-			const escapedMessageId =
-				typeof CSS !== "undefined" && typeof CSS.escape === "function"
-					? CSS.escape(match.messageId)
-					: match.messageId.replace(/"/g, '\\"');
 			const messageElement = document.querySelector<HTMLElement>(
-				`[data-chat-message-id="${escapedMessageId}"]`,
+				`[data-chat-message-id="${escapeChatMessageSelectorValue(match.messageId)}"]`,
 			);
 
 			if (!messageElement) {
@@ -1800,7 +1797,7 @@ export function ChatPage({
 						<div className="box-border flex w-full max-w-full min-w-0 flex-1 justify-center px-4 md:px-6">
 							<div
 								className={cn(
-									"flex min-h-0 w-full min-w-0 max-w-5xl flex-1 flex-col",
+									"relative flex min-h-0 w-full min-w-0 max-w-5xl flex-1 flex-col",
 									isDesktopMac ? "pt-2 md:pt-4" : "pt-0",
 								)}
 							>
@@ -1895,6 +1892,15 @@ export function ChatPage({
 										</div>
 									</div>
 								)}
+								{shouldShowActiveChatSurface ? (
+									<div className="pointer-events-none absolute top-0 right-0 hidden h-full lg:block">
+										<div className="pointer-events-auto sticky top-1/2 -translate-y-1/2">
+											<ChatUserMessageNavigationRail
+												messages={controller.messages}
+											/>
+										</div>
+									</div>
+								) : null}
 							</div>
 						</div>
 					</MessageScrollerViewport>

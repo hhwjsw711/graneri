@@ -1159,7 +1159,10 @@ type NotePageEditorPaneProps = {
 	shouldHideEmptyBodyPlaceholder: boolean;
 	onOpenCommentComposer: () => void;
 	isDesktopMac: boolean;
-	handleTableOfContentsSelect: (anchor: TableOfContentDataItem) => void;
+	handleTableOfContentsSelect: (
+		anchor: TableOfContentDataItem,
+		behavior?: ScrollBehavior,
+	) => void;
 };
 
 type NotePageCommentPanelState = {
@@ -1585,7 +1588,10 @@ function NotePageContent({
 	onPendingSelectionChange: (
 		selection: PendingNoteCommentSelection | null,
 	) => void;
-	handleTableOfContentsSelect: (anchor: TableOfContentDataItem) => void;
+	handleTableOfContentsSelect: (
+		anchor: TableOfContentDataItem,
+		behavior?: ScrollBehavior,
+	) => void;
 }) {
 	void scrollParentRef;
 
@@ -1953,7 +1959,7 @@ export function NotePage({
 		!controller.title.trim() && !controller.searchableText.trim();
 	const noteSearch = useNoteSearch(controller.searchableText);
 	const handleTableOfContentsSelect = React.useCallback(
-		(anchor: TableOfContentDataItem) => {
+		(anchor: TableOfContentDataItem, behavior: ScrollBehavior = "smooth") => {
 			const topOffset = 72;
 			const scrollParent = scrollParentRef?.current ?? window;
 
@@ -1966,7 +1972,7 @@ export function NotePage({
 
 				scrollParent.scrollTo({
 					top: Math.max(0, nextTop),
-					behavior: "smooth",
+					behavior,
 				});
 				return;
 			}
@@ -1976,7 +1982,7 @@ export function NotePage({
 					0,
 					anchor.dom.getBoundingClientRect().top + window.scrollY - topOffset,
 				),
-				behavior: "smooth",
+				behavior,
 			});
 		},
 		[scrollParentRef],
