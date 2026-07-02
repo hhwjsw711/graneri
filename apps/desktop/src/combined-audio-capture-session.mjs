@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import { logError, logInfo } from "./logger.mjs";
 
 const captureHealthTimeoutMs = 3_000;
+const combinedAudioInterruptionReason = "combined_audio_interrupted";
 
 const clearCaptureHealthTimeout = (session) => {
 	if (session?.healthTimeout) {
@@ -158,8 +159,16 @@ export const createCombinedAudioCaptureController = ({
 				if (didResolve) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					emitMicrophoneCaptureEvent({ type: "error", message });
-					emitSystemAudioCaptureEvent({ type: "error", message });
+					emitMicrophoneCaptureEvent({
+						type: "error",
+						message,
+						reason: combinedAudioInterruptionReason,
+					});
+					emitSystemAudioCaptureEvent({
+						type: "error",
+						message,
+						reason: combinedAudioInterruptionReason,
+					});
 					return;
 				}
 
@@ -244,10 +253,12 @@ export const createCombinedAudioCaptureController = ({
 						emitMicrophoneCaptureEvent({
 							type: "error",
 							message: timeoutError.message,
+							reason: combinedAudioInterruptionReason,
 						});
 						emitSystemAudioCaptureEvent({
 							type: "error",
 							message: timeoutError.message,
+							reason: combinedAudioInterruptionReason,
 						});
 					} else {
 						rejectStart(timeoutError);
@@ -356,6 +367,9 @@ export const createCombinedAudioCaptureController = ({
 							});
 						}
 						emitMicrophoneCaptureEvent({
+							...(typeof event.capturedAt === "number"
+								? { capturedAt: event.capturedAt }
+								: {}),
 							pcm16: event.pcm16,
 							type: "chunk",
 						});
@@ -374,6 +388,9 @@ export const createCombinedAudioCaptureController = ({
 							});
 						}
 						emitSystemAudioCaptureEvent({
+							...(typeof event.capturedAt === "number"
+								? { capturedAt: event.capturedAt }
+								: {}),
 							pcm16: event.pcm16,
 							type: "chunk",
 						});
@@ -434,8 +451,18 @@ export const createCombinedAudioCaptureController = ({
 				}
 
 				if (!session.isStopping) {
-					emitMicrophoneCaptureEvent({ type: "stopped", code, signal });
-					emitSystemAudioCaptureEvent({ type: "stopped", code, signal });
+					emitMicrophoneCaptureEvent({
+						type: "stopped",
+						code,
+						reason: combinedAudioInterruptionReason,
+						signal,
+					});
+					emitSystemAudioCaptureEvent({
+						type: "stopped",
+						code,
+						reason: combinedAudioInterruptionReason,
+						signal,
+					});
 				}
 			});
 		});

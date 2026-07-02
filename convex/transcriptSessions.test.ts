@@ -106,7 +106,7 @@ test("completeSession terminalizes a stopping transcript session", async () => {
 	expect(session?.finalTranscript).toBe("Final transcript");
 });
 
-test("completeSession stores aggregate utterance transcript when no final text is provided", async () => {
+test("completeSession stores Granola-style utterance transcript sections when no final text is provided", async () => {
 	const { asOwner, noteId, t } = await createNoteFixture();
 	const sessionId = await asOwner.mutation(
 		api.transcriptSessions.startSession,
@@ -144,7 +144,7 @@ test("completeSession stores aggregate utterance transcript when no final text i
 	const session = await t.run(async (ctx) => await ctx.db.get(sessionId));
 
 	expect(session?.finalTranscript).toBe(
-		"You: First captured sentence. Second captured sentence.",
+		"You: First captured sentence.\n\nYou: Second captured sentence.",
 	);
 });
 

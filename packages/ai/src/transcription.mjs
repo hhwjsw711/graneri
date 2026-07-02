@@ -23,12 +23,7 @@ const transcriptPlaceholderPatterns = new Set([
 	"unintelligible",
 ]);
 
-const TRANSCRIPT_SECTION_GAP_MS = 6_000;
-const TRANSCRIPT_SECTION_SOFT_WORD_LIMIT = 70;
-const TRANSCRIPT_SECTION_HARD_WORD_LIMIT = 110;
-const TRANSCRIPT_SECTION_HARD_CHAR_LIMIT = 720;
-const TRANSCRIPT_SECTION_SENTENCE_MIN_WORDS = 32;
-const TRANSCRIPT_SECTION_SENTENCE_END_PATTERN = /[.!?][)"'\]]*$/;
+const TRANSCRIPT_EMBEDDED_SPEAKER_PATTERN = /Speaker ([^:]+):/;
 
 const DEFAULT_TRANSCRIPT_SPEAKER_LABELS = {
 	them: "Them",
@@ -54,18 +49,16 @@ export const normalizeTranscriptText = (value) =>
 export const getTranscriptWordCount = (value) =>
 	normalizeTranscriptText(value).split(" ").filter(Boolean).length;
 
-const getTranscriptDisplayWordCount = (value) =>
-	typeof value === "string"
-		? value.trim().split(/\s+/).filter(Boolean).length
-		: 0;
-
-const hasTranscriptSentenceEnding = (value) =>
-	TRANSCRIPT_SECTION_SENTENCE_END_PATTERN.test(String(value ?? "").trim());
-
 const getTranscriptUtteranceId = (utterance) => String(utterance.id);
 
 const getTranscriptUtteranceText = (utterance) =>
 	typeof utterance.text === "string" ? utterance.text.trim() : "";
+
+const getTranscriptEmbeddedSpeaker = (text) =>
+	String(text ?? "").match(TRANSCRIPT_EMBEDDED_SPEAKER_PATTERN)?.[1] ?? null;
+
+const shouldEndTranscriptSection = (section) =>
+	String(section?.text ?? "").trim().endsWith(".");
 
 export const compareTranscriptUtteranceOrder = (left, right) => {
 	const leftStartedAt = Number(left.startedAt);
@@ -102,34 +95,25 @@ const joinTranscriptSectionText = (currentText, nextText) => {
 	return `${normalizedCurrentText} ${normalizedNextText}`;
 };
 
-const shouldAppendTranscriptUtteranceToSection = ({ section, utterance }) => {
+export const shouldAppendTranscriptUtteranceToSection = ({
+	section,
+	utterance,
+}) => {
 	if (section.speaker !== utterance.speaker) {
 		return false;
 	}
 
-	if (utterance.startedAt - section.endedAt > TRANSCRIPT_SECTION_GAP_MS) {
-		return false;
-	}
-
-	const sectionWordCount = getTranscriptDisplayWordCount(section.text);
-
+	const sectionEmbeddedSpeaker = getTranscriptEmbeddedSpeaker(section.text);
+	const utteranceEmbeddedSpeaker = getTranscriptEmbeddedSpeaker(utterance.text);
 	if (
-		section.text.length >= TRANSCRIPT_SECTION_HARD_CHAR_LIMIT ||
-		sectionWordCount >= TRANSCRIPT_SECTION_HARD_WORD_LIMIT
+		sectionEmbeddedSpeaker &&
+		utteranceEmbeddedSpeaker &&
+		sectionEmbeddedSpeaker !== utteranceEmbeddedSpeaker
 	) {
 		return false;
 	}
 
-	if (
-		sectionWordCount >= TRANSCRIPT_SECTION_SENTENCE_MIN_WORDS &&
-		hasTranscriptSentenceEnding(section.text)
-	) {
-		return false;
-	}
-
-	const nextWordCount = getTranscriptDisplayWordCount(utterance.text);
-
-	return sectionWordCount + nextWordCount <= TRANSCRIPT_SECTION_SOFT_WORD_LIMIT;
+	return !shouldEndTranscriptSection(section);
 };
 
 const getTranscriptSpeakerLabel = (speaker, speakerLabels) => {
@@ -243,7 +227,7 @@ export const isTranscriptPlaceholderText = (value) => {
 };
 
 export const resolveRealtimeNoiseReductionType = (source) => {
-	return isSystemAudioSource(source) ? null : "near_field";
+	return null;
 };
 
 export const normalizeTranscriptionLanguage = (value) =>
@@ -262,7 +246,7 @@ export const createRealtimeTranscriptionSessionOptions = ({
 export const createRealtimeTranscriptionSession = ({
 	delay = REALTIME_TRANSCRIPTION_DELAY,
 	language = null,
-	noiseReductionType = "near_field",
+	noiseReductionType = null,
 } = {}) => ({
 	type: "transcription",
 	include: REALTIME_TRANSCRIPTION_INCLUDE_FIELDS,

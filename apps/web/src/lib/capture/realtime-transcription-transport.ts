@@ -48,9 +48,11 @@ type OpenAIRealtimeTranscriptionEvent =
 export type RealtimeTranscriptionTransportEvent =
 	| {
 			type: "committed";
+			endedAt?: number;
 			itemId: string;
 			previousItemId: string | null;
 			speaker: TranscriptSpeaker;
+			startedAt?: number;
 	  }
 	| {
 			type: "partial";

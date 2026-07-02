@@ -17,11 +17,11 @@ describe("transcription config", () => {
 		expect(REALTIME_TRANSCRIPTION_DELAY).toBe("high");
 	});
 
-	it("does not apply microphone noise reduction to system audio", () => {
+	it("does not apply realtime noise reduction to live transcription sources", () => {
 		expect(resolveRealtimeNoiseReductionType("systemAudio")).toBeNull();
 		expect(resolveRealtimeNoiseReductionType("system-audio")).toBeNull();
 		expect(resolveRealtimeNoiseReductionType("system_audio")).toBeNull();
-		expect(resolveRealtimeNoiseReductionType("microphone")).toBe("near_field");
+		expect(resolveRealtimeNoiseReductionType("microphone")).toBeNull();
 	});
 
 	it("serializes nullable noise reduction in realtime transcription sessions", () => {

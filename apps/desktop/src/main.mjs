@@ -238,6 +238,11 @@ const captureEventListeners = {
 	microphone: new Set(),
 	systemAudio: new Set(),
 };
+const preSubscriberCaptureChunkLimit = 50;
+const preSubscriberCaptureChunks = {
+	microphone: [],
+	systemAudio: [],
+};
 const transcriptionSpeakers = {
 	them: createTranscriptionSpeakerRuntime("them"),
 	you: createTranscriptionSpeakerRuntime("you"),
@@ -316,7 +321,27 @@ const broadcastToDesktopWindows = ({ channel, payload }) => {
 	}
 };
 
+const rememberPreSubscriberCaptureChunk = (source, event) => {
+	if (event?.type !== "chunk") {
+		return;
+	}
+
+	const chunks = preSubscriberCaptureChunks[source];
+	if (!chunks) {
+		return;
+	}
+
+	chunks.push(event);
+	if (chunks.length > preSubscriberCaptureChunkLimit) {
+		chunks.shift();
+	}
+};
+
 const emitSystemAudioCaptureEvent = (event) => {
+	if (captureEventListeners.systemAudio.size === 0) {
+		rememberPreSubscriberCaptureChunk("systemAudio", event);
+	}
+
 	for (const listener of captureEventListeners.systemAudio) {
 		listener(event);
 	}
@@ -328,6 +353,10 @@ const emitSystemAudioCaptureEvent = (event) => {
 };
 
 const emitMicrophoneCaptureEvent = (event) => {
+	if (captureEventListeners.microphone.size === 0) {
+		rememberPreSubscriberCaptureChunk("microphone", event);
+	}
+
 	for (const listener of captureEventListeners.microphone) {
 		listener(event);
 	}
@@ -346,6 +375,11 @@ const subscribeToCaptureEvents = (source, listener) => {
 	}
 
 	listenerSet.add(listener);
+	const bufferedChunks = preSubscriberCaptureChunks[source] ?? [];
+	preSubscriberCaptureChunks[source] = [];
+	for (const event of bufferedChunks) {
+		listener(event);
+	}
 
 	return () => {
 		listenerSet.delete(listener);
@@ -868,6 +902,7 @@ const emitTranscriptionOrderedTurns = (speaker) => {
 	for (;;) {
 		const nextTurn = [...state.turns.values()].find(
 			(turn) =>
+				turn.committed &&
 				(turn.completed || turn.failed) &&
 				!state.emittedItemIds.has(turn.itemId) &&
 				turn.previousItemId === state.lastCommittedItemId,
@@ -893,7 +928,7 @@ const emitTranscriptionOrderedTurns = (speaker) => {
 
 		if (shouldEmit) {
 			appendTranscriptionUtterance({
-				endedAt: Date.now(),
+				endedAt: nextTurn.endedAt ?? Date.now(),
 				id: `${state.sessionId ?? "session"}:${speaker}:${nextTurn.itemId}`,
 				speaker,
 				startedAt: nextTurn.startedAt ?? Date.now(),
@@ -946,6 +981,8 @@ const upsertTranscriptionTurn = (speaker, itemId, updates) => {
 	const currentValue = state.turns.get(itemId);
 	const nextValue = {
 		completed: currentValue?.completed ?? false,
+		committed: currentValue?.committed ?? false,
+		endedAt: currentValue?.endedAt ?? null,
 		failed: currentValue?.failed ?? false,
 		itemId,
 		logprobs: currentValue?.logprobs ?? null,
@@ -1222,8 +1259,10 @@ const handleDesktopRealtimeTransportEvent = async (event) => {
 			turnFailed: existingTurn?.failed ?? false,
 		});
 		upsertTranscriptionTurn(event.speaker, event.itemId, {
+			committed: true,
+			endedAt: event.endedAt ?? existingTurn?.endedAt ?? null,
 			previousItemId: event.previousItemId,
-			startedAt,
+			startedAt: event.startedAt ?? startedAt,
 		});
 
 		emitTranscriptionOrderedTurns(event.speaker);
@@ -1284,6 +1323,7 @@ const handleDesktopRealtimeTransportEvent = async (event) => {
 			...summarizeTranscriptTextForLog(interruptedText),
 		});
 		upsertTranscriptionTurn(event.speaker, event.itemId, {
+			committed: true,
 			completed: shouldKeepInterruptedText,
 			failed: !shouldKeepInterruptedText,
 			logprobs: shouldKeepInterruptedText
@@ -1611,6 +1651,8 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 	const policy = transcriptionPolicy ?? refreshTranscriptionPolicy();
 	transcriptionPolicy = policy;
 	currentTranscriptionSessionCorrelationId = randomUUID();
+	preSubscriberCaptureChunks.microphone = [];
+	preSubscriberCaptureChunks.systemAudio = [];
 
 	patchTranscriptionSessionState({
 		error: null,

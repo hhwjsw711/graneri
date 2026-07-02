@@ -9,7 +9,7 @@ export declare const REALTIME_TRANSCRIPTION_INCLUDE_FIELDS: readonly [
 
 export declare function resolveRealtimeNoiseReductionType(
 	source?: string | null,
-): "near_field" | null;
+): null;
 
 export declare function createRealtimeTranscriptionSessionOptions(args?: {
 	language?: string | null;
@@ -18,7 +18,7 @@ export declare function createRealtimeTranscriptionSessionOptions(args?: {
 }): {
 	delay: "high";
 	language: string | null;
-	noiseReductionType: "near_field" | null;
+	noiseReductionType: null;
 };
 
 export declare function normalizeTranscriptionLanguage(
@@ -55,6 +55,11 @@ export declare function createTranscriptTextSections(
 	utterances?: TranscriptTextUtterance[],
 ): TranscriptTextSection[];
 
+export declare function shouldAppendTranscriptUtteranceToSection(args: {
+	section: TranscriptTextSection;
+	utterance: TranscriptTextUtterance;
+}): boolean;
+
 export declare function createTranscriptBlocksText(
 	sections?: Array<{
 		speaker?: string | null;
@@ -79,15 +84,13 @@ export declare function isTranscriptPlaceholderText(
 export declare function createRealtimeTranscriptionSession(options?: {
 	delay?: "minimal" | "low" | "medium" | "high" | "xhigh";
 	language?: string | null;
-	noiseReductionType?: "near_field" | "far_field" | null;
+	noiseReductionType?: null;
 }): {
 	type: "transcription";
 	include: readonly ["item.input_audio_transcription.logprobs"];
 	audio: {
 		input: {
-			noise_reduction: {
-				type: "near_field" | "far_field";
-			} | null;
+			noise_reduction: null;
 			transcription: {
 				delay: "minimal" | "low" | "medium" | "high" | "xhigh";
 				model: typeof REALTIME_TRANSCRIPTION_MODEL;
@@ -115,9 +118,7 @@ export declare function createDesktopRealtimeTranscriptionSession(args?: {
 				rate: typeof AUDIO_TRANSCRIPTION_SAMPLE_RATE;
 				type: "audio/pcm";
 			};
-			noise_reduction: {
-				type: "near_field" | "far_field";
-			} | null;
+			noise_reduction: null;
 			transcription: {
 				delay: "minimal" | "low" | "medium" | "high" | "xhigh";
 				model: typeof REALTIME_TRANSCRIPTION_MODEL;

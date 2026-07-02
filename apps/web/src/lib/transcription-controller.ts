@@ -40,6 +40,7 @@ import {
 
 type TranscriptTurnState = {
 	itemId: string;
+	endedAt: number | null;
 	failed: boolean;
 	logprobs?: Array<{
 		bytes?: number[];
@@ -50,6 +51,7 @@ type TranscriptTurnState = {
 	startedAt: number | null;
 	text: string;
 	completed: boolean;
+	committed: boolean;
 };
 
 type SpeakerRuntimeState = {
@@ -720,7 +722,10 @@ export class TranscriptionController {
 
 		if (event.type === "committed") {
 			this.upsertTurn(event.speaker, event.itemId, {
+				committed: true,
+				endedAt: event.endedAt ?? null,
 				previousItemId: event.previousItemId,
+				...(event.startedAt == null ? {} : { startedAt: event.startedAt }),
 			});
 			this.emitOrderedTurns(event.speaker);
 			return;
@@ -756,6 +761,7 @@ export class TranscriptionController {
 				text: interruptedText,
 			});
 			this.upsertTurn(event.speaker, event.itemId, {
+				committed: true,
 				completed: shouldKeepInterruptedText,
 				failed: !shouldKeepInterruptedText,
 				logprobs: shouldKeepInterruptedText
@@ -803,6 +809,8 @@ export class TranscriptionController {
 		const currentValue = state.turns.get(itemId);
 		const nextValue: TranscriptTurnState = {
 			completed: currentValue?.completed ?? false,
+			committed: currentValue?.committed ?? false,
+			endedAt: currentValue?.endedAt ?? null,
 			failed: currentValue?.failed ?? false,
 			itemId,
 			logprobs: currentValue?.logprobs ?? null,
@@ -849,6 +857,7 @@ export class TranscriptionController {
 		const state = this.speakers[speaker].data;
 		const turnsByPreviousItemId = new Map(
 			[...state.turns.values()].flatMap((turn) =>
+				turn.committed &&
 				(turn.completed || turn.failed) &&
 				!state.emittedItemIds.has(turn.itemId)
 					? [[turn.previousItemId, turn] as const]
@@ -866,7 +875,7 @@ export class TranscriptionController {
 			const text = nextTurn.text.trim();
 			if (!nextTurn.failed && text && !isTranscriptPlaceholderText(text)) {
 				this.appendUtterance({
-					endedAt: Date.now(),
+					endedAt: nextTurn.endedAt ?? Date.now(),
 					id: `${state.sessionId ?? "session"}:${speaker}:${nextTurn.itemId}`,
 					speaker,
 					startedAt: nextTurn.startedAt ?? Date.now(),

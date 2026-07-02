@@ -769,6 +769,7 @@ enum SystemAudioCaptureCLI {
 		func stopCaptureAndExit(_ signal: Int32) -> Never {
 			logger.log("[helper] received signal \(signal)")
 			try? capture.stop()
+			encoder.stop()
 			emitter.send(event: [
 				"type": "stopped",
 				"signal": signal,

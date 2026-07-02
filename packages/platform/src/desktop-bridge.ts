@@ -174,6 +174,7 @@ export type DesktopTranscriptionSessionEvent =
 
 export type DesktopCaptureEvent = {
 	type: "chunk" | "error" | "stopped";
+	capturedAt?: number;
 	pcm16?: string;
 	message?: string;
 	code?: number | null;

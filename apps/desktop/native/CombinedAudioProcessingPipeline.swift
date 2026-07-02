@@ -8,7 +8,9 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		let echoReductionRatio: Double
 		let noRenderPassthroughErrorRms: Double
 		let processedErrorRms: Double
+		let quietDoubleTalkPassthroughErrorRms: Double
 		let rawErrorRms: Double
+		let quietDoubleTalkPassthroughChunks: Int
 		let residualLeakGateSuppressedChunks: Int
 		let suppressedChunks: Int
 		let systemOutputErrorRms: Double
@@ -17,6 +19,7 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			activeRenderPassthroughErrorRms <= 0.16 &&
 				echoReductionRatio >= 0.35 &&
 				noRenderPassthroughErrorRms <= 0.000001 &&
+				quietDoubleTalkPassthroughErrorRms <= 0.000001 &&
 				residualLeakGateSuppressedChunks > 0 &&
 				suppressedChunks > 0 &&
 				systemOutputErrorRms <= 0.000001
@@ -29,6 +32,8 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 				"noRenderPassthroughErrorRms": noRenderPassthroughErrorRms,
 				"ok": isPassing,
 				"processedErrorRms": processedErrorRms,
+				"quietDoubleTalkPassthroughChunks": quietDoubleTalkPassthroughChunks,
+				"quietDoubleTalkPassthroughErrorRms": quietDoubleTalkPassthroughErrorRms,
 				"rawErrorRms": rawErrorRms,
 				"residualLeakGateSuppressedChunks": residualLeakGateSuppressedChunks,
 				"suppressedChunks": suppressedChunks,
@@ -69,6 +74,7 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		var processedChunks = 0
 		var processedCaptureFrames = 0
 		var processedRenderFrames = 0
+		var quietDoubleTalkPassthroughChunks = 0
 		var residualEchoSuppressedChunks = 0
 		var suppressedChunks = 0
 		var unavailableChunks = 0
@@ -113,6 +119,9 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 	private let logger: NativeAudioStderrLogger
 	private static let residualLeakGateSystemAudioRmsThreshold = 0.003
 	private static let residualLeakGatePostAecRmsThreshold = 0.002
+	private static let residualLeakGateMaximumRenderAgeMilliseconds = 150.0
+	private static let residualLeakGateRawMicrophoneSilenceThreshold = 0.0001
+	private static let quietDoubleTalkRawRmsThreshold = 0.002
 	private let microphoneOutput: NativeAudioPcmSink
 	private let onDiagnostics: (@Sendable ([String: Any]) -> Void)?
 	private let systemAudioOutput: NativeAudioPcmSink
@@ -210,6 +219,10 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			format: format,
 			logger: logger
 		)
+		let quietDoubleTalkPassthroughErrorRms = runQuietDoubleTalkPassthroughSelfTest(
+			format: format,
+			logger: logger
+		)
 		let residualLeakGateSuppressedChunks = runResidualLeakGateSelfTest(
 			format: format,
 			logger: logger
@@ -222,7 +235,11 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			echoReductionRatio: echoReductionRatio,
 			noRenderPassthroughErrorRms: noRenderPassthroughErrorRms,
 			processedErrorRms: processedErrorRms,
+			quietDoubleTalkPassthroughErrorRms: quietDoubleTalkPassthroughErrorRms,
 			rawErrorRms: rawErrorRms,
+			quietDoubleTalkPassthroughChunks: pipeline.queue.sync {
+				pipeline.echoReductionStats.quietDoubleTalkPassthroughChunks
+			},
 			residualLeakGateSuppressedChunks: residualLeakGateSuppressedChunks,
 			suppressedChunks: pipeline.queue.sync {
 				pipeline.echoReductionStats.suppressedChunks
@@ -292,6 +309,40 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		return pipeline.queue.sync {
 			pipeline.echoReductionStats.residualEchoSuppressedChunks
 		}
+	}
+
+	private static func runQuietDoubleTalkPassthroughSelfTest(
+		format: AVAudioFormat,
+		logger: NativeAudioStderrLogger
+	) -> Double {
+		let microphoneOutput = CollectingSink()
+		let systemAudioOutput = CollectingSink()
+		let pipeline = CombinedAudioProcessingPipeline(
+			logger: logger,
+			microphoneOutput: microphoneOutput,
+			systemAudioOutput: systemAudioOutput
+		)
+		let frameCount = 960
+		let renderSamples = (0..<frameCount).map { frameIndex in
+			Float(sin(Double(frameIndex) * 2.0 * .pi * 440.0 / format.sampleRate) * 0.35)
+		}
+		let microphoneSamples = (0..<frameCount).map { frameIndex in
+			Float(sin(Double(frameIndex) * 2.0 * .pi * 1_370.0 / format.sampleRate) * 0.0015)
+		}
+
+		pipeline.systemAudioSink.append(
+			buffer: makeBuffer(format: format, samples: renderSamples)
+		)
+		pipeline.microphoneSink.append(
+			buffer: makeBuffer(format: format, samples: microphoneSamples)
+		)
+
+		let processedSamples = microphoneOutput.snapshot()
+		let comparableCount = min(processedSamples.count, microphoneSamples.count)
+		return rmsError(
+			Array(processedSamples[0..<comparableCount]),
+			Array(microphoneSamples[0..<comparableCount])
+		)
 	}
 
 	private static func runNoRenderPassthroughSelfTest(
@@ -370,9 +421,21 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		return sqrt(sumOfSquares / Double(frameCount))
 	}
 
-	private static func shouldGateResidualLeak(postAecRms: Double, systemAudioRms: Double) -> Bool {
-		systemAudioRms >= residualLeakGateSystemAudioRmsThreshold &&
+	private static func shouldGateResidualLeak(
+		postAecRms: Double,
+		preAecRms: Double,
+		renderAgeMilliseconds: Double?,
+		systemAudioRms: Double
+	) -> Bool {
+		guard let renderAgeMilliseconds,
+			renderAgeMilliseconds <= residualLeakGateMaximumRenderAgeMilliseconds,
+			systemAudioRms >= residualLeakGateSystemAudioRmsThreshold,
 			postAecRms < residualLeakGatePostAecRmsThreshold
+		else {
+			return false
+		}
+
+		return preAecRms < residualLeakGateRawMicrophoneSilenceThreshold
 	}
 
 	func describe() -> [String: Any] {
@@ -423,6 +486,15 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		}
 
 		logStatsIfNeeded()
+	}
+
+	private func renderAgeMillisecondsLocked() -> Double? {
+		guard let renderObservedAt = systemAudioStats.lastObservedAt else {
+			return nil
+		}
+
+		return Double(DispatchTime.now().uptimeNanoseconds - renderObservedAt.uptimeNanoseconds) /
+			1_000_000
 	}
 
 	private func handleMicrophoneBuffer(_ buffer: AVAudioPCMBuffer) {
@@ -513,8 +585,21 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 
 		let preRms = Self.rms(buffer)
 		var postRms = Self.rms(processedBuffer)
+		let shouldPreserveQuietDoubleTalk =
+			preRms >= Self.residualLeakGateRawMicrophoneSilenceThreshold &&
+			preRms <= Self.quietDoubleTalkRawRmsThreshold &&
+			systemAudioStats.lastRms >= Self.residualLeakGateSystemAudioRmsThreshold
+		if shouldPreserveQuietDoubleTalk {
+			for frameIndex in 0..<frameCount {
+				processedChannel[frameIndex] = inputSamples[frameIndex]
+			}
+			postRms = preRms
+			echoReductionStats.quietDoubleTalkPassthroughChunks += 1
+		}
 		let shouldGateResidualLeak = Self.shouldGateResidualLeak(
 			postAecRms: postRms,
+			preAecRms: preRms,
+			renderAgeMilliseconds: renderAgeMillisecondsLocked(),
 			systemAudioRms: systemAudioStats.lastRms
 		)
 		if shouldGateResidualLeak {
@@ -548,6 +633,8 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 		echoReductionStats.residualEchoLikelihoodRecentMax = residualEchoLikelihoodRecentMax
 		if shouldGateResidualLeak {
 			echoReductionStats.lastReason = "residual_leak_gated"
+		} else if shouldPreserveQuietDoubleTalk {
+			echoReductionStats.lastReason = "quiet_double_talk_passthrough"
 		} else {
 			echoReductionStats.lastReason = processed.processedFrames > 0
 				? "aec3_active"
@@ -601,6 +688,8 @@ final class CombinedAudioProcessingPipeline: @unchecked Sendable {
 			"echoCancellationProcessedCaptureFrames": echoReductionStats.processedCaptureFrames,
 			"echoCancellationProcessedChunks": echoReductionStats.processedChunks,
 			"echoCancellationProcessedRenderFrames": echoReductionStats.processedRenderFrames,
+			"echoCancellationQuietDoubleTalkPassthroughChunks": echoReductionStats
+				.quietDoubleTalkPassthroughChunks,
 			"echoCancellationResidualEchoLikelihood": echoReductionStats.residualEchoLikelihood ?? NSNull(),
 			"echoCancellationResidualEchoLikelihoodRecentMax": echoReductionStats
 				.residualEchoLikelihoodRecentMax ?? NSNull(),

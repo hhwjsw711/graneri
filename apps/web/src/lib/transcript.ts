@@ -2,6 +2,7 @@ import {
 	compareTranscriptUtteranceOrder,
 	createTranscriptBlocksText as createSharedTranscriptBlocksText,
 	createTranscriptTextSections,
+	shouldAppendTranscriptUtteranceToSection,
 } from "../../../../packages/ai/src/transcription.mjs";
 
 type TranscriptLiveSpeaker = "you" | "them";
@@ -232,7 +233,24 @@ export const createTranscriptDisplayEntries = ({
 		if (
 			previousEntry &&
 			previousEntry.speaker === liveEntry.speaker &&
-			!previousEntry.isLive
+			!previousEntry.isLive &&
+			shouldAppendTranscriptUtteranceToSection({
+				section: {
+					endedAt: previousEntry.endedAt,
+					id: previousEntry.id,
+					speaker: previousEntry.speaker,
+					startedAt: previousEntry.startedAt,
+					text: previousEntry.text,
+					utteranceIds: previousEntry.utteranceIds,
+				},
+				utterance: {
+					endedAt: liveEntry.endedAt,
+					id: liveEntry.id,
+					speaker: liveEntry.speaker,
+					startedAt: liveEntry.startedAt,
+					text: liveEntry.text,
+				},
+			})
 		) {
 			previousEntry.endedAt = liveEntry.startedAt;
 			previousEntry.isLive = true;

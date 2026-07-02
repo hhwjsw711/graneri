@@ -584,6 +584,115 @@ describe("TranscriptionController", () => {
 		expect(controller.getSnapshot().liveTranscript.you.text).toBe("");
 	});
 
+	it("uses transport commit timing when publishing utterances", async () => {
+		const { stream } = createMockStream();
+		const transportEvents: Array<
+			(event: RealtimeTranscriptionTransportEvent) => void
+		> = [];
+		const createMicrophoneInputStream = vi.fn(async () => stream);
+		const connectTransport = vi.fn(
+			async (args: {
+				onEvent: (event: RealtimeTranscriptionTransportEvent) => void;
+			}) => {
+				transportEvents.push(args.onEvent);
+				return {
+					close: vi.fn(async () => {}),
+				} satisfies RealtimeTranscriptionTransport;
+			},
+		);
+		const controller = createController({
+			connectTransport,
+			createMicrophoneInputStream,
+		});
+		const utterances: TranscriptionControllerState["utterances"] = [];
+		controller.subscribeToEvents((event) => {
+			if (event.type === "session.utterance_committed") {
+				utterances.push(event.utterance);
+			}
+		});
+
+		await controller.start();
+		transportEvents[0]?.({
+			endedAt: 2_500,
+			itemId: "turn-1",
+			previousItemId: null,
+			speaker: "you",
+			startedAt: 1_000,
+			type: "committed",
+		});
+		transportEvents[0]?.({
+			itemId: "turn-1",
+			speaker: "you",
+			text: "timed turn",
+			type: "final",
+		});
+
+		expect(utterances).toHaveLength(1);
+		expect(utterances[0]).toEqual(
+			expect.objectContaining({
+				endedAt: 2_500,
+				startedAt: 1_000,
+				text: "timed turn",
+			}),
+		);
+	});
+
+	it("does not publish final text before the input buffer commit arrives", async () => {
+		const { stream } = createMockStream();
+		const transportEvents: Array<
+			(event: RealtimeTranscriptionTransportEvent) => void
+		> = [];
+		const createMicrophoneInputStream = vi.fn(async () => stream);
+		const connectTransport = vi.fn(
+			async (args: {
+				onEvent: (event: RealtimeTranscriptionTransportEvent) => void;
+			}) => {
+				transportEvents.push(args.onEvent);
+				return {
+					close: vi.fn(async () => {}),
+				} satisfies RealtimeTranscriptionTransport;
+			},
+		);
+		const controller = createController({
+			connectTransport,
+			createMicrophoneInputStream,
+		});
+		const utterances: TranscriptionControllerState["utterances"] = [];
+		controller.subscribeToEvents((event) => {
+			if (event.type === "session.utterance_committed") {
+				utterances.push(event.utterance);
+			}
+		});
+
+		await controller.start();
+		transportEvents[0]?.({
+			itemId: "turn-1",
+			speaker: "you",
+			text: "wait for commit",
+			type: "final",
+		});
+
+		expect(utterances).toHaveLength(0);
+
+		transportEvents[0]?.({
+			endedAt: 2_000,
+			itemId: "turn-1",
+			previousItemId: null,
+			speaker: "you",
+			startedAt: 1_000,
+			type: "committed",
+		});
+
+		expect(utterances).toHaveLength(1);
+		expect(utterances[0]).toEqual(
+			expect.objectContaining({
+				endedAt: 2_000,
+				startedAt: 1_000,
+				text: "wait for commit",
+			}),
+		);
+	});
+
 	it("keeps a committed turn even when the transcription logprobs are very low", async () => {
 		const { stream } = createMockStream();
 		const transportEvents: Array<

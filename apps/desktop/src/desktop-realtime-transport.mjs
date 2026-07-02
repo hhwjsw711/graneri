@@ -11,8 +11,16 @@ import { logError, logInfo } from "./logger.mjs";
 const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
 const desktopRealtimeManualCommitIntervalMs = 2_500;
-const desktopRealtimeMicrophoneSpeechRmsThreshold = 0.001;
-const desktopRealtimeSystemAudioSpeechRmsThreshold = 0.003;
+const desktopRealtimeAudioBatchDurationMs = 100;
+const desktopRealtimeOutputSampleRate = 24_000;
+const desktopRealtimePcm16BytesPerSample = 2;
+const desktopRealtimePcm16BytesPerMillisecond =
+	(desktopRealtimeOutputSampleRate * desktopRealtimePcm16BytesPerSample) / 1000;
+const desktopRealtimeAudioBatchBytes =
+	(desktopRealtimeOutputSampleRate *
+		desktopRealtimePcm16BytesPerSample *
+		desktopRealtimeAudioBatchDurationMs) /
+	1000;
 const desktopRealtimeStopFlushTimeoutMs = 1_500;
 const desktopRealtimeStopFlushSettleTimeoutMs = 750;
 
@@ -38,29 +46,33 @@ const getPcm16Rms = (base64Pcm16) => {
 	return Math.sqrt(sumOfSquares / samples.length);
 };
 
-const resolveSpeechRmsThreshold = (source) => {
-	if (source === "microphone") {
-		return desktopRealtimeMicrophoneSpeechRmsThreshold;
-	}
-
-	if (source === "systemAudio") {
-		return desktopRealtimeSystemAudioSpeechRmsThreshold;
-	}
-
-	throw new Error(`Unsupported realtime transcription source: ${source}`);
-};
-
 const createAudioDiagnostics = () => ({
 	firstAcceptedLogged: false,
-	firstLowEnergyLogged: false,
 	lastRms: 0,
-	lowEnergyChunks: 0,
 	maxRms: 0,
 	nonSilentChunks: 0,
 	queuedChunks: 0,
 	receivedChunks: 0,
 	sentChunks: 0,
 });
+
+const getAudioDurationMs = (byteLength) =>
+	byteLength / desktopRealtimePcm16BytesPerMillisecond;
+
+const mergeAudioInterval = (currentInterval, nextInterval) => {
+	if (!nextInterval) {
+		return currentInterval;
+	}
+
+	if (!currentInterval) {
+		return nextInterval;
+	}
+
+	return {
+		endedAt: Math.max(currentInterval.endedAt, nextInterval.endedAt),
+		startedAt: Math.min(currentInterval.startedAt, nextInterval.startedAt),
+	};
+};
 
 export const createDesktopRealtimeTransport = ({
 	canUseHostedDesktopAi,
@@ -112,6 +124,14 @@ export const createDesktopRealtimeTransport = ({
 
 	const commitAudioBuffer = (session) => {
 		if (
+			!session.isClosing &&
+			session.socket.readyState === WebSocketImpl.OPEN &&
+			session.audioBatch.byteLength > 0
+		) {
+			flushAudioBatch(session, { force: true });
+		}
+
+		if (
 			session.isClosing ||
 			session.socket.readyState !== WebSocketImpl.OPEN ||
 			!session.hasPendingAudioCommit
@@ -124,6 +144,8 @@ export const createDesktopRealtimeTransport = ({
 				type: "input_audio_buffer.commit",
 			}),
 		);
+		session.inFlightCommitIntervals.push(session.pendingCommitInterval);
+		session.pendingCommitInterval = null;
 		session.hasPendingAudioCommit = false;
 		clearManualCommitTimer(session);
 
@@ -135,7 +157,7 @@ export const createDesktopRealtimeTransport = ({
 			session.isClosing ||
 			session.manualCommitTimeoutId ||
 			session.socket.readyState !== WebSocketImpl.OPEN ||
-			!session.hasPendingAudioCommit
+			(!session.hasPendingAudioCommit && session.audioBatch.byteLength === 0)
 		) {
 			return;
 		}
@@ -175,7 +197,7 @@ export const createDesktopRealtimeTransport = ({
 		}
 
 		const targetItemId = getLiveItemId(session.speaker);
-		if (!session.hasPendingAudioCommit) {
+		if (!session.hasPendingAudioCommit && session.audioBatch.byteLength === 0) {
 			return;
 		}
 
@@ -200,11 +222,14 @@ export const createDesktopRealtimeTransport = ({
 			};
 
 			try {
+				flushAudioBatch(session, { force: true });
 				session.socket.send(
 					JSON.stringify({
 						type: "input_audio_buffer.commit",
 					}),
 				);
+				session.inFlightCommitIntervals.push(session.pendingCommitInterval);
+				session.pendingCommitInterval = null;
 				session.hasPendingAudioCommit = false;
 				clearManualCommitTimer(session);
 				settleStopFlush(session);
@@ -231,12 +256,12 @@ export const createDesktopRealtimeTransport = ({
 		}
 
 		sessions.delete(speaker);
-		session.isClosing = true;
 		session.unsubscribeCapture?.();
 		session.unsubscribeCapture = null;
 		clearManualCommitTimer(session);
 		clearTimeout(session.openTimeout);
 		await flushOnStop(session, getLiveItemId);
+		session.isClosing = true;
 
 		await new Promise((resolvePromise) => {
 			const finalize = () => {
@@ -264,6 +289,92 @@ export const createDesktopRealtimeTransport = ({
 				audio,
 			}),
 		);
+	};
+
+	const flushAudioBatch = (session, { force = false } = {}) => {
+		if (
+			session.isClosing ||
+			session.socket.readyState !== WebSocketImpl.OPEN ||
+			session.audioBatch.byteLength === 0
+		) {
+			return 0;
+		}
+
+		const bytesToSend = force
+			? session.audioBatch.byteLength
+			: Math.floor(
+					session.audioBatch.byteLength / desktopRealtimeAudioBatchBytes,
+				) * desktopRealtimeAudioBatchBytes;
+
+		if (bytesToSend === 0) {
+			return 0;
+		}
+
+		const sentStartedAt = session.audioBatchStartedAt;
+		const sentEndedAt =
+			force || bytesToSend === session.audioBatch.byteLength
+				? session.audioBatchEndedAt
+				: sentStartedAt == null
+					? null
+					: sentStartedAt + getAudioDurationMs(bytesToSend);
+
+		let sentChunks = 0;
+		for (
+			let offset = 0;
+			offset < bytesToSend;
+			offset += desktopRealtimeAudioBatchBytes
+		) {
+			const endOffset = Math.min(
+				offset + desktopRealtimeAudioBatchBytes,
+				bytesToSend,
+			);
+			sendAudioChunk({
+				audio: session.audioBatch
+					.subarray(offset, endOffset)
+					.toString("base64"),
+				socket: session.socket,
+			});
+			sentChunks += 1;
+		}
+
+		session.audioBatch = session.audioBatch.subarray(bytesToSend);
+		if (sentStartedAt != null && sentEndedAt != null) {
+			session.pendingCommitInterval = mergeAudioInterval(
+				session.pendingCommitInterval,
+				{
+					endedAt: sentEndedAt,
+					startedAt: sentStartedAt,
+				},
+			);
+		}
+		if (session.audioBatch.byteLength === 0) {
+			session.audioBatchStartedAt = null;
+			session.audioBatchEndedAt = null;
+		} else {
+			session.audioBatchStartedAt = sentEndedAt;
+		}
+		session.audioDiagnostics.sentChunks += sentChunks;
+		session.hasPendingAudioCommit = true;
+		return sentChunks;
+	};
+
+	const appendAudioToBatch = (session, { audio, capturedAt }) => {
+		const chunk = Buffer.from(audio, "base64");
+
+		if (chunk.byteLength === 0) {
+			return 0;
+		}
+
+		session.audioBatch =
+			session.audioBatch.byteLength === 0
+				? chunk
+				: Buffer.concat([session.audioBatch, chunk]);
+		const chunkEndedAt = capturedAt;
+		const chunkStartedAt = chunkEndedAt - getAudioDurationMs(chunk.byteLength);
+		session.audioBatchStartedAt ??= chunkStartedAt;
+		session.audioBatchEndedAt = chunkEndedAt;
+
+		return flushAudioBatch(session);
 	};
 
 	const start = async ({ lang, source, speaker }) => {
@@ -312,8 +423,12 @@ export const createDesktopRealtimeTransport = ({
 				},
 			);
 			const session = {
+				audioBatch: Buffer.alloc(0),
+				audioBatchEndedAt: null,
+				audioBatchStartedAt: null,
 				audioDiagnostics: createAudioDiagnostics(),
 				hasPendingAudioCommit: false,
+				inFlightCommitIntervals: [],
 				isClosing: false,
 				manualCommitTimeoutId: null,
 				openTimeout: setTimeout(() => {
@@ -329,6 +444,7 @@ export const createDesktopRealtimeTransport = ({
 					socket.terminate();
 				}, desktopRealtimeConnectTimeoutMs),
 				pendingAudio: [],
+				pendingCommitInterval: null,
 				profile,
 				socket,
 				source,
@@ -361,11 +477,7 @@ export const createDesktopRealtimeTransport = ({
 				}
 
 				for (const pendingAudio of session.pendingAudio) {
-					sendAudioChunk({
-						audio: pendingAudio,
-						socket,
-					});
-					session.hasPendingAudioCommit = true;
+					appendAudioToBatch(session, pendingAudio);
 				}
 				session.pendingAudio = [];
 				scheduleManualCommit(session);
@@ -399,13 +511,16 @@ export const createDesktopRealtimeTransport = ({
 
 				if (event.type === "chunk" && event.pcm16) {
 					const audio = resampleChunk(event.pcm16);
+					const capturedAt =
+						typeof event.capturedAt === "number"
+							? event.capturedAt
+							: Date.now();
 
 					if (!audio) {
 						return;
 					}
 
 					const rms = getPcm16Rms(audio);
-					const speechThreshold = resolveSpeechRmsThreshold(source);
 					session.audioDiagnostics.receivedChunks += 1;
 					session.audioDiagnostics.lastRms = rms;
 					session.audioDiagnostics.maxRms = Math.max(
@@ -416,33 +531,8 @@ export const createDesktopRealtimeTransport = ({
 						session.audioDiagnostics.nonSilentChunks += 1;
 					}
 
-					if (rms < speechThreshold) {
-						session.audioDiagnostics.lowEnergyChunks += 1;
-						if (!session.audioDiagnostics.firstLowEnergyLogged) {
-							session.audioDiagnostics.firstLowEnergyLogged = true;
-							logDesktopTurnDebug("transport.audio_low_energy", {
-								profile,
-								rms,
-								source,
-								speaker,
-								threshold: speechThreshold,
-							});
-							logInfo({
-								message: "[desktop-realtime] dropped low-energy audio chunk",
-								details: {
-									profile,
-									rms,
-									source,
-									speaker,
-									threshold: speechThreshold,
-								},
-							});
-						}
-						return;
-					}
-
 					if (socket.readyState !== WebSocketImpl.OPEN) {
-						session.pendingAudio.push(audio);
+						session.pendingAudio.push({ audio, capturedAt });
 						session.audioDiagnostics.queuedChunks += 1;
 						if (
 							session.pendingAudio.length >
@@ -453,22 +543,19 @@ export const createDesktopRealtimeTransport = ({
 						return;
 					}
 
-					sendAudioChunk({
+					const sentChunks = appendAudioToBatch(session, {
 						audio,
-						socket,
+						capturedAt,
 					});
-					session.audioDiagnostics.sentChunks += 1;
-					if (!session.audioDiagnostics.firstAcceptedLogged) {
+					if (sentChunks > 0 && !session.audioDiagnostics.firstAcceptedLogged) {
 						session.audioDiagnostics.firstAcceptedLogged = true;
 						logDesktopTurnDebug("transport.audio_accepted", {
 							profile,
 							rms,
 							source,
 							speaker,
-							threshold: speechThreshold,
 						});
 					}
-					session.hasPendingAudioCommit = true;
 					scheduleManualCommit(session);
 					return;
 				}
@@ -532,6 +619,14 @@ export const createDesktopRealtimeTransport = ({
 					});
 
 					if (transportEvent) {
+						if (transportEvent.type === "committed") {
+							const commitInterval =
+								session.inFlightCommitIntervals.shift() ?? null;
+							if (commitInterval) {
+								transportEvent.startedAt = commitInterval.startedAt;
+								transportEvent.endedAt = commitInterval.endedAt;
+							}
+						}
 						notifyStopFlushEvent(session, transportEvent);
 						void handleTransportEvent(transportEvent);
 					}

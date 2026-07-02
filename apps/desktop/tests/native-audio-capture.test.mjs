@@ -121,6 +121,7 @@ test("combined audio helper routes source-tagged chunks to source event buses", 
 
 		child.stdout.write(
 			`${JSON.stringify({
+				capturedAt: 1_000,
 				pcm16: "bWlj",
 				source: "microphone",
 				type: "chunk",
@@ -128,6 +129,7 @@ test("combined audio helper routes source-tagged chunks to source event buses", 
 		);
 		child.stdout.write(
 			`${JSON.stringify({
+				capturedAt: 1_100,
 				pcm16: "c3lz",
 				source: "systemAudio",
 				type: "chunk",
@@ -159,8 +161,12 @@ test("combined audio helper routes source-tagged chunks to source event buses", 
 		});
 		assert.equal(ready.microphone.voiceProcessingMode, "disabled");
 		assert.equal(ready.microphone.voiceProcessingRouteAllowed, true);
-		assert.deepEqual(microphoneEvents, [{ pcm16: "bWlj", type: "chunk" }]);
-		assert.deepEqual(systemAudioEvents, [{ pcm16: "c3lz", type: "chunk" }]);
+		assert.deepEqual(microphoneEvents, [
+			{ capturedAt: 1_000, pcm16: "bWlj", type: "chunk" },
+		]);
+		assert.deepEqual(systemAudioEvents, [
+			{ capturedAt: 1_100, pcm16: "c3lz", type: "chunk" },
+		]);
 		assert.deepEqual(
 			turnDebugEvents
 				.filter((event) => event.event === "combined_audio.source_chunk_started")
@@ -189,6 +195,79 @@ test("combined audio helper routes source-tagged chunks to source event buses", 
 		);
 
 		await capture.stopCombinedAudioCapture();
+	} finally {
+		Object.defineProperty(process, "platform", {
+			value: originalPlatform,
+		});
+	}
+});
+
+test("combined audio helper marks unplanned exits as coordinated interruptions", async () => {
+	const originalPlatform = process.platform;
+	Object.defineProperty(process, "platform", {
+		value: "darwin",
+	});
+
+	try {
+		const directory = await mkdtemp(join(tmpdir(), "graneri-combined-audio-"));
+		const runtimeDir = join(directory, "runtime");
+		const helperPath = join(
+			runtimeDir,
+			"bin",
+			"graneri-combined-audio-helper",
+		);
+		await mkdir(join(runtimeDir, "bin"), { recursive: true });
+		await writeFile(helperPath, "");
+
+		const microphoneEvents = [];
+		const systemAudioEvents = [];
+		const child = new EventEmitter();
+		child.stdout = new PassThrough();
+		child.stderr = new PassThrough();
+		child.kill = () => true;
+
+		const capture = createNativeAudioCapture({
+			emitMicrophoneCaptureEvent: (event) => microphoneEvents.push(event),
+			emitSystemAudioCaptureEvent: (event) => systemAudioEvents.push(event),
+			getSystemAudioPermissionState: () => "prompt",
+			logDesktopTurnDebug: () => {},
+			markSystemAudioPermissionBlocked: () => {},
+			markSystemAudioPermissionGranted: () => {},
+			markSystemAudioPermissionPrompt: () => {},
+			runtimeDir,
+			spawnImpl: () => child,
+		});
+
+		const startPromise = capture.startCombinedAudioCapture();
+		child.stdout.write(
+			`${JSON.stringify({
+				microphone: {
+					channels: 1,
+					sampleRate: 48_000,
+				},
+				systemAudio: {
+					channels: 1,
+					sampleRate: 48_000,
+				},
+				type: "ready",
+			})}\n`,
+		);
+		await startPromise;
+
+		child.emit("exit", 1, null);
+
+		assert.deepEqual(microphoneEvents.at(-1), {
+			code: 1,
+			reason: "combined_audio_interrupted",
+			signal: null,
+			type: "stopped",
+		});
+		assert.deepEqual(systemAudioEvents.at(-1), {
+			code: 1,
+			reason: "combined_audio_interrupted",
+			signal: null,
+			type: "stopped",
+		});
 	} finally {
 		Object.defineProperty(process, "platform", {
 			value: originalPlatform,

@@ -53,6 +53,7 @@ final class NativeAudioPcmChunkEncoder: NativeAudioPcmSink, @unchecked Sendable 
 	private let queue: DispatchQueue
 	private let source: String?
 	private var pendingBytes = Data()
+	private var pendingCapturedAtMilliseconds: Int?
 	private var timer: DispatchSourceTimer?
 
 	init(
@@ -105,6 +106,8 @@ final class NativeAudioPcmChunkEncoder: NativeAudioPcmSink, @unchecked Sendable 
 		}
 		let samples = Array(UnsafeBufferPointer(start: floatChannel, count: frameCount))
 
+		let capturedAtMilliseconds = Int(Date().timeIntervalSince1970 * 1000)
+
 		queue.async {
 			var encoded = Data(capacity: samples.count * MemoryLayout<Int16>.size)
 
@@ -121,6 +124,7 @@ final class NativeAudioPcmChunkEncoder: NativeAudioPcmSink, @unchecked Sendable 
 			}
 
 			self.pendingBytes.append(encoded)
+			self.pendingCapturedAtMilliseconds = capturedAtMilliseconds
 		}
 	}
 
@@ -132,9 +136,11 @@ final class NativeAudioPcmChunkEncoder: NativeAudioPcmSink, @unchecked Sendable 
 		let base64 = pendingBytes.base64EncodedString()
 		pendingBytes.removeAll(keepingCapacity: true)
 		var event: [String: Any] = [
+			"capturedAt": pendingCapturedAtMilliseconds ?? Int(Date().timeIntervalSince1970 * 1000),
 			"type": "chunk",
 			"pcm16": base64,
 		]
+		pendingCapturedAtMilliseconds = nil
 		if let source {
 			event["source"] = source
 		}
