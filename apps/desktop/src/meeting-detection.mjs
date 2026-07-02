@@ -229,6 +229,8 @@ export const createMeetingDetection = ({
 			focusable: true,
 			acceptFirstMouse: true,
 			title: "Graneri meeting widget",
+			type: process.platform === "darwin" ? "panel" : undefined,
+			hiddenInMissionControl: true,
 			icon: dockIconPath,
 			webPreferences: {
 				preload: preloadPath,

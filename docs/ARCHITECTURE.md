@@ -370,6 +370,16 @@ debounce, dismissal, suppression, and widget window visibility stay in
 may render it or send user actions back through `packages/platform`. Renderer
 code must not inspect running applications, microphone activity, calendar state,
 or desktop windows directly to decide whether a meeting exists.
+Auto-detected meeting prompts intentionally use a desktop-owned custom
+notification-like window rather than OS notification delivery. On macOS this
+surface must be a panel-style window hidden from Mission Control, kept out of
+the task switcher, and visible across spaces/full-screen contexts. The custom
+surface is part of the detection state machine: Electron owns prompt debounce,
+dismissal, suppression, full-screen/workspace visibility, and action handling so
+the prompt remains predictable under Focus modes, Notification Center settings,
+and transcription state changes. Scheduled calendar reminders may use native OS
+notifications because they are fire-and-forget reminders, not the live
+meeting-detection prompt state.
 
 Proxy response handling must match the body strategy. Streamed routes may pipe
 the upstream body with upstream headers. Buffered or decoded proxy responses
