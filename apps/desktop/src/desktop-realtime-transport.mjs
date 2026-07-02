@@ -12,6 +12,7 @@ const desktopRealtimeConnectTimeoutMs = 10_000;
 const desktopRealtimePendingAudioChunkLimit = 50;
 const desktopRealtimeManualCommitIntervalMs = 2_500;
 const desktopRealtimeAudioBatchDurationMs = 100;
+const desktopRealtimeAudioBatchStatsIntervalMs = 30_000;
 const desktopRealtimeOutputSampleRate = 24_000;
 const desktopRealtimePcm16BytesPerSample = 2;
 const desktopRealtimePcm16BytesPerMillisecond =
@@ -54,6 +55,12 @@ const createAudioDiagnostics = () => ({
 	queuedChunks: 0,
 	receivedChunks: 0,
 	sentChunks: 0,
+});
+
+const createAudioBatchStats = () => ({
+	count: 0,
+	lastLogTime: Date.now(),
+	totalBytes: 0,
 });
 
 const getAudioDurationMs = (byteLength) =>
@@ -291,6 +298,40 @@ export const createDesktopRealtimeTransport = ({
 		);
 	};
 
+	const logAudioBatchStatsIfReady = (session) => {
+		const now = Date.now();
+		const elapsedMs = now - session.audioBatchStats.lastLogTime;
+		if (elapsedMs < desktopRealtimeAudioBatchStatsIntervalMs) {
+			return;
+		}
+
+		if (session.audioBatchStats.count > 0) {
+			const avgBytesPerBatch = Math.round(
+				session.audioBatchStats.totalBytes / session.audioBatchStats.count,
+			);
+			logInfo({
+				message: "[desktop-realtime] audio batch stats",
+				details: {
+					avgAudioDurationMsPerBatch: Math.round(
+						getAudioDurationMs(avgBytesPerBatch),
+					),
+					avgBytesPerBatch,
+					batchCount: session.audioBatchStats.count,
+					intervalMs: elapsedMs,
+					profile: session.profile,
+					sampleRate: desktopRealtimeOutputSampleRate,
+					source: session.source,
+					speaker: session.speaker,
+					targetAudioDurationMs: desktopRealtimeAudioBatchDurationMs,
+					targetBytesPerBatch: desktopRealtimeAudioBatchBytes,
+					totalBytes: session.audioBatchStats.totalBytes,
+				},
+			});
+		}
+
+		session.audioBatchStats = createAudioBatchStats();
+	};
+
 	const flushAudioBatch = (session, { force = false } = {}) => {
 		if (
 			session.isClosing ||
@@ -328,14 +369,18 @@ export const createDesktopRealtimeTransport = ({
 				offset + desktopRealtimeAudioBatchBytes,
 				bytesToSend,
 			);
+			const chunkBytes = endOffset - offset;
 			sendAudioChunk({
 				audio: session.audioBatch
 					.subarray(offset, endOffset)
 					.toString("base64"),
 				socket: session.socket,
 			});
+			session.audioBatchStats.count += 1;
+			session.audioBatchStats.totalBytes += chunkBytes;
 			sentChunks += 1;
 		}
+		logAudioBatchStatsIfReady(session);
 
 		session.audioBatch = session.audioBatch.subarray(bytesToSend);
 		if (sentStartedAt != null && sentEndedAt != null) {
@@ -426,6 +471,7 @@ export const createDesktopRealtimeTransport = ({
 				audioBatch: Buffer.alloc(0),
 				audioBatchEndedAt: null,
 				audioBatchStartedAt: null,
+				audioBatchStats: createAudioBatchStats(),
 				audioDiagnostics: createAudioDiagnostics(),
 				hasPendingAudioCommit: false,
 				inFlightCommitIntervals: [],
