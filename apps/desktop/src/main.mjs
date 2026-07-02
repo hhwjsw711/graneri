@@ -49,6 +49,7 @@ import {
 import { createDesktopTray } from "./desktop-tray.mjs";
 import {
 	createDesktopUpdater,
+	getDesktopUpdaterUnavailableTrayLabel,
 	isDesktopUpdaterAvailable,
 } from "./desktop-updater.mjs";
 import {
@@ -2102,6 +2103,9 @@ desktopTray = createDesktopTray({
 	confirmAndQuitCompletely: () => confirmAndQuitCompletely(),
 	dockIconPath,
 	getNotificationPreferences: () => activeWorkspaceNotificationPreferences,
+	initialStatusLabel: getDesktopUpdaterUnavailableTrayLabel({
+		isPackaged: app.isPackaged,
+	}),
 	onCheckForUpdates: () => handleCheckForUpdates(),
 	onOpenMainWindow: (options) => showMainWindow(options),
 	onQuit: () => handleTrayQuit(),

@@ -79,6 +79,7 @@ export const createDesktopTray = ({
 	confirmAndQuitCompletely,
 	dockIconPath,
 	getNotificationPreferences,
+	initialStatusLabel,
 	onCheckForUpdates,
 	onOpenMainWindow,
 	onQuit,
@@ -88,7 +89,7 @@ export const createDesktopTray = ({
 }) => {
 	let tray = null;
 	let traySettings = { ...defaultTraySettings };
-	let trayStatusLabel = "Updates are unavailable in development builds";
+	let trayStatusLabel = initialStatusLabel;
 	const calendarSource = createDesktopSyncedCalendar();
 	const calendar = createDesktopTrayCalendar({
 		calendarSource,

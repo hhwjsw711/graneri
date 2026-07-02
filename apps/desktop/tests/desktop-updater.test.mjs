@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import {
 	createDesktopUpdater,
+	getDesktopUpdaterUnavailableTrayLabel,
 	isDesktopUpdaterAvailable,
 } from "../src/desktop-updater.mjs";
 
@@ -109,6 +110,17 @@ test("desktop updater is available only for release builds with update metadata"
 			platform: "darwin",
 		}),
 		false,
+	);
+});
+
+test("desktop updater unavailable tray label distinguishes packaged local builds", () => {
+	assert.equal(
+		getDesktopUpdaterUnavailableTrayLabel({ isPackaged: false }),
+		"Updates are unavailable in development builds",
+	);
+	assert.equal(
+		getDesktopUpdaterUnavailableTrayLabel({ isPackaged: true }),
+		"Updates are unavailable in this build",
 	);
 });
 

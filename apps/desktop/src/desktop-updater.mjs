@@ -10,6 +10,11 @@ export const isDesktopUpdaterAvailable = ({
 	isDisabled !== true &&
 	hasReleaseUpdateConfig === true;
 
+export const getDesktopUpdaterUnavailableTrayLabel = ({ isPackaged }) =>
+	isPackaged === true
+		? "Updates are unavailable in this build"
+		: "Updates are unavailable in development builds";
+
 export const createDesktopUpdater = ({
 	appVersion,
 	autoUpdater,
