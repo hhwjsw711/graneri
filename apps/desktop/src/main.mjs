@@ -12,6 +12,7 @@ import {
 	nativeImage,
 	nativeTheme,
 	powerMonitor,
+	powerSaveBlocker,
 	session,
 	shell,
 	systemPreferences,
@@ -38,6 +39,7 @@ import {
 } from "./desktop-navigation-state.mjs";
 import { createDesktopPreferencesStore } from "./desktop-preferences.mjs";
 import { createDesktopRealtimeTransport } from "./desktop-realtime-transport.mjs";
+import { createDesktopRecordingPowerSaveBlocker } from "./desktop-recording-power-save.mjs";
 import { createDesktopShell } from "./desktop-shell.mjs";
 import { createDesktopStorage } from "./desktop-storage.mjs";
 import { createDesktopSystemAudioPolicy as createSystemAudioPolicy } from "./desktop-transcription-policy.mjs";
@@ -232,6 +234,13 @@ const desktopStorage = createDesktopStorage({
 	noteDraftsDirPath,
 	transcriptDraftsDirPath,
 });
+const desktopRecordingPowerSaveBlocker = createDesktopRecordingPowerSaveBlocker(
+	{
+		logError,
+		logInfo,
+		powerSaveBlocker,
+	},
+);
 let systemAudioPermissionState = "prompt";
 let latestTranscriptionSessionState = createInitialTranscriptionSessionState();
 const captureEventListeners = {
@@ -1666,6 +1675,9 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 	currentTranscriptionSessionCorrelationId = randomUUID();
 	preSubscriberCaptureChunks.microphone = [];
 	preSubscriberCaptureChunks.systemAudio = [];
+	desktopRecordingPowerSaveBlocker.start({
+		reason,
+	});
 
 	patchTranscriptionSessionState({
 		error: null,
@@ -1781,6 +1793,9 @@ const runDesktopTranscriptionStart = async ({ preserveUtterances, reason }) => {
 				? latestTranscriptionSessionState.utterances
 				: [],
 		});
+		desktopRecordingPowerSaveBlocker.stop({
+			reason: "start_failed",
+		});
 
 		if (normalizedError.code === "permission_denied") {
 			emitTranscriptionSessionEvent({
@@ -1891,6 +1906,9 @@ async function handleDesktopTransportInterrupted({
 				state: "failed",
 			}),
 		});
+		desktopRecordingPowerSaveBlocker.stop({
+			reason: "reconnect_failed",
+		});
 		return;
 	}
 
@@ -1974,6 +1992,9 @@ const stopDesktopTranscriptionSession = async ({
 				resetError,
 				resetRecovery,
 			});
+			desktopRecordingPowerSaveBlocker.stop({
+				reason: "idle_reset",
+			});
 			stopEvent.outcome = "idle_reset";
 			return;
 		}
@@ -2008,6 +2029,9 @@ const stopDesktopTranscriptionSession = async ({
 			.then(() => {
 				transcriptionRecoveryAttempt = 0;
 				currentTranscriptionSessionCorrelationId = null;
+				desktopRecordingPowerSaveBlocker.stop({
+					reason,
+				});
 				patchTranscriptionSessionState({
 					error: resetError ? null : latestTranscriptionSessionState.error,
 					isConnecting: false,
