@@ -5,11 +5,20 @@ import { logError, logInfo } from "./logger.mjs";
 
 const captureHealthTimeoutMs = 3_000;
 const combinedAudioInterruptionReason = "combined_audio_interrupted";
+const maxHelperRestartAttempts = 20;
+const helperRestartCounterResetMs = 5 * 60 * 1_000;
 
 const clearCaptureHealthTimeout = (session) => {
 	if (session?.healthTimeout) {
 		clearTimeout(session.healthTimeout);
 		session.healthTimeout = null;
+	}
+};
+
+const clearHelperRestartResetTimeout = (session) => {
+	if (session?.restartResetTimeout) {
+		clearTimeout(session.restartResetTimeout);
+		session.restartResetTimeout = null;
 	}
 };
 
@@ -83,6 +92,7 @@ export const createCombinedAudioCaptureController = ({
 		clearTimeout(session.cleanupTimeout);
 		session.cleanupTimeout = null;
 		clearCaptureHealthTimeout(session);
+		clearHelperRestartResetTimeout(session);
 		audioDebugRecorder.stop();
 
 		await new Promise((resolvePromise) => {
@@ -116,25 +126,14 @@ export const createCombinedAudioCaptureController = ({
 			throw new Error("The macOS combined audio helper is missing.");
 		}
 
-		logInfo({
-			message: "[combined-audio] starting macOS helper",
-			details: { helperPath },
-		});
-
 		const requestId = ++startRequestId;
 		await stopExistingCapture();
 		await stop();
 
 		return await new Promise((resolvePromise, rejectPromise) => {
 			const audioVolumeStats = createAudioVolumeStats();
-			const child = spawnImpl(helperPath, [], {
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			const lineReader = createInterface({
-				input: child.stdout,
-				crlfDelay: Infinity,
-			});
 			let didResolve = false;
+			let didStartDebugRecorder = false;
 			let session;
 
 			const rejectStart = (error) => {
@@ -178,6 +177,11 @@ export const createCombinedAudioCaptureController = ({
 				}
 
 				didResolve = true;
+				if (activeSession === session) {
+					activeSession = null;
+				}
+				clearCaptureHealthTimeout(session);
+				clearHelperRestartResetTimeout(session);
 				rejectPromise(error);
 			};
 
@@ -208,44 +212,25 @@ export const createCombinedAudioCaptureController = ({
 					systemAudio: payload?.systemAudio ?? null,
 				});
 				markSystemAudioPermissionGranted();
-				void audioDebugRecorder.cleanupExpiredFiles();
-				session.audioDebugStartPromise = audioDebugRecorder
-					.start({
-						microphoneSampleRate: session.sampleRates.microphone,
-						systemAudioSampleRate: session.sampleRates.systemAudio,
-					})
-					.catch((error) => {
-						logError({
-							error,
-							message: "[combined-audio] failed to start audio debug recorder",
+				if (!didStartDebugRecorder) {
+					didStartDebugRecorder = true;
+					void audioDebugRecorder.cleanupExpiredFiles();
+					session.audioDebugStartPromise = audioDebugRecorder
+						.start({
+							microphoneSampleRate: session.sampleRates.microphone,
+							systemAudioSampleRate: session.sampleRates.systemAudio,
+						})
+						.catch((error) => {
+							logError({
+								error,
+								message:
+									"[combined-audio] failed to start audio debug recorder",
+							});
 						});
-					});
+				}
 				didResolve = true;
 				resolvePromise(payload);
 			};
-
-			const cleanupTimeout = setTimeout(() => {
-				if (requestId !== startRequestId) {
-					logInfo({
-						message: "[combined-audio] cleared stale helper startup timeout",
-						details: {
-							requestId,
-							currentRequestId: startRequestId,
-						},
-					});
-					return;
-				}
-
-				logError({
-					event: "combined_audio.helper_startup_timeout",
-					message: "[combined-audio] helper startup timed out after 5000ms",
-					startup_timeout_ms: 5_000,
-				});
-				rejectStart(
-					new Error("Timed out while starting macOS combined audio capture."),
-				);
-				child.kill("SIGKILL");
-			}, 5_000);
 
 			const resetHealthTimeout = () => {
 				if (!session || session.isStopping) {
@@ -266,33 +251,24 @@ export const createCombinedAudioCaptureController = ({
 						message: "[combined-audio] helper stopped producing audio frames",
 					});
 
-					if (didResolve) {
-						emitMicrophoneCaptureEvent({
-							type: "error",
-							message: timeoutError.message,
-							reason: combinedAudioInterruptionReason,
-						});
-						emitSystemAudioCaptureEvent({
-							type: "error",
-							message: timeoutError.message,
-							reason: combinedAudioInterruptionReason,
-						});
-					} else {
+					if (!didResolve) {
 						rejectStart(timeoutError);
 					}
 
-					child.kill("SIGKILL");
+					session.process?.kill("SIGKILL");
 				}, captureHealthTimeoutMs);
 			};
 
 			session = {
 				isStopping: false,
-				cleanupTimeout,
+				cleanupTimeout: null,
 				healthTimeout: null,
 				hasStarted: false,
-				lineReader,
-				process: child,
+				lineReader: null,
+				process: null,
 				rejectStart,
+				restartAttempts: 0,
+				restartResetTimeout: null,
 				requestId,
 				sampleRates: {
 					microphone: null,
@@ -306,18 +282,46 @@ export const createCombinedAudioCaptureController = ({
 			};
 			activeSession = session;
 
-			child.stderr.setEncoding("utf8");
-			child.stderr.on("data", (chunk) => {
-				const message = String(chunk).trim();
-				if (message) {
-					logNativeAudioHelperStderr({
-						label: "combined-audio-helper",
-						message,
-					});
+			const emitFinalInterruption = ({ code, signal }) => {
+				audioDebugRecorder.stop();
+				clearHelperRestartResetTimeout(session);
+				if (activeSession === session) {
+					activeSession = null;
 				}
-			});
+				emitMicrophoneCaptureEvent({
+					type: "stopped",
+					code,
+					reason: combinedAudioInterruptionReason,
+					signal,
+				});
+				emitSystemAudioCaptureEvent({
+					type: "stopped",
+					code,
+					reason: combinedAudioInterruptionReason,
+					signal,
+				});
+			};
 
-			lineReader.on("line", (line) => {
+			const scheduleRestartCounterReset = () => {
+				clearHelperRestartResetTimeout(session);
+				session.restartResetTimeout = setTimeout(() => {
+					if (activeSession !== session || session.isStopping) {
+						return;
+					}
+					if (session.restartAttempts > 0) {
+						logInfo({
+							message: "[combined-audio] helper restart counter reset",
+							details: {
+								restartAttempts: session.restartAttempts,
+							},
+						});
+					}
+					session.restartAttempts = 0;
+					session.restartResetTimeout = null;
+				}, helperRestartCounterResetMs);
+			};
+
+			const handleLine = (line) => {
 				let event;
 
 				try {
@@ -339,7 +343,7 @@ export const createCombinedAudioCaptureController = ({
 				}
 
 				if (event?.type === "ready") {
-					clearTimeout(cleanupTimeout);
+					clearTimeout(session.cleanupTimeout);
 					session.cleanupTimeout = null;
 					session.sampleRates.microphone =
 						Number(event?.microphone?.sampleRate) || 48_000;
@@ -356,7 +360,7 @@ export const createCombinedAudioCaptureController = ({
 							? event.message
 							: "Combined audio capture failed.",
 					);
-					clearTimeout(cleanupTimeout);
+					clearTimeout(session.cleanupTimeout);
 					session.cleanupTimeout = null;
 					clearCaptureHealthTimeout(session);
 					rejectStart(nextError);
@@ -456,66 +460,148 @@ export const createCombinedAudioCaptureController = ({
 
 				emitMicrophoneCaptureEvent(event);
 				emitSystemAudioCaptureEvent(event);
-			});
+			};
 
-			child.on("error", (error) => {
-				clearTimeout(cleanupTimeout);
-				session.cleanupTimeout = null;
-				clearCaptureHealthTimeout(session);
-				audioDebugRecorder.stop();
-				if (activeSession === session) {
-					activeSession = null;
-				}
-				logError({
-					error,
-					message: "[combined-audio] helper process error",
-				});
-				rejectStart(error);
-			});
-
-			child.on("exit", (code, signal) => {
-				clearTimeout(cleanupTimeout);
-				session.cleanupTimeout = null;
-				clearCaptureHealthTimeout(session);
-				audioDebugRecorder.stop();
-				if (activeSession === session) {
-					activeSession = null;
-				}
-
-				logInfo({
-					message: "[combined-audio] helper exited",
-					details: {
-						code,
-						signal,
-						didResolve,
-						isStopping: session.isStopping,
-					},
-				});
-
-				if (!session.isStopping && !didResolve) {
-					rejectStart(
-						new Error(
-							`Combined audio capture exited before it became ready (code ${code ?? "null"}, signal ${signal ?? "null"}).`,
-						),
-					);
+			const spawnHelper = ({ reason }) => {
+				if (activeSession !== session || session.isStopping) {
 					return;
 				}
 
-				if (!session.isStopping) {
-					emitMicrophoneCaptureEvent({
-						type: "stopped",
-						code,
-						reason: combinedAudioInterruptionReason,
-						signal,
+				logInfo({
+					message: "[combined-audio] starting macOS helper",
+					details: {
+						helperPath,
+						reason,
+						restartAttempts: session.restartAttempts,
+					},
+				});
+
+				const child = spawnImpl(helperPath, [], {
+					stdio: ["ignore", "pipe", "pipe"],
+				});
+				const lineReader = createInterface({
+					input: child.stdout,
+					crlfDelay: Infinity,
+				});
+
+				session.process = child;
+				session.lineReader = lineReader;
+				session.cleanupTimeout = setTimeout(() => {
+					if (requestId !== startRequestId) {
+						logInfo({
+							message: "[combined-audio] cleared stale helper startup timeout",
+							details: {
+								requestId,
+								currentRequestId: startRequestId,
+							},
+						});
+						return;
+					}
+
+					const timeoutError = new Error(
+						"Timed out while starting macOS combined audio capture.",
+					);
+					logError({
+						event: "combined_audio.helper_startup_timeout",
+						message: "[combined-audio] helper startup timed out after 5000ms",
+						restartAttempts: session.restartAttempts,
+						startup_timeout_ms: 5_000,
 					});
-					emitSystemAudioCaptureEvent({
-						type: "stopped",
-						code,
-						reason: combinedAudioInterruptionReason,
-						signal,
+					if (!didResolve) {
+						rejectStart(timeoutError);
+					}
+					child.kill("SIGKILL");
+				}, 5_000);
+
+				child.stderr.setEncoding("utf8");
+				child.stderr.on("data", (chunk) => {
+					const message = String(chunk).trim();
+					if (message) {
+						logNativeAudioHelperStderr({
+							label: "combined-audio-helper",
+							message,
+						});
+					}
+				});
+
+				lineReader.on("line", handleLine);
+
+				child.on("error", (error) => {
+					clearTimeout(session.cleanupTimeout);
+					session.cleanupTimeout = null;
+					clearCaptureHealthTimeout(session);
+					logError({
+						error,
+						message: "[combined-audio] helper process error",
 					});
-				}
-			});
+					if (!didResolve) {
+						rejectStart(error);
+						return;
+					}
+					child.kill("SIGKILL");
+				});
+
+				child.on("exit", (code, signal) => {
+					clearTimeout(session.cleanupTimeout);
+					session.cleanupTimeout = null;
+					clearCaptureHealthTimeout(session);
+					lineReader.close();
+					logInfo({
+						message: "[combined-audio] helper exited",
+						details: {
+							code,
+							signal,
+							didResolve,
+							isStopping: session.isStopping,
+						},
+					});
+
+					if (!session.isStopping && !didResolve) {
+						if (activeSession === session) {
+							activeSession = null;
+						}
+						rejectStart(
+							new Error(
+								`Combined audio capture exited before it became ready (code ${code ?? "null"}, signal ${signal ?? "null"}).`,
+							),
+						);
+						return;
+					}
+
+					if (!session.isStopping) {
+						if (session.restartAttempts < maxHelperRestartAttempts) {
+							session.restartAttempts += 1;
+							logError({
+								error: {
+									code,
+									restartAttempts: session.restartAttempts,
+									signal,
+								},
+								message:
+									"[combined-audio] helper exited unexpectedly; restarting",
+							});
+							scheduleRestartCounterReset();
+							spawnHelper({ reason: "restart" });
+							return;
+						}
+
+						logError({
+							error: {
+								code,
+								maxHelperRestartAttempts,
+								signal,
+							},
+							message: "[combined-audio] helper restart limit reached",
+						});
+						emitFinalInterruption({
+							code,
+							signal,
+						});
+					}
+				});
+			};
+
+			spawnHelper({ reason: "start" });
 		});
 	};
 
