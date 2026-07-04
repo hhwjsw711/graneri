@@ -75,6 +75,7 @@ import {
 	WandSparkles,
 } from "lucide-react";
 import * as React from "react";
+// Composer focus and optimistic message paths need committed DOM before the next imperative line.
 // react-doctor-disable-next-line react-doctor/no-flush-sync
 import { createPortal, flushSync } from "react-dom";
 import { toast } from "sonner";
@@ -369,6 +370,7 @@ const useNoteComposerController = ({
 		setRightSidebarWidthOverride,
 	} = useSidebarRight();
 	const { rightInsetPanelWidth } = useDockedPanelWidths();
+	// Note id is route/context input for storage and query scopes, not event-handler work.
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const noteId = (noteContext.noteId as Id<"notes"> | null) ?? null;
 	const noteStorageScopeKey = getNoteStorageScopeKey(noteId);
@@ -498,6 +500,7 @@ const useNoteComposerController = ({
 	const shouldFocusInlineChatRef = React.useRef(false);
 	const shouldIgnoreNextOutsidePointerDownRef = React.useRef(false);
 	const suppressRecipePickerUntilUserActionRef = React.useRef(false);
+	// Panel mode is local UI state mirrored through refs for external editor handlers.
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const panelMode = panelModeState;
 	const presentationMode = presentationModeState;
@@ -821,6 +824,7 @@ const useNoteComposerController = ({
 		resumeStream,
 		addToolOutput,
 	} = useChat({
+		// useChat owns the transient chat session keyed by current note-chat id.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		id: currentChatId,
 		experimental_throttle: CHAT_STREAM_UI_THROTTLE_MS,
@@ -836,10 +840,9 @@ const useNoteComposerController = ({
 	);
 	const isAiRequestPending =
 		chatStatus === "submitted" || chatStatus === "streaming";
-	const isChatRequestPending =
-		isAiRequestPending ||
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		isPreparingRequest;
+	// Request pending state combines AI SDK status with local async submit preparation.
+	// react-doctor-disable-next-line react-doctor/no-event-handler
+	const isChatRequestPending = isAiRequestPending || isPreparingRequest;
 	const hasLocallyCompletedAssistantMessage =
 		!isAiRequestPending &&
 		Boolean(
@@ -986,7 +989,8 @@ const useNoteComposerController = ({
 		if (previousChatIdRef.current !== currentChatId) {
 			previousChatIdRef.current = currentChatId;
 			appliedInitialMessagesSeedKeyRef.current = initialMessagesSeedKey;
-			// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
+			// useChat owns transient UI messages; note-chat changes must reseed it.
+			// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
 			setMessages(visibleInitialMessages);
 			return;
 		}
@@ -995,7 +999,8 @@ const useNoteComposerController = ({
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
+		// useChat owns transient UI messages; persisted note-chat messages must reseed it after loads.
+		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
 		setMessages((currentMessages) => {
 			const currentMessagesSeedKey = getUIMessageSeedKey(currentMessages);
 			const nextInitialMessages = activeAssistantMessageId
@@ -1057,13 +1062,11 @@ const useNoteComposerController = ({
 	);
 
 	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setInlinePanelHeight((currentHeight) =>
 			clampInlinePanelHeight(currentHeight),
 		);
 	}, [clampInlinePanelHeight]);
 	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setFloatingPanelHeight((currentHeight) =>
 			clampFloatingPanelHeight(currentHeight),
 		);
@@ -1086,6 +1089,7 @@ const useNoteComposerController = ({
 	}, [clampFloatingPanelHeight, clampInlinePanelHeight]);
 
 	React.useEffect(() => {
+		// Inline panel height restores from note-scoped localStorage and viewport bounds.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setInlinePanelHeight(
 			clampInlinePanelHeight(
@@ -1107,6 +1111,7 @@ const useNoteComposerController = ({
 		);
 	}, [inlinePanelHeight, inlinePopoverHeightStorageKey]);
 	React.useEffect(() => {
+		// Floating panel height restores from note-scoped localStorage and viewport bounds.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setFloatingPanelHeight(
 			clampFloatingPanelHeight(
@@ -1273,9 +1278,7 @@ const useNoteComposerController = ({
 		[setRightSidebarWidthMobileOverride],
 	);
 	const isPersistedChatStreaming = Boolean(displayActiveRun);
-	const isChatUiPending =
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		isChatRequestPending || isPersistedChatStreaming;
+	const isChatUiPending = isChatRequestPending || isPersistedChatStreaming;
 	const canStop = isChatRequestPending || isPersistedChatStreaming;
 	const localMessageIds = React.useMemo(
 		() =>
@@ -1526,11 +1529,9 @@ const useNoteComposerController = ({
 		previousNoteIdRef.current = noteId;
 
 		if (canStop) {
-			// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 			handleStop();
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent
 		resetComposerForNoteChange();
 	}, [canStop, handleStop, noteId, resetComposerForNoteChange]);
 
@@ -1539,7 +1540,6 @@ const useNoteComposerController = ({
 			selectedRecipeSlug &&
 			!recipes.some((recipe) => recipe.slug === selectedRecipeSlug)
 		) {
-			// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
 			setSelectedRecipeSlug(null);
 		}
 	}, [recipes, selectedRecipeSlug, setSelectedRecipeSlug]);
@@ -1558,7 +1558,6 @@ const useNoteComposerController = ({
 
 		if (!isCurrentNoteSpeechListening && previousSpeechListeningRef.current) {
 			closeRightSidebar();
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-derived-state
 			setPanelMode(null);
 		}
 
@@ -1571,7 +1570,6 @@ const useNoteComposerController = ({
 		}
 
 		if (!isRightSidebarOpen && panelMode === "chat") {
-			// react-doctor-disable-next-line react-doctor/no-derived-state
 			setPanelMode(null);
 		}
 	}, [isRightSidebarOpen, panelMode, presentationMode, setPanelMode]);
@@ -1662,7 +1660,6 @@ const useNoteComposerController = ({
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		closeComposerPopovers();
 	}, [closeComposerPopovers, panelMode, presentationMode]);
 
@@ -1860,7 +1857,6 @@ const useNoteComposerController = ({
 				metadata: recipeMetadata,
 				onOptimisticMessage: (message) => {
 					optimisticMessageId = message.id;
-					// react-doctor-disable-next-line react-doctor/no-flush-sync
 					flushSync(() => {
 						setEditingMessageId(null);
 						clearDraft();
@@ -3205,8 +3201,10 @@ function ChatInlinePopoverFooter({
 		}
 
 		previousComposerPlaceholderRef.current = composerPlaceholder;
+		// Placeholder updates are ProseMirror transaction metadata, not React-derived state.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		composerEditor.view.dispatch(
+			// Placeholder updates are ProseMirror transaction metadata, not React-derived state.
 			// react-doctor-disable-next-line react-doctor/no-derived-state
 			composerEditor.state.tr.setMeta("addToHistory", false),
 		);
@@ -3216,9 +3214,13 @@ function ChatInlinePopoverFooter({
 			return;
 		}
 
+		// Tiptap keeps note-chat text in ProseMirror state; render cannot derive this snapshot.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		const currentText = composerEditor.getText({ blockSeparator: "\n" });
+		// Recipe mentions are embedded in ProseMirror JSON, outside React render state.
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		const currentRecipeSlug = getRecipeSlugFromComposerContent(
+			// Recipe mentions are embedded in ProseMirror JSON, outside React render state.
 			// react-doctor-disable-next-line react-doctor/no-derived-state
 			composerEditor.getJSON(),
 		);
@@ -3233,6 +3235,7 @@ function ChatInlinePopoverFooter({
 			return;
 		}
 
+		// External message changes must be pushed through Tiptap's imperative content command.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		composerEditor.commands.setContent(
 			getComposerContentFromMessage(message, selectedRecipe),
@@ -3868,7 +3871,6 @@ function TranscriptPanelHeader({
 		typeof globalThis.setTimeout
 	> | null>(null);
 
-	// react-doctor-disable-next-line react-doctor/exhaustive-deps
 	React.useEffect(() => {
 		return () => {
 			if (transcriptCopiedTimeoutRef.current !== null) {

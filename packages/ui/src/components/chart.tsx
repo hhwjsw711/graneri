@@ -1,6 +1,7 @@
 import { cn } from "@workspace/ui/lib/utils";
 import * as React from "react";
 import type { TooltipValueType } from "recharts";
+// This package exports chart primitives; callers decide whether to lazy-load chart surfaces.
 // react-doctor-disable-next-line react-doctor/prefer-dynamic-import
 import * as RechartsPrimitive from "recharts";
 

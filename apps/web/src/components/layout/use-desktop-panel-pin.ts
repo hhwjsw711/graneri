@@ -24,22 +24,27 @@ export function useDesktopPanelPin({
 	defaultPinned?: boolean;
 	onPinnedChange?: (isPinned: boolean) => void;
 }) {
-	const [isPinned, setIsPinned] = React.useState(() =>
-		readStoredPinState(storageKey, defaultPinned),
-	);
-
-	// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-derived-state-effect
-	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-derived-state-effect
-		setIsPinned(readStoredPinState(storageKey, defaultPinned));
-	}, [defaultPinned, storageKey]);
+	const [pinState, setPinState] = React.useState(() => ({
+		defaultPinned,
+		isPinned: readStoredPinState(storageKey, defaultPinned),
+		storageKey,
+	}));
+	const isPinned =
+		pinState.storageKey === storageKey &&
+		pinState.defaultPinned === defaultPinned
+			? pinState.isPinned
+			: readStoredPinState(storageKey, defaultPinned);
 
 	const commitPinned = React.useCallback(
 		(nextPinned: boolean) => {
-			setIsPinned(nextPinned);
+			setPinState({
+				defaultPinned,
+				isPinned: nextPinned,
+				storageKey,
+			});
 			onPinnedChange?.(nextPinned);
 		},
-		[onPinnedChange],
+		[defaultPinned, onPinnedChange, storageKey],
 	);
 
 	React.useEffect(() => {
@@ -55,12 +60,8 @@ export function useDesktopPanelPin({
 	}, [isPinned, storageKey]);
 
 	const togglePinned = React.useCallback(() => {
-		setIsPinned((currentValue) => {
-			const nextPinned = !currentValue;
-			onPinnedChange?.(nextPinned);
-			return nextPinned;
-		});
-	}, [onPinnedChange]);
+		commitPinned(!isPinned);
+	}, [commitPinned, isPinned]);
 
 	return {
 		isPinned,

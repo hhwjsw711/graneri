@@ -76,6 +76,7 @@ export const useQueuedChatDrain = ({
 	const pendingDiscardClaimedMessageIdRef =
 		React.useRef<Id<"assistantQueuedMessages"> | null>(null);
 	const retryTimerRef = React.useRef<number | null>(null);
+	const isMountedRef = React.useRef(true);
 	const [retryNonce, setRetryNonce] = React.useState(0);
 
 	React.useEffect(() => {
@@ -99,6 +100,7 @@ export const useQueuedChatDrain = ({
 
 	React.useEffect(
 		() => () => {
+			isMountedRef.current = false;
 			if (retryTimerRef.current !== null) {
 				window.clearTimeout(retryTimerRef.current);
 			}
@@ -107,12 +109,15 @@ export const useQueuedChatDrain = ({
 	);
 
 	const scheduleRetry = React.useCallback(() => {
-		if (retryTimerRef.current !== null) {
+		if (!isMountedRef.current || retryTimerRef.current !== null) {
 			return;
 		}
 
 		retryTimerRef.current = window.setTimeout(() => {
 			retryTimerRef.current = null;
+			if (!isMountedRef.current) {
+				return;
+			}
 			setRetryNonce((current) => current + 1);
 		}, QUEUED_FOLLOW_UP_DRAIN_RETRY_MS);
 	}, []);
@@ -137,6 +142,7 @@ export const useQueuedChatDrain = ({
 		) {
 			return;
 		}
+		// Queue draining is driven by external run/queue state, not a local UI event.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		const resolvedWorkspaceId = workspaceId;
 		if (!resolvedWorkspaceId) {
@@ -148,20 +154,23 @@ export const useQueuedChatDrain = ({
 			try {
 				const drainResult = await drainQueuedChatMessage({
 					workspaceId: resolvedWorkspaceId,
+					// The queued drain must target the active chat from hook props.
 					// react-doctor-disable-next-line react-doctor/no-event-handler
 					chatId,
-					// react-doctor-disable-next-line react-doctor/no-event-handler
 					claimQueuedMessage,
 					discardClaimedMessage,
+					// Local message ids come from the live chat state used to de-dupe drains.
 					// react-doctor-disable-next-line react-doctor/no-event-handler
 					hasMessageId: (messageId) => localMessageIds.has(messageId),
 					pendingDiscardClaimedMessageId:
 						pendingDiscardClaimedMessageIdRef.current,
 					queuedMessageCount,
 					resolveConvexToken: getCachedConvexToken,
+					// Sending is the imperative AI SDK handoff for the claimed queued message.
 					// react-doctor-disable-next-line react-doctor/no-event-handler
 					sendMessage,
 					setLatestRequestBody: (body) => {
+						// Latest request body is stored for the next queued drain handoff.
 						// react-doctor-disable-next-line react-doctor/no-event-handler
 						latestRequestBodyRef.current = body;
 					},

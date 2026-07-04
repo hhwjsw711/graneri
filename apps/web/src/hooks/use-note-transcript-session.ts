@@ -60,8 +60,11 @@ export const useNoteTranscriptSession = ({
 	const [activeTranscriptSessionId, setActiveTranscriptSessionId] =
 		React.useState<Id<"transcriptSessions"> | null>(null);
 	const [isGeneratingNotes, setIsGeneratingNotes] = React.useState(false);
-	const [generatedTranscriptSessionId, setGeneratedTranscriptSessionId] =
-		React.useState<Id<"transcriptSessions"> | null>(null);
+	const [generatedTranscriptSession, setGeneratedTranscriptSession] =
+		React.useState<{
+			draftKey: string;
+			sessionId: Id<"transcriptSessions">;
+		} | null>(null);
 	const [pendingAutoStartKey, setPendingAutoStartKey] = React.useState<
 		string | null
 	>(null);
@@ -113,12 +116,18 @@ export const useNoteTranscriptSession = ({
 		setCaptureScopeKey,
 		transcriptionSession,
 	} = useNoteTranscriptScope({
+		// Transcript scope follows the active note route/context.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		noteId,
+		// Stored history loading is an input to transcript scope hydration.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		shouldLoadStoredTranscriptHistory,
 	});
 	const previousTranscriptDraftKeyRef = React.useRef(captureTranscriptDraftKey);
+	const generatedTranscriptSessionId =
+		generatedTranscriptSession?.draftKey === captureTranscriptDraftKey
+			? generatedTranscriptSession.sessionId
+			: null;
 	const systemAudioStatus = isScopedTranscriptionSession
 		? transcriptionSession.systemAudioStatus
 		: createSystemAudioCaptureStatus();
@@ -230,13 +239,23 @@ export const useNoteTranscriptSession = ({
 	const visibleHasPendingGenerateTranscript = isViewingCaptureScope
 		? hasPendingGenerateTranscript || hasLocalCaptureTranscript
 		: Boolean(currentNoteStoredTranscript.trim());
+	const queuedAutoStartKey =
+		autoStartTranscription &&
+		noteId &&
+		autoStartTranscriptionRequestId &&
+		transcriptionLanguage !== undefined
+			? `${noteId}:capture:${autoStartTranscriptionRequestId}`
+			: null;
+	const currentPendingAutoStartKey =
+		pendingAutoStartKey === queuedAutoStartKey ? pendingAutoStartKey : null;
 
 	React.useEffect(() => {
 		if (isSpeechListening) {
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
+		// Capture scope follows route state only when no live recording owns the scope.
+		// react-doctor-disable-next-line react-doctor/no-pass-data-to-parent
 		setCaptureScopeKey((currentScopeKey) =>
 			currentScopeKey === resolvedCaptureScopeKey
 				? currentScopeKey
@@ -245,59 +264,47 @@ export const useNoteTranscriptSession = ({
 	}, [isSpeechListening, resolvedCaptureScopeKey, setCaptureScopeKey]);
 
 	React.useEffect(() => {
-		if (
-			!autoStartTranscription ||
-			!noteId ||
-			!autoStartTranscriptionRequestId ||
-			transcriptionLanguage === undefined
-		) {
+		if (!queuedAutoStartKey) {
 			lastQueuedAutoStartKeyRef.current = null;
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-			setPendingAutoStartKey(null);
 			return;
 		}
 
-		const nextAutoStartKey = `${noteId}:capture:${autoStartTranscriptionRequestId}`;
-
-		if (lastQueuedAutoStartKeyRef.current === nextAutoStartKey) {
+		if (lastQueuedAutoStartKeyRef.current === queuedAutoStartKey) {
 			return;
 		}
 
-		lastQueuedAutoStartKeyRef.current = nextAutoStartKey;
+		lastQueuedAutoStartKeyRef.current = queuedAutoStartKey;
 		transcriptionAutoStopState.queueMeetingAutoStart({
 			enabled: stopTranscriptionWhenMeetingEnds === true && isDesktopRuntime(),
 		});
+		// Auto-start is a one-shot route request latch, not render-derived state.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
-		setPendingAutoStartKey(nextAutoStartKey);
+		setPendingAutoStartKey(queuedAutoStartKey);
 	}, [
-		autoStartTranscription,
-		autoStartTranscriptionRequestId,
-		noteId,
+		queuedAutoStartKey,
 		stopTranscriptionWhenMeetingEnds,
 		transcriptionAutoStopState,
-		transcriptionLanguage,
 	]);
 
 	React.useEffect(() => {
-		if (!pendingAutoStartKey) {
+		if (!currentPendingAutoStartKey) {
 			return;
 		}
 
 		const timeoutId = window.setTimeout(() => {
 			setPendingAutoStartKey((currentValue) =>
-				currentValue === pendingAutoStartKey ? null : currentValue,
+				currentValue === currentPendingAutoStartKey ? null : currentValue,
 			);
 		}, 0);
 
 		return () => {
 			window.clearTimeout(timeoutId);
 		};
-	}, [pendingAutoStartKey]);
+	}, [currentPendingAutoStartKey]);
 
 	React.useEffect(() => {
 		// Latch meeting-controlled auto-stop for the active capture even after
 		// the route/query state is cleaned up post-start.
-		// react-doctor-disable-next-line react-doctor/no-event-handler
 		transcriptionAutoStopState.latchMeetingAutoStop({
 			enabled: stopTranscriptionWhenMeetingEnds === true && isDesktopRuntime(),
 		});
@@ -571,9 +578,6 @@ export const useNoteTranscriptSession = ({
 		}
 
 		previousTranscriptDraftKeyRef.current = captureTranscriptDraftKey;
-		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
-		setGeneratedTranscriptSessionId(null);
-		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 		resetTranscriptSessionState();
 	}, [
 		captureTranscriptDraftKey,
@@ -586,7 +590,6 @@ export const useNoteTranscriptSession = ({
 		hasRestoredTranscriptDraftRef.current = false;
 		hasLoadedTranscriptDraftContentRef.current = false;
 		loadedTranscriptDraftUpdatedAtRef.current = null;
-		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-derived-state
 		setIsTranscriptDraftReady(false);
 		void captureTranscriptSessionRepository
 			.loadDraft(captureTranscriptDraftKey)
@@ -648,7 +651,6 @@ export const useNoteTranscriptSession = ({
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		hydrateStoredTranscriptSession({
 			generatedSessionId: generatedTranscriptSessionId,
 			latestServerTranscript,
@@ -704,12 +706,10 @@ export const useNoteTranscriptSession = ({
 
 	React.useEffect(() => {
 		if (isSpeechListening && !previousSpeechListeningRef.current) {
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 			markSpeechListeningStarted();
 		}
 
 		if (!isSpeechListening && previousSpeechListeningRef.current) {
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 			const completedSessionId = markSpeechListeningStopped();
 
 			if (completedSessionId) {
@@ -861,7 +861,10 @@ export const useNoteTranscriptSession = ({
 						sessionId: targetSessionId,
 					});
 					if (isViewingCaptureScope) {
-						setGeneratedTranscriptSessionId(targetSessionId);
+						setGeneratedTranscriptSession({
+							draftKey: captureTranscriptDraftKey,
+							sessionId: targetSessionId,
+						});
 						lastCompletedTranscriptSessionIdRef.current = targetSessionId;
 					}
 				}
@@ -949,7 +952,7 @@ export const useNoteTranscriptSession = ({
 
 	return {
 		activeTranscriptSessionId,
-		autoStartKey: pendingAutoStartKey,
+		autoStartKey: currentPendingAutoStartKey,
 		captureScopeKey,
 		currentNoteScopeKey: resolvedCaptureScopeKey,
 		exportTranscript: visibleExportTranscript,

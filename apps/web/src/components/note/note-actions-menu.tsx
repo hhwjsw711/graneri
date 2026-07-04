@@ -425,23 +425,15 @@ function useNoteActionsMenu({
 		}
 	}, [activeWorkspaceId, isRenaming, note, noteId, renameNote, renameValue]);
 
-	React.useEffect(() => {
-		if (renameOpen) {
-			return;
-		}
-
-		// react-doctor-disable-next-line react-doctor/no-derived-state
-		setRenameValue(note?.title ?? "");
-	}, [note?.title, renameOpen]);
-
-	React.useEffect(() => {
-		if (!renameOpen) {
-			return;
-		}
-
-		// react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
-		onRenamePreviewChange?.(renameValue);
-	}, [onRenamePreviewChange, renameOpen, renameValue]);
+	const handleRenameValueChange = React.useCallback(
+		(value: string) => {
+			setRenameValue(value);
+			if (renameOpen) {
+				onRenamePreviewChange?.(value);
+			}
+		},
+		[onRenamePreviewChange, renameOpen],
+	);
 
 	const handleRenameOpenChange = React.useCallback(
 		(open: boolean) => {
@@ -608,7 +600,7 @@ function useNoteActionsMenu({
 		setVersionHistoryOpen,
 		renameOpen,
 		renameValue,
-		setRenameValue,
+		handleRenameValueChange,
 		renameInputRef,
 		isMovingToTrash,
 		isRenaming,
@@ -661,7 +653,7 @@ export function NoteActionsMenu({
 		setVersionHistoryOpen,
 		renameOpen,
 		renameValue,
-		setRenameValue,
+		handleRenameValueChange,
 		renameInputRef,
 		isMovingToTrash,
 		isRenaming,
@@ -737,7 +729,7 @@ export function NoteActionsMenu({
 			renamePopoverClassName={renamePopoverClassName}
 			renameInputRef={renameInputRef}
 			renameValue={renameValue}
-			onRenameValueChange={setRenameValue}
+			onRenameValueChange={handleRenameValueChange}
 			onRename={() => {
 				void handleRename();
 			}}
@@ -938,14 +930,12 @@ function NoteProjectMoveSubmenu({
 	const [searchValue, setSearchValue] = React.useState("");
 	const searchInputRef = React.useRef<HTMLInputElement>(null);
 
-	React.useEffect(() => {
-		if (open) {
-			return;
+	const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+		setOpen(nextOpen);
+		if (!nextOpen) {
+			setSearchValue("");
 		}
-
-		// react-doctor-disable-next-line react-doctor/no-chain-state-updates
-		setSearchValue("");
-	}, [open]);
+	}, []);
 
 	React.useEffect(() => {
 		if (!open) {
@@ -958,7 +948,7 @@ function NoteProjectMoveSubmenu({
 	}, [open]);
 
 	return (
-		<DropdownMenuSub open={open} onOpenChange={setOpen}>
+		<DropdownMenuSub open={open} onOpenChange={handleOpenChange}>
 			<DropdownMenuSubTrigger disabled={!note}>
 				<CornerUpRight />
 				Move to
@@ -985,7 +975,7 @@ function NoteProjectMoveSubmenu({
 									className="relative w-full cursor-pointer gap-2 py-1.5 pr-8"
 									disabled={!note || isUpdatingProject}
 									onSelect={() => {
-										setOpen(false);
+										handleOpenChange(false);
 										void onSetProject(null);
 									}}
 								>
@@ -1010,7 +1000,7 @@ function NoteProjectMoveSubmenu({
 											className="relative w-full cursor-pointer gap-2 py-1.5 pr-8"
 											disabled={!note || isUpdatingProject}
 											onSelect={() => {
-												setOpen(false);
+												handleOpenChange(false);
 												void onSetProject(project._id);
 											}}
 										>

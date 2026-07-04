@@ -826,6 +826,7 @@ function AutomationPromptEditor({
 			return;
 		}
 
+		// Picker coordinates come from the live Tiptap DOM range, so render cannot derive them safely.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setPosition(
 			getMentionPickerPosition({
@@ -972,11 +973,13 @@ function AutomationPromptEditor({
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
+		// Tiptap keeps content in ProseMirror state; this reads an external editor snapshot.
+		// react-doctor-disable-next-line react-doctor/no-derived-state
 		const currentText = editor.getText({ blockSeparator: "\n" });
 		if (
 			currentText === prompt &&
-			// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
+			// Tiptap mention nodes live in editor JSON, not React render state.
+			// react-doctor-disable-next-line react-doctor/no-derived-state
 			getPromptMentionsFromContent(editor.getJSON()).length === mentions.length
 		) {
 			return;
@@ -986,6 +989,7 @@ function AutomationPromptEditor({
 			return;
 		}
 
+		// Prop changes must be applied through Tiptap's imperative editor command.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		editor.commands.setContent(getPromptDocument(prompt, mentions), {
 			emitUpdate: false,
@@ -1068,6 +1072,7 @@ function handleAutomationMentionPickerKeyDown({
 	return true;
 }
 
+// Private portal tied to the composer suggestion refs; extracting it would not create a reusable API.
 // react-doctor-disable-next-line react-doctor/no-multi-comp
 function AutomationMentionPicker({
 	open,
@@ -1257,6 +1262,7 @@ function AutomationMentionPicker({
 	);
 }
 
+// Private picker slot for this composer; its props are the composer state boundary.
 // react-doctor-disable-next-line react-doctor/no-multi-comp
 function AppSourcesPicker({
 	open,
@@ -1322,6 +1328,7 @@ function AppSourcesPicker({
 	);
 }
 
+// Private scheduling slot for this dialog; it shares the dialog's schedule state directly.
 // react-doctor-disable-next-line react-doctor/no-multi-comp
 function SchedulePicker({
 	open,

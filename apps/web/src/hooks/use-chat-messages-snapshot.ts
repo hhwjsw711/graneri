@@ -223,18 +223,15 @@ export const useChatMessagesSnapshot = ({
 		}
 	}, [chatId, convex, enabled, setSnapshotState, workspaceId]);
 
-	// react-doctor-disable-next-line react-doctor/no-derived-state
 	React.useEffect(() => {
 		requestIdRef.current += 1;
 
 		if (!enabled || !chatId || !workspaceId) {
-			// react-doctor-disable-next-line react-doctor/no-derived-state
 			setSnapshotState({ isFetching: false, messages: [] });
 			lastRequestedCacheKeyRef.current = null;
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setSnapshotState({
 			isFetching: false,
 			messages: getCachedChatMessagesSnapshot({
@@ -245,7 +242,6 @@ export const useChatMessagesSnapshot = ({
 		lastRequestedCacheKeyRef.current = null;
 	}, [chatId, enabled, setSnapshotState, workspaceId]);
 
-	// react-doctor-disable-next-line react-doctor/no-derived-state
 	React.useEffect(() => {
 		if (
 			!activeCacheKey ||

@@ -1,5 +1,6 @@
 import type { DesktopLocalFolder } from "@workspace/platform/desktop-bridge";
 import type { UIMessage } from "ai";
+// Queued confirmation submits need the optimistic message committed before request continuation.
 // react-doctor-disable-next-line react-doctor/no-flush-sync
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
@@ -86,7 +87,6 @@ export const submitAutomationConfirmationChatTurn = async <
 			enqueueQueuedMessage,
 			onOptimisticMessage: (message) => {
 				optimisticMessageId = message.id;
-				// react-doctor-disable-next-line react-doctor/no-flush-sync
 				flushSync(() => {
 					setLocalOptimisticMessages((currentState) => ({
 						chatId,

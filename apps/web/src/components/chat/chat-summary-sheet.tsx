@@ -534,7 +534,6 @@ function ChatSummaryPanel({
 		}
 
 		handledOpenSourceRequestIdRef.current = openSourceRequest.requestId;
-		// react-doctor-disable-next-line react-doctor/no-derived-state, react-doctor/no-pass-data-to-parent
 		openWorkspaceSource(openSourceRequest.sourceId);
 	}, [openSourceRequest, openWorkspaceSource]);
 	return (

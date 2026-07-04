@@ -345,6 +345,7 @@ export class TranscriptionController {
 	};
 
 	start = async () => {
+		// A new start must wait for the pending stop before observing or creating start work.
 		// react-doctor-disable-next-line react-doctor/async-defer-await
 		await this.pendingStopPromise;
 
@@ -574,6 +575,7 @@ export class TranscriptionController {
 				return false;
 			}
 
+			// Speaker connection must settle before this operation can safely continue or bail.
 			// react-doctor-disable-next-line react-doctor/async-defer-await
 			await this.connectSpeaker({
 				logger,
@@ -613,6 +615,7 @@ export class TranscriptionController {
 
 			return true;
 		} catch (error) {
+			// Acquired streams must always be disposed before stale operations return.
 			// react-doctor-disable-next-line react-doctor/async-defer-await
 			await Promise.allSettled(
 				pendingStreams.map((entry) => disposePendingInputStream(entry)),
@@ -981,6 +984,7 @@ export class TranscriptionController {
 			!this.activePolicy?.systemAudioCapability.shouldAutoBootstrap;
 
 		const operationId = ++this.lifecycleOperationId;
+		// Session cleanup must run before planned/unplanned recovery branches inspect state.
 		// react-doctor-disable-next-line react-doctor/async-defer-await
 		await this.cleanupSession({
 			operationId,

@@ -362,6 +362,7 @@ function useResizableSidePanel({
 		const defaultWidth = isMobile ? window.innerWidth : defaultDesktopWidth;
 		const nextWidth = Number.isFinite(parsedWidth) ? parsedWidth : defaultWidth;
 
+		// Panel width restores from localStorage and viewport bounds, which are external browser state.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setPanelWidth(clampPanelWidth(nextWidth, nextBounds));
 	}, [
@@ -377,7 +378,6 @@ function useResizableSidePanel({
 	]);
 
 	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setPanelWidth((currentWidth) => clampPanelWidth(currentWidth, bounds));
 	}, [bounds]);
 

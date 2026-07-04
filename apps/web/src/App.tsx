@@ -75,11 +75,30 @@ const DESKTOP_PERMISSION_BUTTON_LABELS: Record<DesktopPermissionId, string> = {
 	systemAudio: "Enable",
 };
 
+const readAuthErrorFromLocation = () => {
+	if (typeof window === "undefined") {
+		return null;
+	}
+
+	const url = new URL(window.location.href);
+	const authErrorParam = url.searchParams.get("authError");
+	if (!authErrorParam) {
+		return null;
+	}
+
+	const authErrorDescription = url.searchParams.get("authErrorDescription");
+	return authErrorDescription
+		? `${authErrorParam}: ${authErrorDescription}`
+		: authErrorParam.replaceAll("_", " ");
+};
+
 const useAppBootstrapState = () => {
 	const { data: session, isPending: isSessionPending } =
 		authClient.useSession();
 	const { isAuthenticated: isConvexAuthenticated } = useConvexAuth();
-	const [authError, setAuthError] = React.useState<string | null>(null);
+	const [authError, setAuthError] = React.useState<string | null>(
+		readAuthErrorFromLocation,
+	);
 	const [authenticatingProvider, setAuthenticatingProvider] =
 		React.useState<SocialAuthProvider | null>(null);
 	const [isCreatingWorkspace, startWorkspaceCreation] = React.useTransition();
@@ -208,18 +227,10 @@ const useAppBootstrapState = () => {
 		}
 
 		const url = new URL(window.location.href);
-		const authErrorParam = url.searchParams.get("authError");
-		if (!authErrorParam) {
+		if (!url.searchParams.has("authError")) {
 			return;
 		}
 
-		const authErrorDescription = url.searchParams.get("authErrorDescription");
-		const message = authErrorDescription
-			? `${authErrorParam}: ${authErrorDescription}`
-			: authErrorParam.replaceAll("_", " ");
-
-		// react-doctor-disable-next-line react-doctor/no-initialize-state
-		setAuthError(message);
 		url.searchParams.delete("authError");
 		url.searchParams.delete("authErrorDescription");
 		window.history.replaceState({}, "", url);
@@ -234,8 +245,6 @@ const useAppBootstrapState = () => {
 			setSharedNoteShareId(getSharedNoteShareId(window.location.pathname));
 		};
 
-		// react-doctor-disable-next-line react-doctor/no-initialize-state
-		syncSharedNoteRoute();
 		window.addEventListener("popstate", syncSharedNoteRoute);
 
 		return () => {
@@ -363,7 +372,6 @@ const useAppBootstrapState = () => {
 
 	React.useEffect(() => {
 		if (!shouldLoadDesktopPermissions) {
-			// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 			resetDesktopPermissionsState();
 			return;
 		}

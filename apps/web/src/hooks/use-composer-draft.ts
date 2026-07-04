@@ -58,11 +58,11 @@ export const useComposerDraft = <TMetadata>(
 		[scopeKey],
 	);
 
-	// react-doctor-disable-next-line react-doctor/no-derived-state
 	React.useEffect(() => {
 		cancelPendingPersist();
 		const nextDraft = readComposerDraft<TMetadata>(scopeKey);
 		draftRef.current = nextDraft;
+		// Draft state hydrates from scope-keyed localStorage when the active composer changes.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setDraftState(nextDraft);
 	}, [cancelPendingPersist, scopeKey]);
@@ -127,7 +127,6 @@ export const useComposerDraft = <TMetadata>(
 		}
 	}, [cancelPendingPersist, scopeKey]);
 
-	// react-doctor-disable-next-line react-doctor/exhaustive-deps
 	React.useEffect(() => {
 		return () => {
 			if (persistTimeoutRef.current === null || !scopeKey) {

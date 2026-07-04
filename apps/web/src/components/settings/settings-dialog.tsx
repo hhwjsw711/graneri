@@ -843,7 +843,15 @@ function VisibleCalendarsSection({
 				<Label className={SETTINGS_LABEL_CLASSNAME}>Display</Label>
 				<div className="space-y-4">
 					{calendars.map((calendar) => (
-						<CalendarVisibilityRow key={calendar.id} {...calendar} />
+						<CalendarVisibilityRow
+							key={calendar.id}
+							id={calendar.id}
+							icon={calendar.icon}
+							name={calendar.name}
+							checked={calendar.checked}
+							disabled={calendar.disabled}
+							onCheckedChange={calendar.onCheckedChange}
+						/>
 					))}
 				</div>
 			</Field>
@@ -2443,6 +2451,7 @@ function useConnectionsSettingsController() {
 				throw new Error("Google auth URL was not returned.");
 			}
 
+			// Tool capability must be enabled before handing the user to the browser auth flow.
 			// react-doctor-disable-next-line react-doctor/async-defer-await
 			await enableGoogleToolForWorkspace();
 
@@ -2860,7 +2869,17 @@ function ToolConnectionsSection({
 							</Label>
 							<div className="space-y-3">
 								{groupConnections.map((connection) => (
-									<ToolConnectionRow key={connection.name} {...connection} />
+									<ToolConnectionRow
+										key={connection.name}
+										group={connection.group}
+										icon={connection.icon}
+										name={connection.name}
+										buttonLabel={connection.buttonLabel}
+										buttonVariant={connection.buttonVariant}
+										buttonDisabled={connection.buttonDisabled}
+										buttonIcon={connection.buttonIcon}
+										onButtonClick={connection.onButtonClick}
+									/>
 								))}
 							</div>
 						</div>
@@ -3056,6 +3075,7 @@ function YandexTrackerDialog({
 	);
 }
 
+// Private settings dialog with independent connection state flags; variants would obscure the form state.
 // react-doctor-disable-next-line react-doctor/no-many-boolean-props
 function JiraDialog({
 	open,

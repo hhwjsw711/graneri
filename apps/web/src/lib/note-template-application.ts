@@ -136,6 +136,7 @@ export const requestTemplateStructuredNote = async ({
 
 	let isDone = false;
 	while (!isDone) {
+		// ReadableStream chunks must be consumed sequentially; parallel reads would corrupt ordering.
 		// react-doctor-disable-next-line react-doctor/async-await-in-loop
 		const { done, value } = await reader.read();
 		isDone = done;

@@ -187,6 +187,26 @@ const getDelayUntilNextMinute = (now: Date) => {
 	return nextMinute.getTime() - now.getTime();
 };
 
+const resolveActiveWorkspaceId = ({
+	activeWorkspaceId,
+	workspaces,
+}: {
+	activeWorkspaceId: Id<"workspaces"> | null;
+	workspaces: Doc<"workspaces">[];
+}) => {
+	if (activeWorkspaceId) {
+		const activeWorkspaceExists = workspaces.some(
+			(workspace) => workspace._id === activeWorkspaceId,
+		);
+
+		if (activeWorkspaceExists) {
+			return activeWorkspaceId;
+		}
+	}
+
+	return workspaces[0]?._id ?? null;
+};
+
 const useCurrentDate = () => {
 	const [currentDate, setCurrentDate] = React.useState(() => new Date());
 
@@ -199,8 +219,6 @@ const useCurrentDate = () => {
 			setCurrentDate(now);
 		};
 
-		// react-doctor-disable-next-line react-doctor/no-initialize-state
-		updateCurrentDate();
 		timeoutId = window.setTimeout(() => {
 			updateCurrentDate();
 			intervalId = window.setInterval(updateCurrentDate, 60 * 1000);
@@ -267,19 +285,15 @@ const useAppShellState = ({
 	);
 	const [isSigningOut, startSignOut] = React.useTransition();
 	const [activeWorkspaceId, setActiveWorkspaceId] =
-		// react-doctor-disable-next-line react-doctor/no-event-handler
 		React.useState<Id<"workspaces"> | null>(() => workspaces[0]?._id ?? null);
-	const resolvedActiveWorkspaceId = React.useMemo(() => {
-		if (
-			// react-doctor-disable-next-line react-doctor/no-event-handler
-			activeWorkspaceId &&
-			workspaces.some((workspace) => workspace._id === activeWorkspaceId)
-		) {
-			return activeWorkspaceId;
-		}
-
-		return workspaces[0]?._id ?? null;
-	}, [activeWorkspaceId, workspaces]);
+	const resolvedActiveWorkspaceId = resolveActiveWorkspaceId({
+		// Workspace resolution is pure render derivation; no event handler owns these query inputs.
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		activeWorkspaceId,
+		// Workspace resolution is pure render derivation; no event handler owns these query inputs.
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		workspaces,
+	});
 	const [currentChatId, setCurrentChatId] = React.useState<string | null>(
 		() => {
 			if (typeof window === "undefined") {
@@ -361,7 +375,11 @@ const useAppShellState = ({
 			return getAppLocationState(new URL(window.location.href))
 				.pendingCalendarEvent;
 		});
-	const [currentNoteTitle, setCurrentNoteTitle] = React.useState("");
+	const [currentNoteTitleOverride, setCurrentNoteTitleOverride] =
+		React.useState<{
+			noteId: Id<"notes"> | null;
+			title: string;
+		} | null>(null);
 	const [currentNoteEditorActions, setCurrentNoteEditorActions] =
 		React.useState<NoteEditorActions | null>(null);
 	const [currentNoteCommentsOpener, setCurrentNoteCommentsOpener] =
@@ -394,6 +412,7 @@ const useAppShellState = ({
 			events: [],
 		});
 	const upcomingCalendarRequestIdRef = React.useRef(0);
+	// Calendar loading is driven by auth and account state, not by a local event handler.
 	// react-doctor-disable-next-line react-doctor/no-event-handler
 	const upcomingCalendarLoadKey = session?.user?.email
 		? `${isConvexAuthenticated ? "authenticated" : "unauthenticated"}:${session.user.email}`
@@ -554,10 +573,13 @@ const useAppShellState = ({
 		currentNoteId === null &&
 		normalizedRouteNoteId === undefined;
 	const hasInvalidCurrentNoteRoute =
+		// Route validity is render-time URL/query derivation; navigation is synchronized elsewhere.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		currentView === "note" &&
+		// Route validity is render-time URL/query derivation; navigation is synchronized elsewhere.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		currentRouteNoteId !== null &&
+		// Route validity is render-time URL/query derivation; navigation is synchronized elsewhere.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		currentNoteId === null &&
 		normalizedRouteNoteId === null;
@@ -579,6 +601,21 @@ const useAppShellState = ({
 			: "skip",
 	);
 	const resolvedSelectedNote = selectedNote ?? listedSelectedNote;
+	const currentNoteTitle =
+		currentView === "note"
+			? currentNoteTitleOverride?.noteId === resolvedCurrentNoteId
+				? currentNoteTitleOverride.title
+				: (resolvedSelectedNote?.title ?? "")
+			: "";
+	const setCurrentNoteTitle = React.useCallback(
+		(title: string) => {
+			setCurrentNoteTitleOverride({
+				noteId: resolvedCurrentNoteId,
+				title,
+			});
+		},
+		[resolvedCurrentNoteId],
+	);
 	const isResolvingCurrentNote =
 		isResolvingCurrentNoteRouteId ||
 		(currentView === "note" &&
@@ -591,6 +628,7 @@ const useAppShellState = ({
 	const currentChatRoute = resolveCollectionRoute({
 		currentView,
 		expectedView: "chat",
+		// Route resolution is pure render derivation from URL state, not delayed event work.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		id: currentChatId,
 		items: chats,
@@ -604,6 +642,7 @@ const useAppShellState = ({
 	const selectedProjectRoute = resolveCollectionRoute({
 		currentView,
 		expectedView: "project",
+		// Route resolution is pure render derivation from URL state, not delayed event work.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		id: currentProjectIdString,
 		items: projects,
@@ -657,7 +696,6 @@ const useAppShellState = ({
 			}
 
 			try {
-				// react-doctor-disable-next-line react-doctor/async-defer-await
 				const result = await listUpcomingGoogleEvents({
 					workspaceId: resolvedActiveWorkspaceId,
 					...getDayWindowFromDayKey(dayKey),
@@ -763,15 +801,6 @@ const useAppShellState = ({
 		upcomingCalendarLoadKey,
 		yandexCalendarConnectionKey,
 	]);
-
-	React.useEffect(() => {
-		if (workspaces.some((workspace) => workspace._id === activeWorkspaceId)) {
-			return;
-		}
-
-		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
-		setActiveWorkspaceId(workspaces[0]?._id ?? null);
-	}, [activeWorkspaceId, workspaces]);
 
 	const handleWorkspaceCreate = React.useCallback(
 		async (input: { name: string }) => {
@@ -881,19 +910,6 @@ const useAppShellState = ({
 			window.dispatchEvent(new PopStateEvent("popstate"));
 		});
 	}, []);
-
-	React.useEffect(() => {
-		if (resolvedSelectedNote) {
-			// react-doctor-disable-next-line react-doctor/no-derived-state
-			setCurrentNoteTitle(resolvedSelectedNote.title);
-			return;
-		}
-
-		if (resolvedCurrentView === "note") {
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates
-			setCurrentNoteTitle("");
-		}
-	}, [resolvedCurrentView, resolvedSelectedNote]);
 
 	React.useEffect(() => {
 		void getDesktopMeta()
@@ -1261,7 +1277,10 @@ const useAppShellState = ({
 
 			void createNotePromise
 				.then((noteId) => {
-					setCurrentNoteTitle(calendarEvent?.title.trim() || "");
+					setCurrentNoteTitleOverride({
+						noteId,
+						title: calendarEvent?.title.trim() || "",
+					});
 					openNote(noteId, {
 						autoStartCapture: shouldStartCapture,
 						captureRequestId,
@@ -1329,7 +1348,10 @@ const useAppShellState = ({
 					content: nextContent,
 					searchableText: nextContent,
 				});
-				setCurrentNoteTitle(nextTitle);
+				setCurrentNoteTitleOverride({
+					noteId,
+					title: nextTitle,
+				});
 				openNote(noteId);
 				return "created" as const;
 			} catch (error) {
@@ -1369,7 +1391,6 @@ const useAppShellState = ({
 			!resolvedCurrentNoteId &&
 			currentRouteNoteId === null
 		) {
-			// react-doctor-disable-next-line react-doctor/no-derived-state
 			handleCreateNote({
 				autoStartCapture: shouldAutoStartNoteCapture,
 				calendarEvent: pendingCalendarEvent,
@@ -1402,13 +1423,11 @@ const useAppShellState = ({
 		const scheduledAt = new Date(scheduledAutoStartNoteCaptureAt).getTime();
 
 		if (Number.isNaN(scheduledAt)) {
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			clearScheduledAutoStart();
 			return;
 		}
 
 		if (scheduledAt <= Date.now()) {
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
 			triggerScheduledAutoStart();
 			return;
 		}
@@ -1557,7 +1576,7 @@ const useAppShellState = ({
 
 			setCurrentNoteId(null);
 			setCurrentRouteNoteId(null);
-			setCurrentNoteTitle("");
+			setCurrentNoteTitleOverride(null);
 			setCurrentNoteEditorActions(null);
 			setCurrentNoteCommentsOpener(null);
 			handleViewChange("home");
@@ -1859,16 +1878,6 @@ function AppShellHeader({
 	const renameItemLabel = currentView === "chat" ? "chat" : "note";
 	const titleEditPlaceholder = currentView === "chat" ? "New chat" : "New note";
 
-	React.useEffect(() => {
-		if (titleEditOpen) {
-			return;
-		}
-
-		breadcrumbRenameSavedTitleRef.current = currentEditableTitle;
-		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
-		setTitleValue(currentEditableTitle);
-	}, [currentEditableTitle, titleEditOpen]);
-
 	const commitBreadcrumbRename = React.useCallback(async () => {
 		if (!activeWorkspaceId || !canRenameCurrentItem || isRenamingTitle) {
 			return;
@@ -1939,6 +1948,7 @@ function AppShellHeader({
 			if (open) {
 				breadcrumbRenameInitialTitleRef.current = currentEditableTitle;
 				breadcrumbRenameSavedTitleRef.current = currentEditableTitle;
+				setTitleValue(currentEditableTitle);
 				setTitleEditOpen(true);
 				return;
 			}
@@ -1951,6 +1961,7 @@ function AppShellHeader({
 	const openBreadcrumbTitleEditor = React.useCallback(() => {
 		breadcrumbRenameInitialTitleRef.current = currentEditableTitle;
 		breadcrumbRenameSavedTitleRef.current = currentEditableTitle;
+		setTitleValue(currentEditableTitle);
 		setTitleEditOpen(true);
 	}, [currentEditableTitle]);
 

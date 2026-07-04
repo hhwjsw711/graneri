@@ -30,6 +30,11 @@ type TranscriptSessionSnapshot = {
 };
 
 type TranscriptSessionSummary = Omit<TranscriptSessionSnapshot, "utterances">;
+type LatestTranscriptSessionState = {
+	isFetching: boolean;
+	noteId: Id<"notes"> | null;
+	value: TranscriptSessionSnapshot | null | undefined;
+};
 
 export type TranscriptSessionRepository = ReturnType<
 	typeof useTranscriptSessionRepository
@@ -82,14 +87,23 @@ export const useTranscriptSessionRepository = (
 				}
 			: "skip",
 	);
-	const [latestTranscriptSession, setLatestTranscriptSession] = React.useState<
-		TranscriptSessionSnapshot | null | undefined
-	>(noteId ? undefined : null);
-	const [
-		isFetchingLatestTranscriptSession,
-		setIsFetchingLatestTranscriptSession,
-	] = React.useState(false);
+	const [latestTranscriptSessionState, setLatestTranscriptSessionState] =
+		React.useState<LatestTranscriptSessionState>(() => ({
+			isFetching: false,
+			noteId,
+			value: noteId ? undefined : null,
+		}));
 	const latestTranscriptSessionRequestIdRef = React.useRef(0);
+	const latestTranscriptSession =
+		latestTranscriptSessionState.noteId === noteId
+			? latestTranscriptSessionState.value
+			: noteId
+				? undefined
+				: null;
+	const isFetchingLatestTranscriptSession =
+		latestTranscriptSessionState.noteId === noteId
+			? latestTranscriptSessionState.isFetching
+			: false;
 	const isLatestTranscriptSessionLoading = Boolean(
 		noteId &&
 			(isFetchingLatestTranscriptSession ||
@@ -127,12 +141,19 @@ export const useTranscriptSessionRepository = (
 		latestTranscriptSessionRequestIdRef.current = requestId;
 
 		if (!noteId) {
-			setIsFetchingLatestTranscriptSession(false);
-			setLatestTranscriptSession(null);
+			setLatestTranscriptSessionState({
+				isFetching: false,
+				noteId: null,
+				value: null,
+			});
 			return null;
 		}
 
-		setIsFetchingLatestTranscriptSession(true);
+		setLatestTranscriptSessionState((currentState) => ({
+			isFetching: true,
+			noteId,
+			value: currentState.noteId === noteId ? currentState.value : undefined,
+		}));
 
 		try {
 			const result = await convex.query(
@@ -162,30 +183,28 @@ export const useTranscriptSessionRepository = (
 
 			if (latestTranscriptSessionRequestIdRef.current === requestId) {
 				React.startTransition(() => {
-					setLatestTranscriptSession(nextValue);
-					setIsFetchingLatestTranscriptSession(false);
+					setLatestTranscriptSessionState({
+						isFetching: false,
+						noteId,
+						value: nextValue,
+					});
 				});
 			}
 
 			return nextValue;
 		} catch (error) {
 			if (latestTranscriptSessionRequestIdRef.current === requestId) {
-				setIsFetchingLatestTranscriptSession(false);
+				setLatestTranscriptSessionState((currentState) => ({
+					isFetching: false,
+					noteId,
+					value:
+						currentState.noteId === noteId ? currentState.value : undefined,
+				}));
 			}
 			throw error;
 		}
 	}, [convex, noteId]);
 
-	// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-derived-state
-	React.useEffect(() => {
-		latestTranscriptSessionRequestIdRef.current += 1;
-		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-		setIsFetchingLatestTranscriptSession(false);
-		// react-doctor-disable-next-line react-doctor/no-derived-state
-		setLatestTranscriptSession(noteId ? undefined : null);
-	}, [noteId]);
-
-	// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
 	React.useEffect(() => {
 		if (
 			!shouldAutoLoadLatestTranscriptSession ||
@@ -196,8 +215,13 @@ export const useTranscriptSessionRepository = (
 		}
 
 		if (latestTranscriptSessionSummary === null) {
-			// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
-			setLatestTranscriptSession(null);
+			// The latest-session cache mirrors Convex query state for this note scope.
+			// react-doctor-disable-next-line react-doctor/no-chain-state-updates react-doctor/no-derived-state
+			setLatestTranscriptSessionState({
+				isFetching: false,
+				noteId,
+				value: null,
+			});
 			return;
 		}
 

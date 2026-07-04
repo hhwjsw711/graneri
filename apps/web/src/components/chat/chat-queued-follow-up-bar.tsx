@@ -133,7 +133,6 @@ export function ChatQueuedFollowUpBar({
 			<SortableContext items={ids} strategy={verticalListSortingStrategy}>
 				<div
 					className="mx-auto w-[calc(100%-1rem)] max-w-[548px] overflow-hidden rounded-t-lg rounded-b-none bg-transparent text-sm"
-					// react-doctor-disable-next-line react-doctor/prefer-tag-over-role
 					role="listbox"
 					aria-label="Queued follow-ups"
 				>
@@ -222,7 +221,6 @@ function SortableQueuedFollowUpRow({
 				isDragging ? "relative z-10 bg-muted/60 opacity-90" : null,
 			)}
 			tabIndex={sortableTabIndex}
-			// react-doctor-disable-next-line react-doctor/prefer-tag-over-role
 			role="option"
 			aria-selected="false"
 			onKeyDown={handleKeyDown}

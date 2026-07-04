@@ -101,7 +101,7 @@ const reduceSearchFiltersState = (
 	patch: Partial<SearchFiltersState>,
 ) => ({ ...state, ...patch });
 
-function useSearchCommandFilters({ open }: { open: boolean }) {
+function useSearchCommandFilters() {
 	const [state, setState] = React.useReducer(
 		reduceSearchFiltersState,
 		INITIAL_SEARCH_FILTERS_STATE,
@@ -115,13 +115,6 @@ function useSearchCommandFilters({ open }: { open: boolean }) {
 		datePopoverOpen,
 	} = state;
 
-	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		if (!open) {
-			setState(INITIAL_SEARCH_FILTERS_STATE);
-		}
-	}, [open]);
-
 	const hideFilters = React.useCallback(() => {
 		setState({
 			filtersVisible: false,
@@ -131,6 +124,9 @@ function useSearchCommandFilters({ open }: { open: boolean }) {
 			dateRange: undefined,
 			datePopoverOpen: false,
 		});
+	}, []);
+	const resetFilters = React.useCallback(() => {
+		setState(INITIAL_SEARCH_FILTERS_STATE);
 	}, []);
 
 	return {
@@ -142,6 +138,7 @@ function useSearchCommandFilters({ open }: { open: boolean }) {
 		datePopoverOpen,
 		setState,
 		hideFilters,
+		resetFilters,
 	};
 }
 
@@ -362,13 +359,22 @@ export function SearchCommand({
 	showKeyboardHintsFooter = false,
 	keyboardHintsSearchKind = searchKind,
 }: SearchCommandProps) {
-	const filters = useSearchCommandFilters({ open });
+	const filters = useSearchCommandFilters();
+	const handleOpenChange = React.useCallback(
+		(nextOpen: boolean) => {
+			if (!nextOpen) {
+				filters.resetFilters();
+			}
+			onOpenChange(nextOpen);
+		},
+		[filters.resetFilters, onOpenChange],
+	);
 
 	if (workspaceId) {
 		return (
 			<SearchCommandWithServerSearch
 				open={open}
-				onOpenChange={onOpenChange}
+				onOpenChange={handleOpenChange}
 				items={items}
 				onSelectItem={onSelectItem}
 				workspaceId={workspaceId}
@@ -388,7 +394,7 @@ export function SearchCommand({
 	return (
 		<SearchCommandView
 			open={open}
-			onOpenChange={onOpenChange}
+			onOpenChange={handleOpenChange}
 			items={items}
 			onSelectItem={onSelectItem}
 			searchPlaceholder={searchPlaceholder}

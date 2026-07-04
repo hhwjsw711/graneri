@@ -633,11 +633,11 @@ const InboxPanel = React.memo(function InboxPanel({
 			return;
 		}
 
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setOptimisticRemovedItemIds((current) => {
 			const next = new Set(current);
 			for (const item of items) {
 				const itemId = String(item._id);
+				// The list owns optimistic item state; archive-read requests arrive from the header command.
 				// react-doctor-disable-next-line react-doctor/no-event-handler
 				const isRead = item.isRead || optimisticReadItemIds.has(itemId);
 				if (isRead) {
@@ -698,6 +698,7 @@ const InboxPanel = React.memo(function InboxPanel({
 		url: string;
 		isRead: boolean;
 	}) => {
+		// Opening any inbox item should mark it read before navigation or external handoff.
 		// react-doctor-disable-next-line react-doctor/async-defer-await
 		await handleMarkItemRead(item);
 

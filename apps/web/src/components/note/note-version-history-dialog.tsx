@@ -202,7 +202,10 @@ function NoteVersionHistoryDialogContent({
 	const [activeVersionId, setActiveVersionId] = React.useState<string | null>(
 		null,
 	);
-	const displayVersions = versions ?? (initialVersion ? [initialVersion] : []);
+	const displayVersions = React.useMemo(
+		() => versions ?? (initialVersion ? [initialVersion] : []),
+		[initialVersion, versions],
+	);
 	const isLoadingVersions = Boolean(
 		open && activeWorkspaceId && versions === undefined,
 	);
@@ -213,7 +216,6 @@ function NoteVersionHistoryDialogContent({
 				icon: History,
 				label: versionDateFormatter.format(new Date(version.createdAt)),
 			})),
-		// react-doctor-disable-next-line react-doctor/exhaustive-deps
 		[displayVersions],
 	);
 	const selectedVersion =
@@ -272,27 +274,6 @@ function NoteVersionHistoryDialogContent({
 		restoreVersion,
 		selectedVersion,
 	]);
-
-	React.useEffect(() => {
-		if (!open) {
-			// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-			setActiveVersionId(null);
-			return;
-		}
-
-		if (displayVersions.length === 0) {
-			return;
-		}
-
-		// react-doctor-disable-next-line react-doctor/no-derived-state
-		setActiveVersionId((currentVersionId) =>
-			currentVersionId &&
-			displayVersions.some((version) => version.id === currentVersionId)
-				? currentVersionId
-				: displayVersions[0].id,
-		);
-		// react-doctor-disable-next-line react-doctor/exhaustive-deps
-	}, [displayVersions, open]);
 
 	return (
 		<VersionHistoryDialogShell

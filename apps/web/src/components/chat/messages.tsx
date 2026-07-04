@@ -53,7 +53,6 @@ export type ChatMessagesProps = {
 	streamingMessageIds?: ReadonlySet<string>;
 };
 
-// react-doctor-disable-next-line deslop/unused-export
 export default function ChatMessages({
 	messages,
 	error,

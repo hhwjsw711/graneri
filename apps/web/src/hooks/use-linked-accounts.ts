@@ -7,8 +7,13 @@ import { logError } from "@/lib/logger";
 const linkedAccountsCache = new Map<string, LinkedAccount[]>();
 
 type LinkedAccountsState =
-	| { accounts: LinkedAccount[]; status: "idle" }
-	| { accounts: LinkedAccount[]; requestId: number; status: "loading" };
+	| { accounts: LinkedAccount[]; cacheKey: string | null; status: "idle" }
+	| {
+			accounts: LinkedAccount[];
+			cacheKey: string | null;
+			requestId: number;
+			status: "loading";
+	  };
 
 export const useLinkedAccounts = (
 	sessionUser: { email?: string | null } | null | undefined,
@@ -16,31 +21,36 @@ export const useLinkedAccounts = (
 	const cacheKey = sessionUser?.email ?? null;
 	const [state, setState] = useState<LinkedAccountsState>(() => ({
 		accounts: cacheKey ? (linkedAccountsCache.get(cacheKey) ?? []) : [],
+		cacheKey,
 		status: "idle",
 	}));
 	const requestIdRef = useRef(0);
-
-	// react-doctor-disable-next-line react-doctor/no-derived-state
-	useEffect(() => {
-		requestIdRef.current += 1;
-		// react-doctor-disable-next-line react-doctor/no-derived-state
-		setState({
-			accounts: cacheKey ? (linkedAccountsCache.get(cacheKey) ?? []) : [],
-			status: "idle",
-		});
-	}, [cacheKey]);
+	const visibleState =
+		state.cacheKey === cacheKey
+			? state
+			: {
+					accounts: cacheKey ? (linkedAccountsCache.get(cacheKey) ?? []) : [],
+					cacheKey,
+					status: "idle" as const,
+				};
 
 	const loadAccounts = useCallback(async () => {
 		const requestId = requestIdRef.current + 1;
 		requestIdRef.current = requestId;
 
 		if (!sessionUser) {
-			setState({ accounts: [], status: "idle" });
+			setState({ accounts: [], cacheKey: null, status: "idle" });
 			return;
 		}
 
 		setState((current) => ({
-			accounts: current.accounts,
+			accounts:
+				current.cacheKey === cacheKey
+					? current.accounts
+					: cacheKey
+						? (linkedAccountsCache.get(cacheKey) ?? [])
+						: [],
+			cacheKey,
 			requestId,
 			status: "loading",
 		}));
@@ -67,7 +77,7 @@ export const useLinkedAccounts = (
 			}
 			setState((current) =>
 				current.status === "loading" && current.requestId === requestId
-					? { accounts: nextAccounts, status: "idle" }
+					? { accounts: nextAccounts, cacheKey, status: "idle" }
 					: current,
 			);
 		} catch (error) {
@@ -77,7 +87,7 @@ export const useLinkedAccounts = (
 
 			setState((current) =>
 				current.status === "loading" && current.requestId === requestId
-					? { accounts: current.accounts, status: "idle" }
+					? { accounts: current.accounts, cacheKey, status: "idle" }
 					: current,
 			);
 			logError({
@@ -103,8 +113,8 @@ export const useLinkedAccounts = (
 	}, [loadAccounts]);
 
 	return {
-		accounts: state.accounts,
-		isLoadingAccounts: state.status === "loading",
+		accounts: visibleState.accounts,
+		isLoadingAccounts: visibleState.status === "loading",
 		loadAccounts,
 	};
 };

@@ -196,12 +196,14 @@ function CalendarDayButton({
 	...props
 }: React.ComponentProps<typeof DayButton> & { locale?: Partial<Locale> }) {
 	const defaultClassNames = getDefaultClassNames();
-
-	const ref = React.useRef<HTMLButtonElement>(null);
-	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		if (modifiers.focused) ref.current?.focus();
-	}, [modifiers.focused]);
+	const ref = React.useCallback(
+		(node: HTMLButtonElement | null) => {
+			if (modifiers.focused) {
+				node?.focus();
+			}
+		},
+		[modifiers.focused],
+	);
 
 	return (
 		<Button

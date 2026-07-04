@@ -1361,7 +1361,6 @@ function useNoteCommentsSheetController({
 		Set<string>
 	>(() => new Set());
 	const [visibleThreadOrder, setVisibleThreadOrder] = React.useState<string[]>(
-		// react-doctor-disable-next-line react-doctor/no-event-handler
 		() => collectVisibleThreadOrder(editor),
 	);
 	const lastAnchorSyncKeyRef = React.useRef<string>("");
@@ -1432,6 +1431,7 @@ function useNoteCommentsSheetController({
 
 	const threads = useQuery(
 		api.noteComments.listThreads,
+		// Thread query input follows note/workspace props; no event handler owns route changes.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		workspaceId && noteId
 			? {
@@ -1459,16 +1459,34 @@ function useNoteCommentsSheetController({
 	const deleteComment = useMutation(api.noteComments.deleteComment);
 	const toggleMuteReplies = useMutation(api.noteComments.toggleMuteReplies);
 	const deleteThread = useMutation(api.noteComments.deleteThread);
-	const visibleThreadIdSet = React.useMemo(
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		() => new Set(visibleThreadOrder),
-		[visibleThreadOrder],
-	);
+
+	React.useEffect(() => {
+		if (!threads || optimisticReadThreadIds.size === 0) {
+			return;
+		}
+
+		// Server thread updates confirm optimistic read state; this reconciles external query data.
+		// react-doctor-disable-next-line react-doctor/no-chain-state-updates
+		setOptimisticReadThreadIds((current) => {
+			let changed = false;
+			const next = new Set(current);
+
+			for (const thread of threads) {
+				if (!thread.isRead && next.delete(String(thread._id))) {
+					changed = true;
+				}
+			}
+
+			return changed ? next : current;
+		});
+	}, [optimisticReadThreadIds.size, threads]);
+
 	const visibleThreads = React.useMemo(() => {
 		if (!threads) {
 			return threads;
 		}
 
+		const visibleThreadIdSet = new Set(visibleThreadOrder);
 		const orderedThreads = threads.filter((thread) =>
 			visibleThreadIdSet.has(String(thread._id)),
 		);
@@ -1481,7 +1499,12 @@ function useNoteCommentsSheetController({
 				(threadIndexById.get(String(left._id)) ?? Number.POSITIVE_INFINITY) -
 				(threadIndexById.get(String(right._id)) ?? Number.POSITIVE_INFINITY),
 		);
-	}, [threads, visibleThreadIdSet, visibleThreadOrder]);
+	}, [
+		threads,
+		// Anchor order is synchronized from editor decorations, not from a local event.
+		// react-doctor-disable-next-line react-doctor/no-event-handler
+		visibleThreadOrder,
+	]);
 	const cachedExpandedThread = expandedThreadId
 		? prefetchedThreadDetails.get(String(expandedThreadId))
 		: undefined;
@@ -1564,6 +1587,7 @@ function useNoteCommentsSheetController({
 		}
 
 		lastAnchorSyncKeyRef.current = nextSyncKey;
+		// Comment anchor order is read from the live editor document after content changes.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setVisibleThreadOrder(collectVisibleThreadOrder(editor));
 	}, [editor, noteContent, noteId]);
@@ -1638,9 +1662,9 @@ function useNoteCommentsSheetController({
 	}, [pendingSelection]);
 
 	React.useEffect(() => {
+		// Pending selections are owned by the note page; closing the sheet must clear them.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		if (!open && pendingSelection) {
-			// react-doctor-disable-next-line react-doctor/no-event-handler
 			onPendingSelectionChange(null);
 		}
 	}, [open, onPendingSelectionChange, pendingSelection]);
@@ -1670,32 +1694,13 @@ function useNoteCommentsSheetController({
 	}, [collapseExpandedThread, expandedThreadId, visibleThreads]);
 
 	React.useEffect(() => {
-		if (!threads || optimisticReadThreadIds.size === 0) {
-			return;
-		}
-
-		// react-doctor-disable-next-line react-doctor/no-chain-state-updates, react-doctor/no-derived-state
-		setOptimisticReadThreadIds((current) => {
-			let changed = false;
-			const next = new Set(current);
-
-			for (const thread of threads) {
-				if (!thread.isRead && next.delete(String(thread._id))) {
-					changed = true;
-				}
-			}
-
-			return changed ? next : current;
-		});
-	}, [optimisticReadThreadIds.size, threads]);
-
-	React.useEffect(() => {
 		if (lastSyncedActiveThreadIdRef.current === activeThreadId) {
 			return;
 		}
 
 		lastSyncedActiveThreadIdRef.current = activeThreadId;
 
+		// Active thread is driven by editor selection and must synchronize the sheet state.
 		// react-doctor-disable-next-line react-doctor/no-event-handler
 		if (!activeThreadId) {
 			collapseExpandedThread();

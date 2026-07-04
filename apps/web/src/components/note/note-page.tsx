@@ -560,6 +560,7 @@ const useNotePageController = ({
 			return;
 		}
 
+		// Tiptap editability is imperative editor state controlled by template application.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		editor.setEditable(!templateApplyState.isRunning);
 	}, [editor, templateApplyState.isRunning]);
@@ -579,7 +580,6 @@ const useNotePageController = ({
 		void syncHydratedNoteState();
 	}, [syncHydratedNoteState]);
 
-	// react-doctor-disable-next-line react-doctor/exhaustive-deps
 	React.useEffect(() => {
 		return () => {
 			if (tableOfContentsAnimationFrameRef.current !== null) {
@@ -686,7 +686,6 @@ const useNotePageController = ({
 		}
 
 		const nextTitle = externalTitle;
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setTitle((currentTitle) => {
 			if (nextTitle === currentTitle) {
 				return currentTitle;
@@ -873,6 +872,7 @@ const useNotePageController = ({
 			});
 
 			try {
+				// Persist the chosen template even when enhanced rewriting is skipped or later fails.
 				// react-doctor-disable-next-line react-doctor/async-defer-await
 				await setNoteTemplate({
 					workspaceId: activeWorkspaceId,
@@ -1018,6 +1018,7 @@ const useNotePageController = ({
 		};
 
 		publishEditorActionsRef.current = publishEditorActions;
+		// The app shell needs the live editor action bridge for header commands.
 		// react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
 		publishEditorActions();
 		editor.on("update", publishEditorActions);
@@ -1298,6 +1299,7 @@ function useNotePageCommentPanel({
 			return;
 		}
 
+		// The app shell owns the comments button; the page must publish its current opener.
 		// react-doctor-disable-next-line react-doctor/no-pass-live-state-to-parent
 		onCommentsOpenChange?.(handleOpenComments);
 
@@ -1308,8 +1310,10 @@ function useNotePageCommentPanel({
 
 	React.useEffect(() => {
 		const nextCommentsPinned = readDesktopCommentsPanelPinnedState(noteId);
+		// Comments pinning restores from desktop storage and viewport state.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setCommentsPinned(nextCommentsPinned);
+		// Comments panel visibility restores from desktop storage and viewport state.
 		// react-doctor-disable-next-line react-doctor/no-derived-state
 		setCommentPanelState({
 			commentsOpen: !isMobile && nextCommentsPinned,
@@ -1347,7 +1351,6 @@ function useNotePageCommentPanel({
 	}, [syncCommentThreadSelectionFromLocation]);
 
 	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-derived-state
 		syncCommentThreadSelectionFromLocation();
 	}, [syncCommentThreadSelectionFromLocation]);
 
@@ -1648,7 +1651,7 @@ function NoteSearchBar({
 	onClose,
 	onKeyDown,
 }: {
-	inputRef: React.RefObject<HTMLInputElement | null>;
+	inputRef: React.MutableRefObject<HTMLInputElement | null>;
 	query: string;
 	onQueryChange: (query: string) => void;
 	matchCount: number;
@@ -1664,12 +1667,24 @@ function NoteSearchBar({
 			: matchCount > 0
 				? `${matchIndex + 1}/${matchCount}`
 				: "No results";
+	const handleInputRef = React.useCallback(
+		(node: HTMLInputElement | null) => {
+			inputRef.current = node;
+			if (node) {
+				requestAnimationFrame(() => {
+					node.focus();
+					node.select();
+				});
+			}
+		},
+		[inputRef],
+	);
 
 	return (
 		<div className="fixed top-20 right-4 left-4 z-50 mx-auto flex max-w-md items-center gap-1 rounded-lg border border-border/60 bg-background/95 p-1.5 shadow-lg backdrop-blur md:right-8 md:left-auto md:w-80">
 			<Search className="ml-1 size-4 shrink-0 text-muted-foreground" />
 			<Input
-				ref={inputRef}
+				ref={handleInputRef}
 				value={query}
 				onChange={(event) => onQueryChange(event.target.value)}
 				onKeyDown={onKeyDown}
@@ -1745,8 +1760,9 @@ function useNoteSearch(searchableText: string) {
 			query,
 		});
 	}, [searchableText, query, noteSearchRoot]);
-	const activeRange =
-		ranges.length > 0 ? ranges[Math.min(index, ranges.length - 1)] : null;
+	const activeRangeIndex =
+		ranges.length > 0 ? Math.min(index, ranges.length - 1) : 0;
+	const activeRange = ranges.length > 0 ? ranges[activeRangeIndex] : null;
 	const focusSearchInput = React.useCallback(() => {
 		requestAnimationFrame(() => {
 			inputRef.current?.focus();
@@ -1791,20 +1807,6 @@ function useNoteSearch(searchableText: string) {
 	);
 
 	React.useEffect(() => {
-		// react-doctor-disable-next-line react-doctor/no-event-handler
-		if (open) {
-			focusSearchInput();
-		}
-	}, [focusSearchInput, open]);
-	React.useEffect(() => {
-		if (index < ranges.length) {
-			return;
-		}
-
-		// react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change, react-doctor/no-chain-state-updates
-		setIndex(0);
-	}, [index, ranges.length]);
-	React.useEffect(() => {
 		if (!activeRange || !open) {
 			return;
 		}
@@ -1833,7 +1835,6 @@ function useNoteSearch(searchableText: string) {
 
 		ensureCssHighlightStyles();
 
-		const activeRangeIndex = Math.min(index, Math.max(0, ranges.length - 1));
 		const matchRanges = ranges.filter(
 			(_range, rangeIndex) => rangeIndex !== activeRangeIndex,
 		);
@@ -1854,7 +1855,7 @@ function useNoteSearch(searchableText: string) {
 			highlightRegistry.delete(NOTE_SEARCH_MATCH_HIGHLIGHT);
 			highlightRegistry.delete(NOTE_SEARCH_ACTIVE_MATCH_HIGHLIGHT);
 		};
-	}, [index, open, query, ranges]);
+	}, [activeRangeIndex, open, query, ranges]);
 	React.useEffect(() => {
 		if (!isDesktopRuntime()) {
 			return;
@@ -1889,7 +1890,7 @@ function useNoteSearch(searchableText: string) {
 		handleNext,
 		handlePrevious,
 		handleQueryChange,
-		index,
+		index: activeRangeIndex,
 		inputRef,
 		matchCount: ranges.length,
 		open,
